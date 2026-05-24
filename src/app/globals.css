@@ -1,0 +1,197 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "MesloLGS Nerd Font", "MesloLGSDZ Nerd Font", "JetBrains Mono", ui-monospace, monospace;
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Simple Harmonic custom tokens */
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-faint: var(--fg-faint);
+  --color-bg: var(--bg);
+  --color-bg-elev: var(--bg-elev);
+  --color-bg-input: var(--bg-input);
+  --color-border-strong: var(--border-strong);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-running: var(--running);
+  --color-paused: var(--paused);
+  --color-error: var(--error);
+}
+
+/* ---------------------------------------------------------------------------
+ * Theme tokens.
+ *
+ * Default (:root) is the LIGHT palette so users with JS disabled still get a
+ * readable page. The .dark class on <html> swaps to the dark palette. The
+ * theme provider in src/components/theme-provider.tsx adds/removes that class
+ * based on the user's preference (system / light / dark).
+ *
+ * The brand orange (#ea580c) and status colors are tuned per-theme for
+ * contrast against the respective background.
+ * ------------------------------------------------------------------------- */
+
+:root {
+  /* Simple Harmonic tokens — LIGHT */
+  --fg: #0a0a0a;
+  --fg-muted: #525252;
+  --fg-faint: #a3a3a3;
+  --bg: #ffffff;
+  --bg-elev: #f5f5f5;
+  --bg-input: #ffffff;
+  --border: #e5e5e5;
+  --border-strong: #d4d4d4;
+  --brand: #ea580c;
+  --brand-soft: #fff7ed;
+  --running: #16a34a;
+  --paused: #a3a3a3;
+  --error: #dc2626;
+
+  /* shadcn vars — LIGHT */
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --card: #f5f5f5;
+  --card-foreground: #0a0a0a;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  --primary: #ea580c;
+  --primary-foreground: #ffffff;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #0a0a0a;
+  --muted: #f5f5f5;
+  --muted-foreground: #525252;
+  --accent: #fff7ed;
+  --accent-foreground: #ea580c;
+  --destructive: #dc2626;
+  --input: #ffffff;
+  --ring: #ea580c;
+  --radius: 0.375rem;
+
+  --chart-1: #ea580c;
+  --chart-2: #16a34a;
+  --chart-3: #525252;
+  --chart-4: #a3a3a3;
+  --chart-5: #0a0a0a;
+
+  --sidebar: #f5f5f5;
+  --sidebar-foreground: #0a0a0a;
+  --sidebar-primary: #ea580c;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #fff7ed;
+  --sidebar-accent-foreground: #ea580c;
+  --sidebar-border: #e5e5e5;
+  --sidebar-ring: #ea580c;
+}
+
+.dark {
+  /* Simple Harmonic tokens — DARK */
+  --fg: #fafafa;
+  --fg-muted: #a3a3a3;
+  --fg-faint: #525252;
+  --bg: #0a0a0a;
+  --bg-elev: #171717;
+  --bg-input: #1f1f1f;
+  --border: #262626;
+  --border-strong: #404040;
+  --brand: #ea580c;
+  --brand-soft: #431407;
+  --running: #4ade80;
+  --paused: #525252;
+  --error: #f87171;
+
+  /* shadcn vars — DARK */
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --card: #171717;
+  --card-foreground: #fafafa;
+  --popover: #171717;
+  --popover-foreground: #fafafa;
+  --primary: #ea580c;
+  --primary-foreground: #ffffff;
+  --secondary: #1f1f1f;
+  --secondary-foreground: #fafafa;
+  --muted: #262626;
+  --muted-foreground: #a3a3a3;
+  --accent: #431407;
+  --accent-foreground: #ea580c;
+  --destructive: #f87171;
+  --input: #1f1f1f;
+  --ring: #ea580c;
+
+  --chart-1: #ea580c;
+  --chart-2: #4ade80;
+  --chart-3: #a3a3a3;
+  --chart-4: #525252;
+  --chart-5: #fafafa;
+
+  --sidebar: #171717;
+  --sidebar-foreground: #fafafa;
+  --sidebar-primary: #ea580c;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #431407;
+  --sidebar-accent-foreground: #ea580c;
+  --sidebar-border: #262626;
+  --sidebar-ring: #ea580c;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  strong, b {
+    font-weight: 600;
+  }
+}

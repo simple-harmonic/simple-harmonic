@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1779348855215,
+      "tag": "0000_romantic_rhodey",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779353199836,
+      "tag": "0001_absurd_famine",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779868800000,
+      "tag": "0002_replace_agent_messages_with_a2ax",
+      "breakpoints": true
+    }
+  ]
+}

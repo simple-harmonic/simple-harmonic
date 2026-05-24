@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simple Harmonic — v0.0 design mockup (dark/amber, chat onboarding)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { font-family: 'Inter', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+
+    /* ===== Meta-doc shell ===== */
+    .doc {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 48px 24px 120px;
+      background: #fff;
+      color: #0a0a0a;
+    }
+    .doc h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 8px; }
+    .doc h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; margin: 56px 0 4px; }
+    .doc h3 { font-size: 14px; font-weight: 500; margin: 28px 0 8px; color: #525252; text-transform: uppercase; letter-spacing: 0.05em; }
+    .doc p { font-size: 14px; line-height: 1.65; color: #525252; max-width: 72ch; }
+    .doc p + p { margin-top: 8px; }
+    .meta-info {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 12px;
+      color: #737373;
+      margin: 4px 0 32px;
+    }
+    .commentary {
+      background: #fffbeb;
+      border-left: 3px solid #ca8a04;
+      padding: 12px 16px;
+      font-size: 13px;
+      line-height: 1.55;
+      margin: 12px 0 16px;
+      color: #422006;
+      max-width: 72ch;
+    }
+    .commentary strong { color: #1c1917; font-weight: 600; }
+    .mockup-frame {
+      border: 1px solid #e5e5e5;
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 32px;
+    }
+    .mockup-label {
+      background: #fafafa;
+      border-bottom: 1px solid #e5e5e5;
+      padding: 8px 14px;
+      font-size: 11px;
+      color: #737373;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      display: flex;
+      justify-content: space-between;
+    }
+    .mockup-label .url { color: #0a0a0a; }
+    .mockup-label .tag { color: #525252; }
+
+    /* ===== Dark, amber accent (only direction now) ===== */
+    .dark {
+      --fg: #fafafa;
+      --fg-muted: #a3a3a3;
+      --fg-faint: #525252;
+      --bg: #0a0a0a;
+      --bg-elev: #171717;
+      --bg-input: #1f1f1f;
+      --border: #262626;
+      --border-strong: #404040;
+      --accent: #ea580c;
+      --accent-soft: #431407;
+      --running: #4ade80;
+      --paused: #525252;
+      --error: #f87171;
+      --user-msg: #1f1f1f;
+      --agent-msg: #0a0a0a;
+      background: var(--bg);
+      color: var(--fg);
+    }
+
+    .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+
+<div class="doc">
+
+  <h1>Simple Harmonic — v0.0 design mockup</h1>
+  <div class="meta-info">generated 2026-05-18 · /plan-design-review · dark/amber, bidirectional chat onboarding</div>
+
+  <p><strong>Brand architecture:</strong> <strong>Simple Harmonic</strong> is the v0.0 product (the meta-agent platform). <strong>Simple Harmonic</strong> is the parent company. Future products (Spring for cross-device comms, Resonance/Circuit for the marketplace) inherit the simple-harmonic-motion theme.</p>
+  <p style="margin-top: 12px;">Direction locked: dark theme, amber accent. Onboarding flow upgraded from single-textarea-paste to bidirectional chat with the meta-agent: brainstorming, follow-ups, pushback. The chat IS the product's first impression. The textarea version is dead.</p>
+  <p style="margin-top: 12px;"><strong>What you're reviewing:</strong> three states of the chat onboarding (initial, mid-brainstorm, approval moment), then the active team view, paused state, and error state. All dark/amber.</p>
+
+  <!-- =================================================================== -->
+  <!-- SECTION 1: ONBOARDING CHAT (3 states)                                 -->
+  <!-- =================================================================== -->
+
+  <h2>1. Onboarding chat — initial state</h2>
+  <p>First visit. No vision yet. The meta-agent greets and frames what comes next. Goal: feel like talking to a real ops person, not filling out an intake form.</p>
+
+  <div class="commentary">
+    <strong>Design intent.</strong> No big headline shouting "Welcome." Meta-agent introduces itself in the first message, in voice. The input field is anchored at the bottom (chat convention, expected affordance). Top bar has minimal product chrome plus a "new chat" affordance for power users. The chat surface is generous on width so messages breathe; not the 480px Intercom-style narrow column.
+  </div>
+  <div class="mockup-frame">
+    <div class="mockup-label"><span class="url">simpleharmonic.dev/new</span><span class="tag">chat / initial state</span></div>
+    <div class="dark" style="min-height: 720px; display: flex; flex-direction: column;">
+      <!-- Top bar -->
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--bg-elev);">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <span style="font-weight: 600; letter-spacing: -0.01em; font-size: 14px;">Simple Harmonic</span>
+          <span style="color: var(--fg-faint); font-size: 12px;" class="mono">/ new team</span>
+        </div>
+        <span style="font-size: 12px; color: var(--fg-faint);" class="mono">no agents yet · v0.0</span>
+      </div>
+      <!-- Chat area -->
+      <div style="flex: 1; padding: 64px 64px 24px; max-width: 920px; margin: 0 auto; width: 100%; display: flex; flex-direction: column;">
+        <!-- Meta-agent first message -->
+        <div style="margin-bottom: 32px;">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 600;" class="mono">M</span>
+            <span style="font-size: 13px; font-weight: 600; color: var(--accent);">meta-agent</span>
+            <span style="font-size: 11px; color: var(--fg-faint);" class="mono">ai cofounder · just now</span>
+          </div>
+          <div style="font-size: 16px; line-height: 1.6; color: var(--fg); max-width: 64ch;">
+            <p>Hi. I'm your AI cofounder. Before I spin up a team, I want to understand what you actually do day-to-day so the agents are useful, not generic.</p>
+            <p style="margin-top: 12px;">Walk me through your company. Three things: <strong>what you do</strong>, <strong>who pays you</strong> (or would), and <strong>what's currently eating your week</strong>. Start anywhere. I'll ask follow-ups.</p>
+          </div>
+        </div>
+      </div>
+      <!-- Input bar -->
+      <div style="padding: 16px 64px 24px; max-width: 920px; margin: 0 auto; width: 100%;">
+        <div style="background: var(--bg-input); border: 1px solid var(--border-strong); border-radius: 10px; padding: 4px;">
+          <textarea placeholder="Tell your AI cofounder about your company…" rows="2" style="width: 100%; padding: 12px 14px; background: transparent; border: none; resize: none; color: var(--fg); font-family: 'Inter', sans-serif; font-size: 15px; line-height: 1.5; outline: none;"></textarea>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px 6px;">
+            <span style="font-size: 11px; color: var(--fg-faint);" class="mono">⌘+enter to send · we'll brainstorm a few turns before spawning</span>
+            <button style="background: var(--accent); color: white; padding: 6px 12px; border: none; border-radius: 5px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: inherit;">
+              Send
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>2. Onboarding chat — mid-brainstorm (with pushback)</h2>
+  <p>User has answered the first prompt. Meta-agent asks a clarifying follow-up. User suggests something ambitious. Meta-agent pushes back with reasoning, not just agreement.</p>
+
+  <div class="commentary">
+    <strong>Design intent.</strong> User messages right-aligned, meta-agent messages left-aligned with the M-badge. Pushback is explicit: meta-agent disagrees in clear voice, with reasoning. This is the "AI cofounder" brand promise made visible — it's not a yes-machine. The thinking-indicator (small pulsing dot) signals when meta-agent is composing. Token-by-token streaming would make the demo feel alive.
+  </div>
+  <div class="mockup-frame">
+    <div class="mockup-label"><span class="url">simpleharmonic.dev/new</span><span class="tag">chat / mid-brainstorm with pushback</span></div>
+    <div class="dark" style="min-height: 720px; display: flex; flex-direction: column;">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--bg-elev);">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <span style="font-weight: 600; letter-spacing: -0.01em; font-size: 14px;">Simple Harmonic</span>
+          <span style="color: var(--fg-faint); font-size: 12px;" class="mono">/ new team · 4 messages</span>
+        </div>
+        <span style="font-size: 12px; color: var(--fg-faint);" class="mono">brainstorming</span>
+      </div>
+      <div style="flex: 1; padding: 32px 64px; max-width: 920px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 28px;">
+        <!-- M msg 1 -->
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 600;" class="mono">M</span>
+            <span style="font-size: 13px; font-weight: 600; color: var(--accent);">meta-agent</span>
+            <span style="font-size: 11px; color: var(--fg-faint);" class="mono">14:21:08</span>
+          </div>
+          <div style="font-size: 15px; line-height: 1.6; color: var(--fg); max-width: 64ch;">Hi. Walk me through what you do, who pays you, and what's eating your week.</div>
+        </div>
+        <!-- User msg 1 -->
+        <div style="display: flex; justify-content: flex-end;">
+          <div style="max-width: 60ch; background: var(--user-msg); border: 1px solid var(--border); padding: 12px 16px; border-radius: 8px; font-size: 15px; line-height: 1.6; color: var(--fg);">
+            I run a Notion template shop on Gumroad. Maybe 80 customers a month. Support questions about installation and customization eat the most time. I also try to post weekly on X but I'm always behind.
+          </div>
+        </div>
+        <!-- M msg 2 -->
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 600;" class="mono">M</span>
+            <span style="font-size: 13px; font-weight: 600; color: var(--accent);">meta-agent</span>
+            <span style="font-size: 11px; color: var(--fg-faint);" class="mono">14:21:42</span>
+          </div>
+          <div style="font-size: 15px; line-height: 1.6; color: var(--fg); max-width: 64ch;">
+            <p>Got it. Two follow-ups before I propose a team:</p>
+            <p style="margin-top: 10px;"><strong>1.</strong> On support: are most questions answerable from your docs/FAQ, or do they need real judgment (refund decisions, custom modifications)?</p>
+            <p style="margin-top: 6px;"><strong>2.</strong> On X: do you want drafts you approve before posting, or full autonomy with after-the-fact review?</p>
+          </div>
+        </div>
+        <!-- User msg 2 -->
+        <div style="display: flex; justify-content: flex-end;">
+          <div style="max-width: 60ch; background: var(--user-msg); border: 1px solid var(--border); padding: 12px 16px; border-radius: 8px; font-size: 15px; line-height: 1.6; color: var(--fg);">
+            Mostly docs-answerable. Refunds I want final say on. For X give me drafts to approve, I don't want it posting on its own. Also can I have 6 agents? I want one for analytics, customer support, X content, blog, email newsletter, and a refund-decision agent.
+          </div>
+        </div>
+        <!-- M msg 3 - PUSHBACK -->
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 600;" class="mono">M</span>
+            <span style="font-size: 13px; font-weight: 600; color: var(--accent);">meta-agent</span>
+            <span style="font-size: 11px; color: var(--fg-faint);" class="mono">14:22:18</span>
+            <span style="font-size: 11px; color: var(--fg-faint); margin-left: 4px;" class="mono">· pushback</span>
+          </div>
+          <div style="font-size: 15px; line-height: 1.6; color: var(--fg); max-width: 64ch;">
+            <p>Six is more than you'll supervise effectively. Solo founders running 6+ agents typically burn out on review fatigue in the first two weeks — too many narration entries to scan, too many "approve this draft" decisions. The whole point of me is to reduce your decision load, not multiply it.</p>
+            <p style="margin-top: 12px;">My counter-proposal: start with <strong>3 agents</strong> that cover your biggest pain, plus a <strong>4th if you really want refund-flow visibility</strong>. Add more as you see which ones earn their keep.</p>
+            <p style="margin-top: 12px;">Proposed:</p>
+            <ul style="margin: 8px 0 0 22px;">
+              <li><strong>support-responder</strong> — drafts answers from your docs, escalates refunds to you</li>
+              <li><strong>content-drafter</strong> — writes X posts from your customer questions, you approve before posting</li>
+              <li><strong>research-summarizer</strong> — watches X and HN for what your audience is talking about</li>
+              <li><strong>refund-flow</strong> (optional 4th) — surfaces refund requests with one-click approve/deny</li>
+            </ul>
+            <p style="margin-top: 12px;">I'd drop analytics, blog, and email for now — analytics doesn't need its own agent (we can add it to research-summarizer), and blog/email need bigger weekly time blocks that solo agents struggle with. Add later if it matters.</p>
+            <p style="margin-top: 12px;">Want me to spawn 3 or 4?</p>
+          </div>
+        </div>
+      </div>
+      <div style="padding: 16px 64px 24px; max-width: 920px; margin: 0 auto; width: 100%;">
+        <div style="background: var(--bg-input); border: 1px solid var(--border-strong); border-radius: 10px; padding: 4px;">
+          <textarea placeholder="Reply or push back…" rows="2" style="width: 100%; padding: 12px 14px; background: transparent; border: none; resize: none; color: var(--fg); font-family: 'Inter', sans-serif; font-size: 15px; line-height: 1.5; outline: none;"></textarea>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 4px 8px 6px;">
+            <span style="font-size: 11px; color: var(--fg-faint);" class="mono">⌘+enter to send</span>
+            <button style="background: var(--accent); color: white; padding: 6px 12px; border: none; border-radius: 5px; font-size: 12px; font-weight: 500; cursor: pointer; font-family: inherit;">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>3. Onboarding chat — approval moment (spawn)</h2>
+  <p>User and meta-agent have aligned. Final agent list is on the table. User reviews, optionally tweaks names/schedules, hits Spawn. Team boots in real-time after this.</p>
+
+  <div class="commentary">
+    <strong>Design intent.</strong> The approval moment is a real UI step, not a buried button in the chat. A summary card pins the proposed team at the bottom of the conversation with inline edit affordances. Spawn is the one big accented button. Below it, a small "keep discussing" link returns to chat. The user always has one keystroke between "I changed my mind" and "spawned a team I didn't want."
+  </div>
+  <div class="mockup-frame">
+    <div class="mockup-label"><span class="url">simpleharmonic.dev/new</span><span class="tag">chat / approval moment</span></div>
+    <div class="dark" style="min-height: 720px; display: flex; flex-direction: column;">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--bg-elev);">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <span style="font-weight: 600; letter-spacing: -0.01em; font-size: 14px;">Simple Harmonic</span>
+          <span style="color: var(--fg-faint); font-size: 12px;" class="mono">/ new team · ready to spawn</span>
+        </div>
+        <span style="font-size: 12px; color: var(--fg-faint);" class="mono">aligned · 7 messages</span>
+      </div>
+      <!-- Truncated chat scroll above; pinned approval card -->
+      <div style="flex: 1; padding: 24px 64px 0; max-width: 920px; margin: 0 auto; width: 100%; opacity: 0.7;">
+        <div style="font-size: 11px; color: var(--fg-faint); margin-bottom: 16px;" class="mono">↑ 7 messages scrolled · click to expand</div>
+        <div style="margin-bottom: 24px;">
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 600;" class="mono">M</span>
+            <span style="font-size: 13px; font-weight: 600; color: var(--accent);">meta-agent</span>
+            <span style="font-size: 11px; color: var(--fg-faint);" class="mono">14:24:55</span>
+          </div>
+          <div style="font-size: 15px; line-height: 1.6; color: var(--fg); max-width: 64ch;">OK, four agents it is. Here's the final team. Review and tweak anything you want, then hit Spawn.</div>
+        </div>
+      </div>
+      <!-- Approval card -->
+      <div style="padding: 0 64px 0; max-width: 920px; margin: 0 auto; width: 100%;">
+        <div style="border: 1.5px solid var(--accent); background: var(--bg-elev); border-radius: 10px; padding: 20px 22px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+            <div>
+              <div style="font-size: 11px; color: var(--accent); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;" class="mono">proposed team</div>
+              <div style="font-weight: 600; font-size: 17px; margin-top: 4px; letter-spacing: -0.01em;">4 agents · supervised by meta-agent</div>
+            </div>
+            <span style="font-size: 12px; color: var(--fg-muted);" class="mono">click any field to edit</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: grid; grid-template-columns: 200px 1fr 90px; gap: 14px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; align-items: center;">
+              <span style="font-weight: 600; font-size: 14px;">support-responder</span>
+              <span style="font-size: 13px; color: var(--fg-muted);">drafts answers from docs, escalates refunds</span>
+              <span style="font-size: 12px; color: var(--fg-faint); text-align: right;" class="mono">every 30s</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 200px 1fr 90px; gap: 14px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; align-items: center;">
+              <span style="font-weight: 600; font-size: 14px;">content-drafter</span>
+              <span style="font-size: 13px; color: var(--fg-muted);">writes X posts, you approve before posting</span>
+              <span style="font-size: 12px; color: var(--fg-faint); text-align: right;" class="mono">every 4h</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 200px 1fr 90px; gap: 14px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; align-items: center;">
+              <span style="font-weight: 600; font-size: 14px;">research-summarizer</span>
+              <span style="font-size: 13px; color: var(--fg-muted);">watches X + HN for your audience signals</span>
+              <span style="font-size: 12px; color: var(--fg-faint); text-align: right;" class="mono">every 1h</span>
+            </div>
+            <div style="display: grid; grid-template-columns: 200px 1fr 90px; gap: 14px; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; align-items: center;">
+              <span style="font-weight: 600; font-size: 14px;">refund-flow</span>
+              <span style="font-size: 13px; color: var(--fg-muted);">surfaces refund requests with one-click decide</span>
+              <span style="font-size: 12px; color: var(--fg-faint); text-align: right;" class="mono">every 5m</span>
+            </div>
+          </div>
+          <div style="margin-top: 20px; display: flex; align-items: center; gap: 14px;">
+            <button style="background: var(--accent); color: white; padding: 11px 22px; border: none; border-radius: 6px; font-size: 15px; font-weight: 500; cursor: pointer; font-family: inherit;">
+              Spawn 4 agents →
+            </button>
+            <a style="font-size: 13px; color: var(--fg-muted); text-decoration: underline; cursor: pointer;">keep discussing</a>
+            <span style="margin-left: auto; font-size: 11px; color: var(--fg-faint);" class="mono">~3 seconds to boot</span>
+          </div>
+        </div>
+      </div>
+      <div style="padding: 24px 64px;"></div>
+    </div>
+  </div>
+
+  <!-- =================================================================== -->
+  <!-- SECTION 4: ACTIVE TEAM VIEW                                         -->
+  <!-- =================================================================== -->
+
+  <h2>4. Active team view (running)</h2>
+  <p>Team is spawned and running. The demo's headline. Meta-agent supervises, narration runs live, Pause Team is prominent because override is the brand.</p>
+
+  <div class="commentary">
+    <strong>Design intent.</strong> Split 2/3 graph + 1/3 narration. Meta-agent visually elevated above worker agents to communicate hierarchy. Inline edit + disable icons on every agent (override at every layer). Narration reads like a terminal log: mono timestamps, semibold agent names, body action descriptions. Pause Team always top-right in accent color.
+  </div>
+  <div class="mockup-frame">
+    <div class="mockup-label"><span class="url">simpleharmonic.dev/f/abc123</span><span class="tag">active team · running</span></div>
+    <div class="dark" style="min-height: 720px; display: flex; flex-direction: column;">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--bg-elev);">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <span style="font-weight: 600; letter-spacing: -0.01em; font-size: 14px;">Simple Harmonic</span>
+          <span style="color: var(--fg-faint); font-size: 12px;" class="mono">/ gumroad-template-shop</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 20px;">
+          <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-muted);" class="mono">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--running); display: inline-block;"></span>
+            4 agents running · tick 47
+          </span>
+          <button style="background: var(--accent); color: white; padding: 7px 14px; border: none; border-radius: 5px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;">
+            Pause Team
+          </button>
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 380px; flex: 1; min-height: 620px;">
+        <div style="padding: 48px 32px; position: relative;">
+          <div style="display: flex; justify-content: center; margin-bottom: 80px; position: relative;">
+            <div style="border: 1.5px solid var(--accent); background: var(--accent-soft); border-radius: 8px; padding: 14px 22px; min-width: 240px; text-align: center;">
+              <div style="font-size: 11px; color: var(--accent); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;" class="mono">META-AGENT</div>
+              <div style="font-weight: 600; margin-top: 4px; color: var(--fg);">AI Cofounder</div>
+              <div style="font-size: 12px; color: var(--fg-muted); margin-top: 4px;" class="mono">approving next tick…</div>
+            </div>
+          </div>
+          <svg style="position: absolute; top: 110px; left: 0; width: 100%; height: 80px; pointer-events: none;">
+            <line x1="50%" y1="0" x2="14%" y2="80" stroke="#404040" stroke-width="1.5"/>
+            <line x1="50%" y1="0" x2="38%" y2="80" stroke="#404040" stroke-width="1.5"/>
+            <line x1="50%" y1="0" x2="62%" y2="80" stroke="#404040" stroke-width="1.5"/>
+            <line x1="50%" y1="0" x2="86%" y2="80" stroke="#404040" stroke-width="1.5"/>
+          </svg>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;">
+            <div style="border: 1px solid var(--border); background: var(--bg-elev); border-radius: 6px; padding: 12px 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--running);" class="mono">
+                  <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--running);"></span>running
+                </span>
+                <span style="display: flex; gap: 8px; color: var(--fg-faint); font-size: 13px;">
+                  <span style="cursor: pointer;">✎</span><span style="cursor: pointer;">⊘</span>
+                </span>
+              </div>
+              <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">support-responder</div>
+              <div style="font-size: 11px; color: var(--fg-muted); line-height: 1.4;">drafts answers · every 30s</div>
+            </div>
+            <div style="border: 1px solid var(--border); background: var(--bg-elev); border-radius: 6px; padding: 12px 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--running);" class="mono">
+                  <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--running);"></span>running
+                </span>
+                <span style="display: flex; gap: 8px; color: var(--fg-faint); font-size: 13px;">
+                  <span style="cursor: pointer;">✎</span><span style="cursor: pointer;">⊘</span>
+                </span>
+              </div>
+              <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">content-drafter</div>
+              <div style="font-size: 11px; color: var(--fg-muted); line-height: 1.4;">writes X posts · every 4h</div>
+            </div>
+            <div style="border: 1px solid var(--border); background: var(--bg-elev); border-radius: 6px; padding: 12px 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--running);" class="mono">
+                  <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--running);"></span>running
+                </span>
+                <span style="display: flex; gap: 8px; color: var(--fg-faint); font-size: 13px;">
+                  <span style="cursor: pointer;">✎</span><span style="cursor: pointer;">⊘</span>
+                </span>
+              </div>
+              <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">research-summarizer</div>
+              <div style="font-size: 11px; color: var(--fg-muted); line-height: 1.4;">watches X + HN · every 1h</div>
+            </div>
+            <div style="border: 1px solid var(--border); background: var(--bg-elev); border-radius: 6px; padding: 12px 14px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--running);" class="mono">
+                  <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--running);"></span>running
+                </span>
+                <span style="display: flex; gap: 8px; color: var(--fg-faint); font-size: 13px;">
+                  <span style="cursor: pointer;">✎</span><span style="cursor: pointer;">⊘</span>
+                </span>
+              </div>
+              <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">refund-flow</div>
+              <div style="font-size: 11px; color: var(--fg-muted); line-height: 1.4;">surfaces refunds · every 5m</div>
+            </div>
+          </div>
+        </div>
+        <div style="border-left: 1px solid var(--border); background: var(--bg-elev); display: flex; flex-direction: column; min-height: 0;">
+          <div style="padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 11px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.05em;" class="mono">narration</span>
+            <span style="font-size: 11px; color: var(--fg-faint);" class="mono">live</span>
+          </div>
+          <div style="padding: 12px 16px; overflow-y: auto; font-size: 13px; line-height: 1.55; flex: 1;">
+            <div style="margin-bottom: 14px;">
+              <span class="mono" style="color: var(--fg-faint); font-size: 11px;">14:31:08</span>
+              <div style="margin-top: 2px;"><strong style="font-weight: 600; color: var(--fg);">support-responder</strong> <span style="color: var(--fg-muted);">drafted reply to "shipping question" in 12s · awaiting your review</span></div>
+            </div>
+            <div style="margin-bottom: 14px;">
+              <span class="mono" style="color: var(--fg-faint); font-size: 11px;">14:30:51</span>
+              <div style="margin-top: 2px;"><span style="color: var(--accent); font-weight: 600;">meta-agent</span> <span style="color: var(--fg-muted);">approved content-drafter run · trend signal from research</span></div>
+            </div>
+            <div style="margin-bottom: 14px;">
+              <span class="mono" style="color: var(--fg-faint); font-size: 11px;">14:30:33</span>
+              <div style="margin-top: 2px;"><strong style="font-weight: 600; color: var(--fg);">refund-flow</strong> <span style="color: var(--fg-muted);">2 refund requests pending · click to decide</span></div>
+            </div>
+            <div style="margin-bottom: 14px;">
+              <span class="mono" style="color: var(--fg-faint); font-size: 11px;">14:29:47</span>
+              <div style="margin-top: 2px;"><strong style="font-weight: 600; color: var(--fg);">content-drafter</strong> <span style="color: var(--fg-muted);">drafted 2 X threads from this week's questions</span></div>
+            </div>
+            <div style="margin-bottom: 14px;">
+              <span class="mono" style="color: var(--fg-faint); font-size: 11px;">14:29:12</span>
+              <div style="margin-top: 2px;"><strong style="font-weight: 600; color: var(--fg);">research-summarizer</strong> <span style="color: var(--fg-muted);">3 HN posts relevant to your audience</span></div>
+            </div>
+            <div style="margin-bottom: 14px;">
+              <span class="mono" style="color: var(--fg-faint); font-size: 11px;">14:28:58</span>
+              <div style="margin-top: 2px;"><span style="color: var(--accent); font-weight: 600;">meta-agent</span> <span style="color: var(--fg-muted);">tick 47 started · 4 agents due</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================================================================== -->
+  <!-- SECTION 5: PAUSED STATE                                              -->
+  <!-- =================================================================== -->
+
+  <h2>5. Paused state</h2>
+  <p>Pause Team was clicked. All agents halt, meta-agent stops approving ticks. Paused-ness must be obvious within the first second of looking.</p>
+
+  <div class="commentary">
+    <strong>Design intent.</strong> Amber strip at top declares team pause without dimming the whole UI. Status pills shift to muted gray. Button flips to "Resume." Narration shows clean last-line entries, no live indicator.
+  </div>
+  <div class="mockup-frame">
+    <div class="mockup-label"><span class="url">simpleharmonic.dev/f/abc123</span><span class="tag">paused state</span></div>
+    <div class="dark" style="min-height: 540px; display: flex; flex-direction: column;">
+      <div style="background: #431407; border-bottom: 1px solid #ea580c; padding: 8px 24px; font-size: 12px; color: #fed7aa; display: flex; justify-content: space-between;" class="mono">
+        <span>● team paused by you · 14:34:01 · 23 seconds ago</span>
+        <span>resume to continue</span>
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--bg-elev);">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <span style="font-weight: 600; letter-spacing: -0.01em; font-size: 14px;">Simple Harmonic</span>
+          <span style="color: var(--fg-faint); font-size: 12px;" class="mono">/ gumroad-template-shop</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 20px;">
+          <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-muted);" class="mono">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background: var(--paused); display: inline-block;"></span>
+            4 agents paused · tick 47 was last
+          </span>
+          <button style="background: var(--accent); color: white; padding: 7px 14px; border: none; border-radius: 5px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;">Resume</button>
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 380px; flex: 1; min-height: 420px;">
+        <div style="padding: 32px;">
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; max-width: 640px;">
+            <div style="border: 1px solid var(--border); background: var(--bg-elev); border-radius: 6px; padding: 12px 14px; display: flex; align-items: center; gap: 12px;">
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--paused);"></span>
+              <div>
+                <div style="font-weight: 600; font-size: 13px;">support-responder</div>
+                <div style="font-size: 11px; color: var(--fg-faint);" class="mono">paused</div>
+              </div>
+            </div>
+            <div style="border: 1px solid var(--border); background: var(--bg-elev); border-radius: 6px; padding: 12px 14px; display: flex; align-items: center; gap: 12px;">
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--paused);"></span>
+              <div>
+                <div style="font-weight: 600; font-size: 13px;">content-drafter</div>
+                <div style="font-size: 11px; color: var(--fg-faint);" class="mono">paused</div>
+              </div>
+            </div>
+            <div style="border: 1px solid var(--border); background: var(--bg-elev); border-radius: 6px; padding: 12px 14px; display: flex; align-items: center; gap: 12px;">
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--paused);"></span>
+              <div>
+                <div style="font-weight: 600; font-size: 13px;">research-summarizer</div>
+                <div style="font-size: 11px; color: var(--fg-faint);" class="mono">paused</div>
+              </div>
+            </div>
+            <div style="border: 1px solid var(--border); background: var(--bg-elev); border-radius: 6px; padding: 12px 14px; display: flex; align-items: center; gap: 12px;">
+              <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--paused);"></span>
+              <div>
+                <div style="font-weight: 600; font-size: 13px;">refund-flow</div>
+                <div style="font-size: 11px; color: var(--fg-faint);" class="mono">paused</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="border-left: 1px solid var(--border); background: var(--bg-elev); padding: 12px 16px;">
+          <div style="font-size: 11px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px;" class="mono">narration · paused</div>
+          <div style="font-size: 13px; line-height: 1.55;">
+            <div style="margin-bottom: 14px;">
+              <span class="mono" style="color: var(--fg-faint); font-size: 11px;">14:34:01</span>
+              <div style="margin-top: 2px;"><span style="color: var(--accent); font-weight: 600;">meta-agent</span> <span style="color: var(--fg-muted);">team paused by user · holding state</span></div>
+            </div>
+            <div style="margin-bottom: 14px;">
+              <span class="mono" style="color: var(--fg-faint); font-size: 11px;">14:33:38</span>
+              <div style="margin-top: 2px;"><strong style="font-weight: 600; color: var(--fg);">support-responder</strong> <span style="color: var(--fg-muted);">drafted reply to "shipping question" in 12s</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================================================================== -->
+  <!-- SECTION 6: ERROR STATE                                               -->
+  <!-- =================================================================== -->
+
+  <h2>6. Error state (LLM failure during chat)</h2>
+  <p>With bidirectional chat, the "planner fallback to default team" failure mode is much rarer because the meta-agent has multiple turns to clarify. The remaining error to design for: an LLM call fails mid-chat (network, API, rate limit). The chat must degrade gracefully without losing the conversation history.</p>
+
+  <div class="commentary">
+    <strong>Design intent.</strong> Error appears as an inline system message in the chat, not a modal or full-page error. The user's last message is preserved (not wiped). A retry button sits where the meta-agent reply would have appeared. Tone: factual, no apology-spam. The conversation can resume from any point.
+  </div>
+  <div class="mockup-frame">
+    <div class="mockup-label"><span class="url">simpleharmonic.dev/new</span><span class="tag">chat / LLM error mid-conversation</span></div>
+    <div class="dark" style="min-height: 540px; display: flex; flex-direction: column;">
+      <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--bg-elev);">
+        <div style="display: flex; align-items: center; gap: 16px;">
+          <span style="font-weight: 600; letter-spacing: -0.01em; font-size: 14px;">Simple Harmonic</span>
+          <span style="color: var(--fg-faint); font-size: 12px;" class="mono">/ new team · 3 messages</span>
+        </div>
+        <span style="font-size: 12px; color: var(--error);" class="mono">connection issue</span>
+      </div>
+      <div style="flex: 1; padding: 32px 64px; max-width: 920px; margin: 0 auto; width: 100%; display: flex; flex-direction: column; gap: 24px;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 600;" class="mono">M</span>
+            <span style="font-size: 13px; font-weight: 600; color: var(--accent);">meta-agent</span>
+            <span style="font-size: 11px; color: var(--fg-faint);" class="mono">14:21:08</span>
+          </div>
+          <div style="font-size: 15px; line-height: 1.6; color: var(--fg); max-width: 64ch;">Walk me through what you do, who pays you, and what's eating your week.</div>
+        </div>
+        <div style="display: flex; justify-content: flex-end;">
+          <div style="max-width: 60ch; background: var(--user-msg); border: 1px solid var(--border); padding: 12px 16px; border-radius: 8px; font-size: 15px; line-height: 1.6; color: var(--fg);">
+            I run a Notion template shop on Gumroad…
+          </div>
+        </div>
+        <!-- Error inline message -->
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 4px; background: rgba(248, 113, 113, 0.12); border: 1px solid var(--error); color: var(--error); font-size: 11px; font-weight: 600;" class="mono">!</span>
+            <span style="font-size: 13px; font-weight: 600; color: var(--error);">connection error</span>
+            <span style="font-size: 11px; color: var(--fg-faint);" class="mono">14:21:34</span>
+          </div>
+          <div style="font-size: 14px; line-height: 1.6; color: var(--fg-muted); max-width: 64ch;">
+            <p>Couldn't reach the LLM (Anthropic API rate limit, attempt 1 of 3). Your message is saved.</p>
+            <div style="margin-top: 12px; display: flex; gap: 12px;">
+              <button style="background: var(--accent); color: white; padding: 7px 14px; border: none; border-radius: 5px; font-size: 13px; font-weight: 500; cursor: pointer; font-family: inherit;">Retry</button>
+              <a style="font-size: 13px; color: var(--fg-muted); text-decoration: underline; cursor: pointer; align-self: center;">edit my message instead</a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="padding: 16px 64px 24px; max-width: 920px; margin: 0 auto; width: 100%;">
+        <div style="background: var(--bg-input); border: 1px solid var(--border-strong); border-radius: 10px; padding: 4px; opacity: 0.7;">
+          <textarea placeholder="Retry above, or edit your message first…" rows="2" disabled style="width: 100%; padding: 12px 14px; background: transparent; border: none; resize: none; color: var(--fg-faint); font-family: 'Inter', sans-serif; font-size: 15px; line-height: 1.5; outline: none;"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================================================================== -->
+  <!-- FOOTER NOTES                                                          -->
+  <!-- =================================================================== -->
+
+  <h2 style="margin-top: 72px;">Notes</h2>
+  <p>Six surfaces, dark/amber direction throughout. Chat onboarding replaces single-textarea hero. Empty state dissolves because chat IS the empty state. Error state redesigned around the chat surface.</p>
+  <p style="margin-top: 12px;"><strong>Scope addition from this change:</strong></p>
+  <ul style="margin: 8px 0 0 20px; font-size: 14px; line-height: 1.7; color: #525252;">
+    <li>Chat UI surface (~1-2 build days): message list, streaming assistant replies, input handling, scroll/focus behavior, message persistence in DB.</li>
+    <li>Eng-review D5 (planner contract) revised: planner is now a multi-turn chat ending in a `spawn_team` tool-use call when both parties agree. Retry logic still applies to the final spawn step.</li>
+    <li>New DB tables: `chat_messages` and `chat_sessions`, scoped to team.</li>
+    <li>LLM cost per onboarding goes up slightly (multi-turn vs single-shot), but onboarding is once-per-user so the cumulative effect is small.</li>
+  </ul>
+
+</div>
+
+</body>
+</html>
