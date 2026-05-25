@@ -1,0 +1,80 @@
+import type { AgentCard } from "../types/agent-card.js";
+import type { Scope } from "../types/auth.js";
+import type { Message, MessageKind, Part } from "../types/message.js";
+import type { CreateTaskInput, Task, TaskState } from "../types/task.js";
+import type { Transport } from "./transport.js";
+/** Options for creating an A2AX instance */
+export interface A2AXOptions {
+    transport: Transport;
+    /** Max messages injected into agent context per tick */
+    maxContextMessages?: number;
+    /** Default message expiry in milliseconds (default: 7 days) */
+    defaultExpiryMs?: number;
+}
+/** Context block ready to inject into an agent's prompt */
+export interface AgentContext {
+    messages: Message[];
+    formatted: string;
+    messageIds: string[];
+}
+/**
+ * A2AX Protocol — the primary interface for agent communication.
+ *
+ * Usage:
+ * ```ts
+ * const a2ax = new A2AX({ transport: myTransport });
+ * await a2ax.sendDirect(fleetId, fromId, toId, "hello");
+ * ```
+ */
+export declare class A2AX {
+    private transport;
+    private maxContextMessages;
+    private defaultExpiryMs;
+    constructor(opts: A2AXOptions);
+    sendDirect(fleetId: string, fromAgentId: string, toAgentId: string, content: string, opts?: {
+        kind?: MessageKind;
+        parts?: Part[];
+        payload?: Record<string, unknown>;
+        urgent?: boolean;
+    }): Promise<Message>;
+    broadcast(fleetId: string, fromAgentId: string, content: string, opts?: {
+        kind?: MessageKind;
+        parts?: Part[];
+        payload?: Record<string, unknown>;
+    }): Promise<Message>;
+    createGroup(fleetId: string, name: string, memberIds: string[]): Promise<{
+        channelId: string;
+    }>;
+    sendToGroup(fleetId: string, channelId: string, fromAgentId: string, content: string, opts?: {
+        kind?: MessageKind;
+        parts?: Part[];
+        payload?: Record<string, unknown>;
+    }): Promise<Message>;
+    joinGroup(channelId: string, agentId: string): Promise<void>;
+    leaveGroup(channelId: string, agentId: string): Promise<void>;
+    createTask(input: CreateTaskInput): Promise<{
+        task: Task;
+        channelId: string;
+    }>;
+    updateTaskState(taskId: string, agentId: string, newState: TaskState, content?: string): Promise<Task>;
+    completeTask(taskId: string, agentId: string, content: string, opts?: {
+        parts?: Part[];
+        payload?: Record<string, unknown>;
+    }): Promise<Task>;
+    getAgentContext(fleetId: string, agentId: string): Promise<AgentContext>;
+    markContextRead(messageIds: string[]): Promise<void>;
+    registerCard(card: AgentCard): Promise<AgentCard>;
+    getCard(agentId: string): Promise<AgentCard | null>;
+    discoverAgents(fleetId: string): Promise<AgentCard[]>;
+    issueToken(agentId: string, fleetId: string, scopes?: Scope[]): Promise<string>;
+    authenticate(token: string): Promise<{
+        agentId: string;
+        fleetId: string;
+    } | null>;
+    authorize(token: string, scope: Scope): Promise<boolean>;
+    expireMessages(): Promise<number>;
+    private ensureChannel;
+    private formatContext;
+    private formatPrefix;
+}
+//# sourceMappingURL=protocol.d.ts.map
