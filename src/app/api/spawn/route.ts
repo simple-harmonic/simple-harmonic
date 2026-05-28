@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/server/db";
-import { agents, chatSessions, teams } from "@/server/db/schema";
+import { db } from "@simple-harmonic/backend/server/db";
+import { agents, chatSessions, teams } from "@simple-harmonic/backend/server/db/schema";
 
 interface SpawnAgent {
   name: string;
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
       tools: a.tools,
       scheduleSeconds: a.schedule_seconds,
       initialPrompt: a.initial_prompt,
-      nextRunAt: new Date(now.getTime() + a.schedule_seconds * 1000),
+      nextRunAt: now,
     })),
   );
 

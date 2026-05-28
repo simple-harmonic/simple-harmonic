@@ -5,10 +5,10 @@ import {
   COFOUNDER_POV,
   USER_AGENT_ID,
   USER_POV,
-} from "@/lib/meta-agent/identity";
-import { getA2AX } from "@/server/a2ax";
-import { db } from "@/server/db";
-import { agents } from "@/server/db/schema";
+} from "@simple-harmonic/backend/lib/meta-agent/identity";
+import { getA2AX } from "@simple-harmonic/backend/server/a2ax";
+import { db } from "@simple-harmonic/backend/server/db";
+import { agents } from "@simple-harmonic/backend/server/db/schema";
 
 // GET /api/team/[id]/messages?agentId=xxx — get messages relevant to an agent
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {

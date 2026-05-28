@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { type getConfig, getSafeConfig, setConfig } from "@/server/config";
+import { type getConfig, getSafeConfig, setConfig } from "@simple-harmonic/backend/server/config";
 
 export async function GET() {
   return NextResponse.json(getSafeConfig());

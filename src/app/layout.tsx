@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
-import { MobileNotice } from "@/components/mobile-notice";
-import { THEME_INIT_SCRIPT, ThemeProvider } from "@/components/theme-provider";
+import { IBM_Plex_Mono, Inter } from "next/font/google";
+import { MobileNotice } from "@simple-harmonic/frontend/components/mobile-notice";
+import { THEME_INIT_SCRIPT, ThemeProvider } from "@simple-harmonic/frontend/components/theme-provider";
 import "./globals.css";
 
 const inter = Inter({
@@ -10,8 +10,9 @@ const inter = Inter({
   display: "swap",
 });
 
-const jetbrainsMono = JetBrains_Mono({
+const ibmPlexMono = IBM_Plex_Mono({
   variable: "--font-mono",
+  weight: ["300", "400", "500", "600"],
   subsets: ["latin"],
   display: "swap",
 });
@@ -29,7 +30,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetbrainsMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${ibmPlexMono.variable} h-full antialiased`}
       // suppressHydrationWarning: the init script flips the .dark class before
       // React hydrates, intentionally diverging from the SSR markup.
       suppressHydrationWarning

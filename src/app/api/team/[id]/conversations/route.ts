@@ -7,9 +7,9 @@ import {
   USER_DISPLAY_NAME,
   USER_POV,
   resolveCofounderName,
-} from "@/lib/meta-agent/identity";
-import { db } from "@/server/db";
-import { a2axMessages, a2axTasks, agents, teams } from "@/server/db/schema";
+} from "@simple-harmonic/backend/lib/meta-agent/identity";
+import { db } from "@simple-harmonic/backend/server/db";
+import { a2axMessages, a2axTasks, agents, teams } from "@simple-harmonic/backend/server/db/schema";
 
 // GET /api/team/[id]/conversations?agentId=xxx
 // Special agentIds: "cofounder" (all messages), "team" (broadcast + group only)

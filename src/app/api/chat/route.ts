@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import type { PlannerMessage } from "@/lib/meta-agent";
-import { plannerStream } from "@/lib/meta-agent";
+import type { PlannerMessage } from "@simple-harmonic/backend/lib/meta-agent";
+import { plannerStream } from "@simple-harmonic/backend/lib/meta-agent";
 
 export async function POST(request: Request) {
   const { messages } = (await request.json()) as { messages: PlannerMessage[] };

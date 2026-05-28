@@ -19,7 +19,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@simple-harmonic/backend/*": ["./packages/backend/src/*"],
+      "@simple-harmonic/frontend/*": ["./packages/frontend/src/*"]
     }
   },
   "include": [
