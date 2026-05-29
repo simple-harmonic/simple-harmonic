@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Member Card Designs — Simple Harmonic</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #161616;
+    --bg-elev: #1a1a1a;
+    --border: #262626;
+    --border-strong: #393939;
+    --fg: #f4f4f4;
+    --fg-muted: #c6c6c6;
+    --fg-faint: #525252;
+    --brand: #0f62fe;
+    --user: #4589ff;
+    --meta: #ff832b;
+    --running: #42be65;
+    --paused: #525252;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0d0d0d;
+    color: var(--fg);
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding: 40px;
+  }
+  h1 {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--fg-faint);
+    margin-bottom: 40px;
+  }
+  .design-block {
+    margin-bottom: 64px;
+  }
+  .design-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .design-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--brand);
+    font-weight: 600;
+  }
+  .design-title {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+  .design-desc {
+    font-size: 12px;
+    color: var(--fg-faint);
+    margin-bottom: 24px;
+    max-width: 600px;
+    line-height: 1.5;
+  }
+  .card-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 520px;
+  }
+
+  /* ═══════════════════════════════════════════════════
+     DESIGN 1 — DATA ROW
+     Horizontal strip. Dot + name on left, role center,
+     status + schedule right. Like a table row that's
+     also a card. Minimal, scannable.
+     ═══════════════════════════════════════════════════ */
+  .d1-card {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 16px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .d1-card:hover { border-color: var(--border-strong); background: #1e1e1e; }
+  .d1-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .d1-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .d1-name {
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .d1-role {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--fg-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .d1-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    white-space: nowrap;
+  }
+  .d1-status {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .d1-sched {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--fg-faint);
+  }
+
+  /* ═══════════════════════════════════════════════════
+     DESIGN 2 — LEFT ACCENT BAR
+     Vertical color bar on the left edge. Two-line
+     content: name + status top, role bottom.
+     ═══════════════════════════════════════════════════ */
+  .d2-card {
+    display: flex;
+    border-radius: 2px;
+    overflow: hidden;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .d2-card:hover { border-color: var(--border-strong); }
+  .d2-bar {
+    width: 4px;
+    flex-shrink: 0;
+  }
+  .d2-body {
+    flex: 1;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .d2-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .d2-name-wrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .d2-name {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .d2-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    padding: 2px 8px;
+    border-radius: 2px;
+  }
+  .d2-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .d2-role {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--fg-faint);
+  }
+  .d2-sched {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--fg-faint);
+  }
+
+  /* ═══════════════════════════════════════════════════
+     DESIGN 3 — COMPACT TILE
+     Small square-ish tile. Big initial letter, name,
+     status dot, role below. Grid-friendly for 2-3 col.
+     ═══════════════════════════════════════════════════ */
+  .d3-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    max-width: 720px;
+  }
+  .d3-card {
+    padding: 16px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .d3-card:hover { border-color: var(--border-strong); }
+  .d3-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .d3-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .d3-info { flex: 1; min-width: 0; }
+  .d3-name {
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .d3-status-line {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .d3-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .d3-status-text {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .d3-role {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--fg-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .d3-footer {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: var(--fg-faint);
+    padding-top: 4px;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ═══════════════════════════════════════════════════
+     DESIGN 4 — TERMINAL LINE
+     Ultra-minimal. One line per member like a terminal
+     process list. Monospace everything. No card border,
+     just rows with hover highlight.
+     ═══════════════════════════════════════════════════ */
+  .d4-list {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    max-width: 720px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .d4-header {
+    display: grid;
+    grid-template-columns: 24px 160px 1fr 90px 70px;
+    padding: 8px 12px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    font-size: 9px;
+    color: var(--fg-faint);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    align-items: center;
+  }
+  .d4-row {
+    display: grid;
+    grid-template-columns: 24px 160px 1fr 90px 70px;
+    padding: 10px 12px;
+    background: var(--bg-elev);
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    cursor: pointer;
+    transition: background 0.1s;
+    color: var(--fg-muted);
+  }
+  .d4-row:last-child { border-bottom: none; }
+  .d4-row:hover { background: #1e1e1e; }
+  .d4-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .d4-name {
+    font-weight: 500;
+    color: var(--fg);
+  }
+  .d4-role {
+    color: var(--fg-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .d4-status {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .d4-sched {
+    font-size: 10px;
+    color: var(--fg-faint);
+    text-align: right;
+  }
+
+  /* ═══════════════════════════════════════════════════
+     DESIGN 5 — SPLIT CARD
+     Two-zone card: left has avatar + name in a colored
+     panel, right has meta info. Wider, more spacious.
+     ═══════════════════════════════════════════════════ */
+  .d5-card {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .d5-card:hover { border-color: var(--border-strong); }
+  .d5-identity {
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+  }
+  .d5-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .d5-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    opacity: 0.7;
+  }
+  .d5-details {
+    padding: 14px 20px;
+    background: var(--bg-elev);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+  }
+  .d5-role {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--fg-muted);
+  }
+  .d5-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .d5-status {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .d5-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+  .d5-sched {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    color: var(--fg-faint);
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 80px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--fg-faint);
+  }
+</style>
+</head>
+<body>
+
+<h1>Member Card Designs</h1>
+
+<!-- ════════════════════════════════════════════════════
+     DESIGN 1 — DATA ROW
+     ════════════════════════════════════════════════════ -->
+<div class="design-block">
+  <div class="design-header">
+    <span class="design-num">01</span>
+    <span class="design-title">Data Row</span>
+  </div>
+  <div class="design-desc">
+    Horizontal strip. Dot + name on left, role in the middle, status + schedule on the right. Like a table row that doubles as a card. Maximum information density, highly scannable.
+  </div>
+  <div class="card-stack">
+    <div class="d1-card">
+      <div class="d1-left">
+        <div class="d1-dot" style="background:var(--user)"></div>
+        <div class="d1-name">Yian</div>
+      </div>
+      <div class="d1-role">Founder</div>
+      <div class="d1-right">
+        <span class="d1-status" style="color:var(--user)">ONLINE</span>
+        <span class="d1-sched">always</span>
+      </div>
+    </div>
+    <div class="d1-card">
+      <div class="d1-left">
+        <div class="d1-dot" style="background:var(--meta)"></div>
+        <div class="d1-name">Harmon</div>
+      </div>
+      <div class="d1-role">AI Cofounder</div>
+      <div class="d1-right">
+        <span class="d1-status" style="color:var(--meta)">SUPERVISING</span>
+        <span class="d1-sched">always</span>
+      </div>
+    </div>
+    <div class="d1-card">
+      <div class="d1-left">
+        <div class="d1-dot" style="background:var(--running)"></div>
+        <div class="d1-name">early-feedback-radar</div>
+      </div>
+      <div class="d1-role">Monitors Twitter and GitHub for early adopter reactions</div>
+      <div class="d1-right">
+        <span class="d1-status" style="color:var(--running)">RUNNING</span>
+        <span class="d1-sched">5m</span>
+      </div>
+    </div>
+    <div class="d1-card">
+      <div class="d1-left">
+        <div class="d1-dot" style="background:var(--running)"></div>
+        <div class="d1-name">competitor-scout</div>
+      </div>
+      <div class="d1-role">Tracks comparable AI coding, agent, and founder-tool products</div>
+      <div class="d1-right">
+        <span class="d1-status" style="color:var(--running)">RUNNING</span>
+        <span class="d1-sched">30m</span>
+      </div>
+    </div>
+    <div class="d1-card">
+      <div class="d1-left">
+        <div class="d1-dot" style="background:var(--running)"></div>
+        <div class="d1-name">github-triage</div>
+      </div>
+      <div class="d1-role">Watches GitHub Issues and labels bugs, feature requests</div>
+      <div class="d1-right">
+        <span class="d1-status" style="color:var(--running)">RUNNING</span>
+        <span class="d1-sched">5m</span>
+      </div>
+    </div>
+    <div class="d1-card">
+      <div class="d1-left">
+        <div class="d1-dot" style="background:var(--running)"></div>
+        <div class="d1-name">launch-post-editor</div>
+      </div>
+      <div class="d1-role">Owns the HN launch post, title variants</div>
+      <div class="d1-right">
+        <span class="d1-status" style="color:var(--running)">RUNNING</span>
+        <span class="d1-sched">10m</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     DESIGN 2 — LEFT ACCENT BAR
+     ════════════════════════════════════════════════════ -->
+<div class="design-block">
+  <div class="design-header">
+    <span class="design-num">02</span>
+    <span class="design-title">Left Accent Bar</span>
+  </div>
+  <div class="design-desc">
+    Vertical color bar on the left edge codes the member type at a glance. Two rows: name + status badge top, role + schedule bottom. The bar is the visual anchor.
+  </div>
+  <div class="card-stack">
+    <div class="d2-card">
+      <div class="d2-bar" style="background:var(--user)"></div>
+      <div class="d2-body">
+        <div class="d2-top">
+          <div class="d2-name-wrap">
+            <span class="d2-name">Yian</span>
+            <span class="d2-badge" style="background:rgba(69,137,255,0.12);color:var(--user)">FOUNDER</span>
+          </div>
+          <span class="d2-badge" style="background:rgba(69,137,255,0.12);color:var(--user)">ONLINE</span>
+        </div>
+        <div class="d2-bottom">
+          <span class="d2-role">Steers agents, sends messages, makes final calls</span>
+          <span class="d2-sched">always on</span>
+        </div>
+      </div>
+    </div>
+    <div class="d2-card">
+      <div class="d2-bar" style="background:var(--meta)"></div>
+      <div class="d2-body">
+        <div class="d2-top">
+          <div class="d2-name-wrap">
+            <span class="d2-name">Harmon</span>
+            <span class="d2-badge" style="background:rgba(255,131,43,0.12);color:var(--meta)">AI COFOUNDER</span>
+          </div>
+          <span class="d2-badge" style="background:rgba(255,131,43,0.12);color:var(--meta)">SUPERVISING</span>
+        </div>
+        <div class="d2-bottom">
+          <span class="d2-role">Plans teams, approves ticks, coordinates strategy</span>
+          <span class="d2-sched">always on</span>
+        </div>
+      </div>
+    </div>
+    <div class="d2-card">
+      <div class="d2-bar" style="background:var(--running)"></div>
+      <div class="d2-body">
+        <div class="d2-top">
+          <div class="d2-name-wrap">
+            <span class="d2-name">early-feedback-radar</span>
+          </div>
+          <span class="d2-badge" style="background:rgba(66,190,101,0.12);color:var(--running)">RUNNING</span>
+        </div>
+        <div class="d2-bottom">
+          <span class="d2-role">Monitors Twitter and GitHub for early adopter reactions</span>
+          <span class="d2-sched">every 5m</span>
+        </div>
+      </div>
+    </div>
+    <div class="d2-card">
+      <div class="d2-bar" style="background:var(--running)"></div>
+      <div class="d2-body">
+        <div class="d2-top">
+          <div class="d2-name-wrap">
+            <span class="d2-name">competitor-scout</span>
+          </div>
+          <span class="d2-badge" style="background:rgba(66,190,101,0.12);color:var(--running)">RUNNING</span>
+        </div>
+        <div class="d2-bottom">
+          <span class="d2-role">Tracks comparable AI coding, agent, and founder-tool products</span>
+          <span class="d2-sched">every 30m</span>
+        </div>
+      </div>
+    </div>
+    <div class="d2-card">
+      <div class="d2-bar" style="background:var(--running)"></div>
+      <div class="d2-body">
+        <div class="d2-top">
+          <div class="d2-name-wrap">
+            <span class="d2-name">github-triage</span>
+          </div>
+          <span class="d2-badge" style="background:rgba(66,190,101,0.12);color:var(--running)">RUNNING</span>
+        </div>
+        <div class="d2-bottom">
+          <span class="d2-role">Watches GitHub Issues and labels bugs, feature requests</span>
+          <span class="d2-sched">every 5m</span>
+        </div>
+      </div>
+    </div>
+    <div class="d2-card">
+      <div class="d2-bar" style="background:var(--running)"></div>
+      <div class="d2-body">
+        <div class="d2-top">
+          <div class="d2-name-wrap">
+            <span class="d2-name">launch-post-editor</span>
+          </div>
+          <span class="d2-badge" style="background:rgba(66,190,101,0.12);color:var(--running)">RUNNING</span>
+        </div>
+        <div class="d2-bottom">
+          <span class="d2-role">Owns the HN launch post, title variants, comment-ready summaries</span>
+          <span class="d2-sched">every 10m</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     DESIGN 3 — COMPACT TILE
+     ════════════════════════════════════════════════════ -->
+<div class="design-block">
+  <div class="design-header">
+    <span class="design-num">03</span>
+    <span class="design-title">Compact Tile</span>
+  </div>
+  <div class="design-desc">
+    Small square-ish tiles on a 3-column grid. Colored avatar initial, name, status dot, role, schedule. Dense and dashboard-like. Good when you have many agents.
+  </div>
+  <div class="d3-grid">
+    <div class="d3-card">
+      <div class="d3-header">
+        <div class="d3-avatar" style="background:rgba(69,137,255,0.15);color:var(--user)">Y</div>
+        <div class="d3-info">
+          <div class="d3-name">Yian</div>
+          <div class="d3-status-line">
+            <div class="d3-dot" style="background:var(--user)"></div>
+            <span class="d3-status-text" style="color:var(--user)">ONLINE</span>
+          </div>
+        </div>
+      </div>
+      <div class="d3-role">Founder</div>
+      <div class="d3-footer">always on</div>
+    </div>
+    <div class="d3-card">
+      <div class="d3-header">
+        <div class="d3-avatar" style="background:rgba(255,131,43,0.15);color:var(--meta)">H</div>
+        <div class="d3-info">
+          <div class="d3-name">Harmon</div>
+          <div class="d3-status-line">
+            <div class="d3-dot" style="background:var(--meta)"></div>
+            <span class="d3-status-text" style="color:var(--meta)">SUPERVISING</span>
+          </div>
+        </div>
+      </div>
+      <div class="d3-role">AI Cofounder</div>
+      <div class="d3-footer">always on</div>
+    </div>
+    <div class="d3-card">
+      <div class="d3-header">
+        <div class="d3-avatar" style="background:rgba(66,190,101,0.15);color:var(--running)">E</div>
+        <div class="d3-info">
+          <div class="d3-name">early-feedback-radar</div>
+          <div class="d3-status-line">
+            <div class="d3-dot" style="background:var(--running)"></div>
+            <span class="d3-status-text" style="color:var(--running)">RUNNING</span>
+          </div>
+        </div>
+      </div>
+      <div class="d3-role">Monitors Twitter and GitHub</div>
+      <div class="d3-footer">every 5m</div>
+    </div>
+    <div class="d3-card">
+      <div class="d3-header">
+        <div class="d3-avatar" style="background:rgba(66,190,101,0.15);color:var(--running)">C</div>
+        <div class="d3-info">
+          <div class="d3-name">competitor-scout</div>
+          <div class="d3-status-line">
+            <div class="d3-dot" style="background:var(--running)"></div>
+            <span class="d3-status-text" style="color:var(--running)">RUNNING</span>
+          </div>
+        </div>
+      </div>
+      <div class="d3-role">Tracks comparable products</div>
+      <div class="d3-footer">every 30m</div>
+    </div>
+    <div class="d3-card">
+      <div class="d3-header">
+        <div class="d3-avatar" style="background:rgba(66,190,101,0.15);color:var(--running)">G</div>
+        <div class="d3-info">
+          <div class="d3-name">github-triage</div>
+          <div class="d3-status-line">
+            <div class="d3-dot" style="background:var(--running)"></div>
+            <span class="d3-status-text" style="color:var(--running)">RUNNING</span>
+          </div>
+        </div>
+      </div>
+      <div class="d3-role">Watches GitHub Issues</div>
+      <div class="d3-footer">every 5m</div>
+    </div>
+    <div class="d3-card">
+      <div class="d3-header">
+        <div class="d3-avatar" style="background:rgba(66,190,101,0.15);color:var(--running)">L</div>
+        <div class="d3-info">
+          <div class="d3-name">launch-post-editor</div>
+          <div class="d3-status-line">
+            <div class="d3-dot" style="background:var(--running)"></div>
+            <span class="d3-status-text" style="color:var(--running)">RUNNING</span>
+          </div>
+        </div>
+      </div>
+      <div class="d3-role">HN launch post and variants</div>
+      <div class="d3-footer">every 10m</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     DESIGN 4 — TERMINAL TABLE
+     ════════════════════════════════════════════════════ -->
+<div class="design-block">
+  <div class="design-header">
+    <span class="design-num">04</span>
+    <span class="design-title">Terminal Table</span>
+  </div>
+  <div class="design-desc">
+    Pure data table. Column headers, monospace rows. No individual card borders, just a shared table frame. Maximum density, feels like htop for your agent team.
+  </div>
+  <div class="d4-list">
+    <div class="d4-header">
+      <span></span>
+      <span>Name</span>
+      <span>Role</span>
+      <span>Status</span>
+      <span style="text-align:right">Sched</span>
+    </div>
+    <div class="d4-row">
+      <div class="d4-dot" style="background:var(--user)"></div>
+      <span class="d4-name">Yian</span>
+      <span class="d4-role">Founder</span>
+      <span class="d4-status" style="color:var(--user)">ONLINE</span>
+      <span class="d4-sched">always</span>
+    </div>
+    <div class="d4-row">
+      <div class="d4-dot" style="background:var(--meta)"></div>
+      <span class="d4-name">Harmon</span>
+      <span class="d4-role">AI Cofounder</span>
+      <span class="d4-status" style="color:var(--meta)">SUPERVISING</span>
+      <span class="d4-sched">always</span>
+    </div>
+    <div class="d4-row">
+      <div class="d4-dot" style="background:var(--running)"></div>
+      <span class="d4-name">early-feedback-radar</span>
+      <span class="d4-role">Monitors Twitter and GitHub for early adopter reactions</span>
+      <span class="d4-status" style="color:var(--running)">RUNNING</span>
+      <span class="d4-sched">5m</span>
+    </div>
+    <div class="d4-row">
+      <div class="d4-dot" style="background:var(--running)"></div>
+      <span class="d4-name">competitor-scout</span>
+      <span class="d4-role">Tracks comparable AI coding, agent, and founder-tool products</span>
+      <span class="d4-status" style="color:var(--running)">RUNNING</span>
+      <span class="d4-sched">30m</span>
+    </div>
+    <div class="d4-row">
+      <div class="d4-dot" style="background:var(--running)"></div>
+      <span class="d4-name">github-triage</span>
+      <span class="d4-role">Watches GitHub Issues and labels bugs, feature requests</span>
+      <span class="d4-status" style="color:var(--running)">RUNNING</span>
+      <span class="d4-sched">5m</span>
+    </div>
+    <div class="d4-row">
+      <div class="d4-dot" style="background:var(--running)"></div>
+      <span class="d4-name">launch-post-editor</span>
+      <span class="d4-role">Owns the HN launch post, title variants, comment-ready summaries</span>
+      <span class="d4-status" style="color:var(--running)">RUNNING</span>
+      <span class="d4-sched">10m</span>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════
+     DESIGN 5 — SPLIT CARD
+     ════════════════════════════════════════════════════ -->
+<div class="design-block">
+  <div class="design-header">
+    <span class="design-num">05</span>
+    <span class="design-title">Split Card</span>
+  </div>
+  <div class="design-desc">
+    Two-zone card: a colored identity panel on the left (name + type label), neutral details panel on the right (role, status, schedule). The color block makes each member instantly recognizable.
+  </div>
+  <div class="card-stack">
+    <div class="d5-card">
+      <div class="d5-identity" style="background:linear-gradient(135deg, #0043ce, #4589ff)">
+        <div class="d5-name">Yian</div>
+        <div class="d5-label">FOUNDER</div>
+      </div>
+      <div class="d5-details">
+        <div class="d5-role">Steers agents, sends messages, makes final calls</div>
+        <div class="d5-meta">
+          <div class="d5-status"><div class="d5-dot" style="background:var(--user)"></div><span style="color:var(--user)">ONLINE</span></div>
+          <span class="d5-sched">always on</span>
+        </div>
+      </div>
+    </div>
+    <div class="d5-card">
+      <div class="d5-identity" style="background:linear-gradient(135deg, #b44d00, #ff832b)">
+        <div class="d5-name">Harmon</div>
+        <div class="d5-label">AI COFOUNDER</div>
+      </div>
+      <div class="d5-details">
+        <div class="d5-role">Plans teams, approves ticks, coordinates strategy</div>
+        <div class="d5-meta">
+          <div class="d5-status"><div class="d5-dot" style="background:var(--meta)"></div><span style="color:var(--meta)">SUPERVISING</span></div>
+          <span class="d5-sched">always on</span>
+        </div>
+      </div>
+    </div>
+    <div class="d5-card">
+      <div class="d5-identity" style="background:linear-gradient(135deg, #044317, #198038)">
+        <div class="d5-name">early-feedback-radar</div>
+        <div class="d5-label">AGENT</div>
+      </div>
+      <div class="d5-details">
+        <div class="d5-role">Monitors Twitter and GitHub for early adopter reactions</div>
+        <div class="d5-meta">
+          <div class="d5-status"><div class="d5-dot" style="background:var(--running)"></div><span style="color:var(--running)">RUNNING</span></div>
+          <span class="d5-sched">every 5m</span>
+        </div>
+      </div>
+    </div>
+    <div class="d5-card">
+      <div class="d5-identity" style="background:linear-gradient(135deg, #044317, #198038)">
+        <div class="d5-name">competitor-scout</div>
+        <div class="d5-label">AGENT</div>
+      </div>
+      <div class="d5-details">
+        <div class="d5-role">Tracks comparable AI coding, agent, and founder-tool products</div>
+        <div class="d5-meta">
+          <div class="d5-status"><div class="d5-dot" style="background:var(--running)"></div><span style="color:var(--running)">RUNNING</span></div>
+          <span class="d5-sched">every 30m</span>
+        </div>
+      </div>
+    </div>
+    <div class="d5-card">
+      <div class="d5-identity" style="background:linear-gradient(135deg, #044317, #198038)">
+        <div class="d5-name">github-triage</div>
+        <div class="d5-label">AGENT</div>
+      </div>
+      <div class="d5-details">
+        <div class="d5-role">Watches GitHub Issues and labels bugs, feature requests</div>
+        <div class="d5-meta">
+          <div class="d5-status"><div class="d5-dot" style="background:var(--running)"></div><span style="color:var(--running)">RUNNING</span></div>
+          <span class="d5-sched">every 5m</span>
+        </div>
+      </div>
+    </div>
+    <div class="d5-card">
+      <div class="d5-identity" style="background:linear-gradient(135deg, #044317, #198038)">
+        <div class="d5-name">launch-post-editor</div>
+        <div class="d5-label">AGENT</div>
+      </div>
+      <div class="d5-details">
+        <div class="d5-role">Owns the HN launch post, title variants, comment-ready summaries</div>
+        <div class="d5-meta">
+          <div class="d5-status"><div class="d5-dot" style="background:var(--running)"></div><span style="color:var(--running)">RUNNING</span></div>
+          <span class="d5-sched">every 10m</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="footer">
+  Pick a number (or mix: "2's accent bar + 4's density"). I'll implement it in the agent graph.
+</div>
+
+</body>
+</html>

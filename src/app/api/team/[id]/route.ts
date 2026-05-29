@@ -1,16 +1,17 @@
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { db } from "@/server/db";
-import { agents, teams } from "@/server/db/schema";
+import { db } from "@simple-harmonic/backend/server/db";
+import { agents, teams } from "@simple-harmonic/backend/server/db/schema";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const d = db();
 
-  const team = await d.query.teams.findFirst({ where: eq(teams.id, id) });
+  const [team, teamAgents] = await Promise.all([
+    d.query.teams.findFirst({ where: eq(teams.id, id) }),
+    d.query.agents.findMany({ where: eq(agents.teamId, id) }),
+  ]);
   if (!team) return NextResponse.json({ error: "not found" }, { status: 404 });
-
-  const teamAgents = await d.query.agents.findMany({ where: eq(agents.teamId, id) });
 
   return NextResponse.json({ team, agents: teamAgents });
 }

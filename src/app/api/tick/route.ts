@@ -1,57 +1,75 @@
 import OpenAI from "openai";
-import { and, eq, lte } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { approveAgentTick, runAgent } from "@/lib/meta-agent";
-import type { LLMClient } from "@/lib/meta-agent/runner";
-import type { PeerAgent } from "@/lib/meta-agent/tools";
-import { getA2AX } from "@/server/a2ax";
-import { getApiKeySource, getConfig } from "@/server/config";
-import { getCodexAccessToken } from "@/server/codex-auth";
-import { db } from "@/server/db";
-import { actionLog, agents, teams } from "@/server/db/schema";
+import { approveAgentTick, runAgent } from "@simple-harmonic/backend/lib/meta-agent";
+import { createAnthropicClient } from "@simple-harmonic/backend/lib/meta-agent/anthropic-adapter";
+import { createCodexClient } from "@simple-harmonic/backend/lib/meta-agent/codex-adapter";
+import type { LLMClient } from "@simple-harmonic/backend/lib/meta-agent/runner";
+import type { PeerAgent } from "@simple-harmonic/backend/lib/meta-agent/tools";
+import { getA2AX } from "@simple-harmonic/backend/server/a2ax";
+import { getApiKeySource, getConfig } from "@simple-harmonic/backend/server/config";
+import { db } from "@simple-harmonic/backend/server/db";
+import { actionLog, agents, teams } from "@simple-harmonic/backend/server/db/schema";
 
+// Skip ticks for teams with no recent user activity to control costs.
 const HIBERNATE_THRESHOLD_MS = 5 * 60 * 1000;
-
-function getLLMClient(): LLMClient {
-  const cfg = getConfig();
-  const source = getApiKeySource();
-
-  if (source === "codex") {
-    // Codex path: use OpenAI SDK pointed at chatgpt.com
-    return new OpenAI({
-      apiKey: getCodexAccessToken() || "",
-      baseURL: "https://chatgpt.com/backend-api/codex",
-      timeout: 30000,
-    }) as unknown as LLMClient;
-  }
-
-  return new OpenAI({
-    apiKey: cfg.openaiApiKey || undefined,
-    baseURL: cfg.openaiBaseUrl || undefined,
-    timeout: 30000,
-  }) as unknown as LLMClient;
-}
 
 export async function POST() {
   const d = db();
   const now = new Date();
-  const hibernateThreshold = new Date(now.getTime() - HIBERNATE_THRESHOLD_MS);
+  const allActive = await d.query.teams.findMany({
+    where: eq(teams.paused, false),
+  });
 
-  const activeTeams = await d.query.teams.findMany({
-    where: and(eq(teams.paused, false), lte(teams.lastUserActiveAt, now)),
+  // Filter out hibernated teams: no user heartbeat in the last 5 minutes.
+  const activeTeams = allActive.filter((t) => {
+    if (!t.lastUserActiveAt) return false;
+    return now.getTime() - new Date(t.lastUserActiveAt).getTime() < HIBERNATE_THRESHOLD_MS;
   });
 
   let totalRan = 0;
   const a2ax = getA2AX();
-  const llm = getLLMClient();
+  const cfg = getConfig();
+
+  // LLM client resolution: Codex CLI > Anthropic > OpenAI
+  const apiKeySource = getApiKeySource();
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+
+  let llm: LLMClient;
+  let modelOverride: string | undefined;
+
+  if (apiKeySource === "codex") {
+    // Use Codex CLI subprocess (ChatGPT subscription via codex exec)
+    llm = createCodexClient({ model: cfg.model || "gpt-5.5" });
+    modelOverride = cfg.model || "gpt-5.5";
+  } else if (anthropicKey) {
+    llm = createAnthropicClient({ apiKey: anthropicKey, timeout: 120_000 });
+    modelOverride = "claude-sonnet-4-20250514";
+  } else {
+    llm = new OpenAI({
+      apiKey: cfg.openaiApiKey || undefined,
+      baseURL: cfg.openaiBaseUrl || undefined,
+      timeout: 120_000,
+    }) as unknown as LLMClient;
+    modelOverride = cfg.model;
+  }
 
   for (const team of activeTeams) {
-    if (team.lastUserActiveAt < hibernateThreshold) continue;
 
     // Get all agents in team for peer context
     const allAgents = await d.query.agents.findMany({
       where: eq(agents.teamId, team.id),
     });
+
+    // Auto-recover errored agents: reset to running so they retry on next tick.
+    // v0.0 has no destructive tools, so retrying is always safe.
+    for (const a of allAgents) {
+      if (a.status === "errored") {
+        await d.update(agents).set({ status: "running", inFlight: false }).where(eq(agents.id, a.id));
+        a.status = "running";
+        a.inFlight = false;
+      }
+    }
 
     // Use the central approval gate to decide which agents run. This is the
     // seam where per-action approval (v0.1) will also plug in. Today the gate
@@ -84,6 +102,7 @@ export async function POST() {
           peers,
           a2ax,
           llm,
+          model: modelOverride,
         });
 
         // Mark consumed messages as read
@@ -104,19 +123,31 @@ export async function POST() {
           .where(eq(agents.id, agent.id));
 
         totalRan++;
-      } catch {
+      } catch (err) {
+        console.error(`[tick] Agent ${agent.name} failed:`, err instanceof Error ? err.message : err);
+        // Advance nextRunAt even on failure so auto-recover doesn't create
+        // a tight retry loop (agent would otherwise re-run every tick).
         await d
           .update(agents)
-          .set({ inFlight: false, status: "errored" })
+          .set({
+            inFlight: false,
+            status: "errored",
+            nextRunAt: new Date(now.getTime() + agent.scheduleSeconds * 1000),
+          })
           .where(eq(agents.id, agent.id));
       }
     }
 
     await d
       .update(teams)
-      .set({ tickCount: team.tickCount + 1 })
+      .set({ tickCount: sql`${teams.tickCount} + 1` })
       .where(eq(teams.id, team.id));
   }
 
   return NextResponse.json({ ok: true, agentsRan: totalRan, timestamp: now.toISOString() });
+}
+
+// Vercel cron sends GET requests
+export async function GET() {
+  return POST();
 }

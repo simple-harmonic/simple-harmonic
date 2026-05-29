@@ -1,6 +1,6 @@
 import { desc, eq, gt, inArray, and } from "drizzle-orm";
-import { db } from "@/server/db";
-import { actionLog, agents } from "@/server/db/schema";
+import { db } from "@simple-harmonic/backend/server/db";
+import { actionLog, agents } from "@simple-harmonic/backend/server/db/schema";
 
 // SSE: streams agent action log entries for a team. Emits one "history" event
 // on connect (last 50), then "update" events with only-new entries every 3s.

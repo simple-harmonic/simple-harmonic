@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/server/db";
-import { agents, chatSessions, teams } from "@/server/db/schema";
+import { db } from "@simple-harmonic/backend/server/db";
+import { agents, chatSessions, teams } from "@simple-harmonic/backend/server/db/schema";
 
 interface SpawnAgent {
   name: string;
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
 
   const now = new Date();
   await d.insert(agents).values(
-    agentList.map((a) => ({
+    agentList.map((a, i) => ({
       teamId: team.id,
       name: a.name,
       role: a.role,
@@ -53,7 +53,10 @@ export async function POST(request: Request) {
       tools: a.tools,
       scheduleSeconds: a.schedule_seconds,
       initialPrompt: a.initial_prompt,
-      nextRunAt: new Date(now.getTime() + a.schedule_seconds * 1000),
+      // Stagger first runs: agent 0 fires at now + schedule, agent 1 at
+      // now + schedule + 2s, etc. Avoids slamming the LLM API with all
+      // agents simultaneously on the very first tick.
+      nextRunAt: new Date(now.getTime() + a.schedule_seconds * 1000 + i * 2000),
     })),
   );
 

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { getCodexAccessToken, getCodexAuthStatus } from "@/server/codex-auth";
-import { getApiKeySource, getConfig } from "@/server/config";
-import { proxyFetch } from "@/server/proxy-fetch";
+import { getCodexAccessToken, getCodexAuthStatus } from "@simple-harmonic/backend/server/codex-auth";
+import { getApiKeySource, getConfig } from "@simple-harmonic/backend/server/config";
+import { proxyFetch } from "@simple-harmonic/backend/server/proxy-fetch";
 
 // Undici hides the real network failure in err.cause. Walk the chain so we
 // surface "ECONNREFUSED", "EAI_AGAIN", "ETIMEDOUT", etc. instead of the

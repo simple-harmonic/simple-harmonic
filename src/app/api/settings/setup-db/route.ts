@@ -1,7 +1,7 @@
 import { execSync } from "node:child_process";
 import { NextResponse } from "next/server";
 import { Pool } from "pg";
-import { getConfig, setConfig } from "@/server/config";
+import { getConfig, setConfig } from "@simple-harmonic/backend/server/config";
 
 /** Extract a useful message from pg errors (which sometimes have empty .message but a .code) */
 function pgError(err: unknown): string {

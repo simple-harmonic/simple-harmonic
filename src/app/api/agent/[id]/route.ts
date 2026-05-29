@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { db } from "@/server/db";
-import { agents } from "@/server/db/schema";
+import { db } from "@simple-harmonic/backend/server/db";
+import { agents } from "@simple-harmonic/backend/server/db/schema";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
