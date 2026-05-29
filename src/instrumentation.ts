@@ -24,17 +24,22 @@ export async function register() {
       // DB not ready yet, will self-heal via auto-recovery
     }
 
-    const TICK_INTERVAL_MS = 10_000;
+    // Only start the background tick loop in dev. On Vercel, the cron in
+    // vercel.json handles ticking; running both would multiply agent runs
+    // and API costs.
+    if (!process.env.VERCEL) {
+      const TICK_INTERVAL_MS = 10_000;
 
-    setInterval(async () => {
-      try {
-        const port = process.env.PORT || 3000;
-        await fetch(`http://localhost:${port}/api/tick`, { method: "POST" });
-      } catch {
-        // Server not ready yet or tick failed; will retry next interval.
-      }
-    }, TICK_INTERVAL_MS);
+      setInterval(async () => {
+        try {
+          const port = process.env.PORT || 3000;
+          await fetch(`http://localhost:${port}/api/tick`, { method: "POST" });
+        } catch {
+          // Server not ready yet or tick failed; will retry next interval.
+        }
+      }, TICK_INTERVAL_MS);
 
-    console.log("[simple-harmonic] Background tick loop started (10s interval)");
+      console.log("[simple-harmonic] Background tick loop started (10s interval)");
+    }
   }
 }

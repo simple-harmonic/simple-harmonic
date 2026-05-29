@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { approveAgentTick, runAgent } from "@simple-harmonic/backend/lib/meta-agent";
 import { createAnthropicClient } from "@simple-harmonic/backend/lib/meta-agent/anthropic-adapter";
@@ -11,15 +11,20 @@ import { getApiKeySource, getConfig } from "@simple-harmonic/backend/server/conf
 import { db } from "@simple-harmonic/backend/server/db";
 import { actionLog, agents, teams } from "@simple-harmonic/backend/server/db/schema";
 
-// Hibernate disabled for v0.0: agents run autonomously.
-// Re-enable at scale when cost matters (see TODOS.md).
-// const HIBERNATE_THRESHOLD_MS = 5 * 60 * 1000;
+// Skip ticks for teams with no recent user activity to control costs.
+const HIBERNATE_THRESHOLD_MS = 5 * 60 * 1000;
 
 export async function POST() {
   const d = db();
   const now = new Date();
-  const activeTeams = await d.query.teams.findMany({
+  const allActive = await d.query.teams.findMany({
     where: eq(teams.paused, false),
+  });
+
+  // Filter out hibernated teams: no user heartbeat in the last 5 minutes.
+  const activeTeams = allActive.filter((t) => {
+    if (!t.lastUserActiveAt) return false;
+    return now.getTime() - new Date(t.lastUserActiveAt).getTime() < HIBERNATE_THRESHOLD_MS;
   });
 
   let totalRan = 0;
@@ -120,16 +125,22 @@ export async function POST() {
         totalRan++;
       } catch (err) {
         console.error(`[tick] Agent ${agent.name} failed:`, err instanceof Error ? err.message : err);
+        // Advance nextRunAt even on failure so auto-recover doesn't create
+        // a tight retry loop (agent would otherwise re-run every tick).
         await d
           .update(agents)
-          .set({ inFlight: false, status: "errored" })
+          .set({
+            inFlight: false,
+            status: "errored",
+            nextRunAt: new Date(now.getTime() + agent.scheduleSeconds * 1000),
+          })
           .where(eq(agents.id, agent.id));
       }
     }
 
     await d
       .update(teams)
-      .set({ tickCount: team.tickCount + 1 })
+      .set({ tickCount: sql`${teams.tickCount} + 1` })
       .where(eq(teams.id, team.id));
   }
 

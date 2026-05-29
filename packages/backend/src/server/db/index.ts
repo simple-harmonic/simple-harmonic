@@ -18,7 +18,7 @@ export function db() {
   if (!instance) {
     pool = new Pool({
       connectionString: databaseUrl,
-      max: 10,
+      max: 1,
       connectionTimeoutMillis: 10_000,
       idleTimeoutMillis: 30_000,
     });
