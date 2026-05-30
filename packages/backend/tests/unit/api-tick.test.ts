@@ -36,6 +36,12 @@ vi.mock("@/server/db/schema", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ _eq: val })),
+  // The tick route builds an atomic increment via sql`${tickCount} + 1`.
+  // Mock the tagged-template so the route code runs without a real driver.
+  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
+    _sql: strings.join("?"),
+    values,
+  })),
 }));
 
 // ---------------------------------------------------------------------------
@@ -112,7 +118,10 @@ const sampleTeam = {
   tickCount: 3,
   metaAgentPrompt: null,
   cofounderName: null,
-  lastUserActiveAt: new Date("2026-05-20T00:00:00Z"),
+  // Must be recent: the tick route hibernates teams idle >5 min, so a fixed
+  // past date would make every "agent runs" test see a hibernated team and
+  // run zero agents. Stamp it at module load (suite runs well under 5 min).
+  lastUserActiveAt: new Date(),
   createdAt: new Date("2026-05-19T00:00:00Z"),
 };
 
@@ -279,10 +288,15 @@ describe("POST /api/tick", () => {
 
     await POST();
 
-    // tickCount should be incremented (3 + 1 = 4)
-    expect(mockSet).toHaveBeenCalledWith(
-      expect.objectContaining({ tickCount: 4 }),
+    // tickCount is incremented atomically in SQL (sql`${tickCount} + 1`)
+    // rather than read-modify-write, so the value passed to .set() is the
+    // mocked sql fragment, not a literal 4. Assert the increment was issued
+    // against the tickCount column.
+    const tickCountCall = mockSet.mock.calls.find(
+      (call) => call[0] && "tickCount" in call[0],
     );
+    expect(tickCountCall).toBeDefined();
+    expect(tickCountCall?.[0].tickCount).toMatchObject({ _sql: "? + 1" });
   });
 
   it("skips agents that are not approved", async () => {
