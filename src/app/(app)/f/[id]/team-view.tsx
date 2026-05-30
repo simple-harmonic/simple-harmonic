@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AgentGraph } from "@simple-harmonic/frontend/components/team/agent-graph";
 import { AgentPovView } from "@simple-harmonic/frontend/components/team/agent-pov-view";
+import { ApprovalQueue } from "@simple-harmonic/frontend/components/team/approval-queue";
 import { MetaAgentPanel } from "@simple-harmonic/frontend/components/team/meta-agent-panel";
 import { NarrationSidebar } from "@simple-harmonic/frontend/components/team/narration-sidebar";
 import { UserPovView } from "@simple-harmonic/frontend/components/team/user-pov-view";
@@ -196,8 +197,13 @@ function TeamViewInner({ teamId }: TeamViewProps) {
           />
         </div>
       ) : povId === "team" ? (
-        /* Team dashboard: graph + narration */
+        /* Team dashboard: approval queue + graph + narration */
         <div className="flex-1 flex flex-col min-h-0">
+          {/* Pending destructive-tool approvals (T2). Renders nothing when empty. */}
+          <ApprovalQueue
+            teamId={teamId}
+            agentNames={Object.fromEntries(agents.map((a) => [a.id, a.name]))}
+          />
           {/* Graph + Narration */}
           <div className="flex-1 grid grid-cols-[1fr_340px] min-h-0">
             <main className="relative">
