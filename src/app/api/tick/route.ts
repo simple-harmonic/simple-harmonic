@@ -2,17 +2,33 @@ import OpenAI from "openai";
 import { eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { approveAgentTick, runAgent } from "@simple-harmonic/backend/lib/meta-agent";
+import type {
+  AgentSuspension,
+  LLMClient,
+  ToolDecision,
+} from "@simple-harmonic/backend/lib/meta-agent/runner";
 import { createAnthropicClient } from "@simple-harmonic/backend/lib/meta-agent/anthropic-adapter";
 import { createCodexClient } from "@simple-harmonic/backend/lib/meta-agent/codex-adapter";
-import type { LLMClient } from "@simple-harmonic/backend/lib/meta-agent/runner";
 import type { PeerAgent } from "@simple-harmonic/backend/lib/meta-agent/tools";
+import { createAppRegistry } from "@simple-harmonic/backend/server/tools";
 import { getA2AX } from "@simple-harmonic/backend/server/a2ax";
 import { getApiKeySource, getConfig } from "@simple-harmonic/backend/server/config";
 import { db } from "@simple-harmonic/backend/server/db";
-import { actionLog, agents, teams } from "@simple-harmonic/backend/server/db/schema";
+import {
+  actionLog,
+  agents,
+  pendingApprovals,
+  teams,
+} from "@simple-harmonic/backend/server/db/schema";
 
 // Skip ticks for teams with no recent user activity to control costs.
 const HIBERNATE_THRESHOLD_MS = 5 * 60 * 1000;
+
+// The tool registry decides which tools are destructive (need approval). One
+// instance is fine — registration is stateless and the impls read per-call ctx.
+const registry = createAppRegistry();
+
+type AgentRow = typeof agents.$inferSelect;
 
 export async function POST() {
   const d = db();
@@ -55,14 +71,12 @@ export async function POST() {
   }
 
   for (const team of activeTeams) {
-
     // Get all agents in team for peer context
     const allAgents = await d.query.agents.findMany({
       where: eq(agents.teamId, team.id),
     });
 
     // Auto-recover errored agents: reset to running so they retry on next tick.
-    // v0.0 has no destructive tools, so retrying is always safe.
     for (const a of allAgents) {
       if (a.status === "errored") {
         await d.update(agents).set({ status: "running", inFlight: false }).where(eq(agents.id, a.id));
@@ -71,24 +85,35 @@ export async function POST() {
       }
     }
 
-    // Use the central approval gate to decide which agents run. This is the
-    // seam where per-action approval (v0.1) will also plug in. Today the gate
-    // enforces: team not paused, agent running, not in-flight, due.
-    const dueAgents = allAgents.filter((a) => {
-      const decision = approveAgentTick(team, a, now);
-      return decision.allowed;
-    });
+    // --- Resume pass: agents parked awaiting approval --------------------------
+    // An agent in "awaiting_approval" does not run a fresh tick; it resumes
+    // once ALL of its pending approvals have been resolved (approved/rejected).
+    for (const agent of allAgents) {
+      if (agent.status !== "awaiting_approval") continue;
+      const resumed = await tryResumeAgent({
+        d,
+        team,
+        agent,
+        allAgents,
+        a2ax,
+        llm,
+        modelOverride,
+        now,
+      });
+      if (resumed) totalRan++;
+    }
+
+    // --- Fresh pass: due agents ----------------------------------------------
+    // approveAgentTick now also blocks "awaiting_approval", so parked agents
+    // never enter this pass.
+    const dueAgents = allAgents.filter((a) => approveAgentTick(team, a, now).allowed);
 
     for (const agent of dueAgents) {
       await d.update(agents).set({ inFlight: true }).where(eq(agents.id, agent.id));
 
-      // Build peer list (all agents except self)
-      const peers: PeerAgent[] = allAgents
-        .filter((a) => a.id !== agent.id)
-        .map((a) => ({ id: a.id, name: a.name, role: a.role }));
+      const peers = buildPeers(allAgents, agent.id);
 
       try {
-        // Fetch a2ax context (direct, broadcast, group, task messages)
         const ctx = await a2ax.getAgentContext(team.id, agent.id);
 
         const result = await runAgent({
@@ -103,35 +128,22 @@ export async function POST() {
           a2ax,
           llm,
           model: modelOverride,
+          isDestructive: registry.isDestructive,
         });
 
-        // Mark consumed messages as read
         await a2ax.markContextRead(ctx.messageIds);
-
-        await d.insert(actionLog).values({
-          agentId: agent.id,
-          actionType: result.actionType,
-          payload: result.payload,
-        });
-
-        await d
-          .update(agents)
-          .set({
-            inFlight: false,
-            nextRunAt: new Date(now.getTime() + agent.scheduleSeconds * 1000),
-          })
-          .where(eq(agents.id, agent.id));
-
+        await handleRunResult({ d, agent, result, now });
         totalRan++;
       } catch (err) {
         console.error(`[tick] Agent ${agent.name} failed:`, err instanceof Error ? err.message : err);
-        // Advance nextRunAt even on failure so auto-recover doesn't create
-        // a tight retry loop (agent would otherwise re-run every tick).
+        // Advance nextRunAt even on failure so auto-recover doesn't create a
+        // tight retry loop. Clear any parked conversation state.
         await d
           .update(agents)
           .set({
             inFlight: false,
             status: "errored",
+            conversationState: null,
             nextRunAt: new Date(now.getTime() + agent.scheduleSeconds * 1000),
           })
           .where(eq(agents.id, agent.id));
@@ -145,6 +157,157 @@ export async function POST() {
   }
 
   return NextResponse.json({ ok: true, agentsRan: totalRan, timestamp: now.toISOString() });
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function buildPeers(allAgents: AgentRow[], selfId: string): PeerAgent[] {
+  return allAgents
+    .filter((a) => a.id !== selfId)
+    .map((a) => ({ id: a.id, name: a.name, role: a.role }));
+}
+
+/**
+ * Resume an agent parked awaiting approval, IF all its pending approvals are
+ * resolved. Returns true if the agent actually resumed (ran), false if it is
+ * still waiting on at least one decision.
+ */
+async function tryResumeAgent(args: {
+  d: ReturnType<typeof db>;
+  team: typeof teams.$inferSelect;
+  agent: AgentRow;
+  allAgents: AgentRow[];
+  a2ax: ReturnType<typeof getA2AX>;
+  llm: LLMClient;
+  modelOverride: string | undefined;
+  now: Date;
+}): Promise<boolean> {
+  const { d, team, agent, allAgents, a2ax, llm, modelOverride, now } = args;
+
+  const rows = await d.query.pendingApprovals.findMany({
+    where: eq(pendingApprovals.agentId, agent.id),
+  });
+  // Only consider the still-open batch (pending rows block resume).
+  const stillPending = rows.filter((r) => r.status === "pending");
+  if (stillPending.length > 0) return false;
+
+  const suspension = agent.conversationState as AgentSuspension | null;
+  if (!suspension) {
+    // Defensive: parked with no state. Clear the flag and let it tick fresh.
+    await d
+      .update(agents)
+      .set({ status: "running", inFlight: false, conversationState: null })
+      .where(eq(agents.id, agent.id));
+    return false;
+  }
+
+  const decisions: ToolDecision[] = rows.map((r) => ({
+    id: r.toolCallId,
+    approved: r.status === "approved",
+    note: r.decisionNote ?? undefined,
+  }));
+
+  await d.update(agents).set({ inFlight: true }).where(eq(agents.id, agent.id));
+
+  try {
+    const result = await runAgent({
+      name: agent.name,
+      archetype: agent.archetype,
+      tools: agent.tools as string[],
+      initialPrompt: agent.initialPrompt,
+      teamId: team.id,
+      agentId: agent.id,
+      peers: buildPeers(allAgents, agent.id),
+      a2ax,
+      llm,
+      model: modelOverride,
+      isDestructive: registry.isDestructive,
+      resume: { suspension, decisions },
+    });
+
+    // Consume the resolved approvals so they don't block a future suspension.
+    await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
+    await handleRunResult({ d, agent, result, now });
+    return true;
+  } catch (err) {
+    console.error(`[tick] Resume of ${agent.name} failed:`, err instanceof Error ? err.message : err);
+    await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
+    await d
+      .update(agents)
+      .set({
+        inFlight: false,
+        status: "errored",
+        conversationState: null,
+        nextRunAt: new Date(now.getTime() + agent.scheduleSeconds * 1000),
+      })
+      .where(eq(agents.id, agent.id));
+    return false;
+  }
+}
+
+/**
+ * Apply a runAgent result to the DB. If the run suspended, park the agent
+ * (status awaiting_approval, conversation state saved, pending_approvals rows
+ * created) WITHOUT advancing nextRunAt. Otherwise log the action and return the
+ * agent to running.
+ */
+async function handleRunResult(args: {
+  d: ReturnType<typeof db>;
+  agent: AgentRow;
+  result: Awaited<ReturnType<typeof runAgent>>;
+  now: Date;
+}): Promise<void> {
+  const { d, agent, result, now } = args;
+
+  if (result.suspension) {
+    const s = result.suspension;
+    await d
+      .update(agents)
+      .set({
+        inFlight: false,
+        status: "awaiting_approval",
+        conversationState: s as unknown as Record<string, unknown>,
+      })
+      .where(eq(agents.id, agent.id));
+
+    if (s.pending.length > 0) {
+      await d.insert(pendingApprovals).values(
+        s.pending.map((p) => ({
+          teamId: agent.teamId,
+          agentId: agent.id,
+          toolCallId: p.id,
+          toolName: p.name,
+          toolArguments: p.arguments,
+        })),
+      );
+    }
+
+    // Log the suspension so it shows in the narration feed.
+    await d.insert(actionLog).values({
+      agentId: agent.id,
+      actionType: "awaiting_approval",
+      payload: result.payload,
+    });
+    return;
+  }
+
+  await d.insert(actionLog).values({
+    agentId: agent.id,
+    actionType: result.actionType,
+    payload: result.payload,
+  });
+
+  await d
+    .update(agents)
+    .set({
+      inFlight: false,
+      status: "running",
+      conversationState: null,
+      nextRunAt: new Date(now.getTime() + agent.scheduleSeconds * 1000),
+    })
+    .where(eq(agents.id, agent.id));
 }
 
 // Vercel cron sends GET requests
