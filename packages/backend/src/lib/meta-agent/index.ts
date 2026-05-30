@@ -25,6 +25,7 @@ export type {
   AgentLike,
   ApprovalDecision,
   ApprovalReasonCode,
+  DestructiveClassifier,
   TeamLike,
   ToolCallLike,
 } from "./approval";

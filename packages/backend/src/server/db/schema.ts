@@ -10,7 +10,22 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const agentStatus = pgEnum("agent_status", ["running", "paused", "errored"]);
+export const agentStatus = pgEnum("agent_status", [
+  "running",
+  "paused",
+  "errored",
+  // T2: agent suspended mid-tick awaiting human approval of a destructive
+  // tool call. Its conversation state is parked in agents.conversationState
+  // and the pending calls live in pending_approvals.
+  "awaiting_approval",
+]);
+
+// T2: lifecycle of a destructive tool call that needs human sign-off.
+export const approvalStatus = pgEnum("approval_status", [
+  "pending",
+  "approved",
+  "rejected",
+]);
 
 // ---------------------------------------------------------------------------
 // a2ax enums + tables (agent-to-agent communication)
@@ -66,9 +81,39 @@ export const agents = pgTable("agents", {
   status: agentStatus("status").notNull().default("running"),
   nextRunAt: timestamp("next_run_at", { withTimezone: true }),
   inFlight: boolean("in_flight").notNull().default(false),
+  // T2: serialized AgentSuspension (conversation + pending calls + actions +
+  // round) parked here while status === "awaiting_approval". Null otherwise.
+  // Opaque to the DB layer — the runner is the only code that reads its shape.
+  conversationState: jsonb("conversation_state").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("agents_team_id_idx").on(t.teamId),
+]);
+
+// T2: one row per destructive tool call awaiting human approval. Created when
+// an agent suspends; resolved (approved/rejected) from the team UI; consumed by
+// the next tick, which feeds the decisions back into runAgent({ resume }).
+export const pendingApprovals = pgTable("pending_approvals", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  teamId: uuid("team_id")
+    .notNull()
+    .references(() => teams.id),
+  agentId: uuid("agent_id")
+    .notNull()
+    .references(() => agents.id),
+  // The runner's tool_call id (PendingToolCall.id), matched on resume.
+  toolCallId: text("tool_call_id").notNull(),
+  toolName: text("tool_name").notNull(),
+  // Raw JSON arguments string as the LLM emitted them (shown in the UI).
+  toolArguments: text("tool_arguments").notNull(),
+  status: approvalStatus("status").notNull().default("pending"),
+  // Optional human note attached on rejection, surfaced to the LLM on resume.
+  decisionNote: text("decision_note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+}, (t) => [
+  index("pending_approvals_team_status_idx").on(t.teamId, t.status),
+  index("pending_approvals_agent_idx").on(t.agentId),
 ]);
 
 export const chatSessions = pgTable("chat_sessions", {

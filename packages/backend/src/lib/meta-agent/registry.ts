@@ -119,6 +119,19 @@ export class ToolRegistry {
   }
 
   /**
+   * Whether a tool requires human approval before running: true if the tool is
+   * registered with risk "destructive", OR if it is unknown (fail safe — an
+   * unrecognized tool name is never auto-approved). Pass this to
+   * approveAgentAction / runAgent({ isDestructive }) to back the approval gate
+   * with the registry's risk labels.
+   */
+  isDestructive = (toolName: string): boolean => {
+    const tool = this.tools.get(toolName);
+    if (!tool) return true;
+    return tool.def.risk === "destructive";
+  };
+
+  /**
    * Validate raw LLM arguments against the tool's schema, then run its impl.
    * Never throws: an unknown tool or a schema-validation failure comes back as
    * a `success: false` result whose `result` string explains the problem, so
