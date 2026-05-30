@@ -111,8 +111,18 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
       let args: Record<string, unknown>;
       try {
         args = JSON.parse(tc.function.arguments);
-      } catch {
-        args = {};
+      } catch (err) {
+        // Don't silently swallow malformed JSON into empty args — that makes the
+        // tool run with no inputs and the LLM never learns its output was broken,
+        // so it repeats the same mistake. Feed the parse error back as a tool
+        // result so the model can correct itself on the next round.
+        const errMsg = err instanceof Error ? err.message : String(err);
+        messages.push({
+          role: "tool",
+          tool_call_id: tc.id,
+          content: `Error: tool "${tc.function.name}" arguments were not valid JSON (${errMsg}). Retry the call with properly formatted JSON arguments.`,
+        });
+        continue;
       }
 
       const result = await executeTool(

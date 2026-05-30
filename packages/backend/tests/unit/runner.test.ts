@@ -262,27 +262,72 @@ describe("runAgent", () => {
     expect(result.payload.agent).toBe("test-agent");
   });
 
-  it("handles malformed JSON in tool arguments gracefully", async () => {
-    const config = makeConfig({
-      llm: makeLLM([
-        {
-          content: null,
-          tool_calls: [{
-            id: "call_1",
-            function: {
-              name: "report_action",
-              arguments: "not valid json {{{",
-            },
-          }],
+  // D10 (v0.1 eng review): malformed tool-call JSON must NOT be silently
+  // swallowed into empty args. The runner feeds the parse error back to the
+  // LLM as a tool result so the model can self-correct, and never executes
+  // the tool with empty inputs.
+  it("feeds a parse error back to the LLM when tool arguments are not valid JSON", async () => {
+    const a2ax = {
+      sendDirect: vi.fn().mockResolvedValue(undefined),
+      broadcast: vi.fn().mockResolvedValue(undefined),
+    };
+    const createFn = vi
+      .fn()
+      // Round 1: malformed arguments on a broadcast call.
+      .mockResolvedValueOnce({
+        choices: [{
+          message: {
+            content: null,
+            tool_calls: [{
+              id: "call_bad",
+              function: { name: "broadcast", arguments: "{not valid json" },
+            }],
+          },
           finish_reason: "tool_calls",
-        },
-        { content: "Done.", finish_reason: "stop" },
-      ]),
+        }],
+      })
+      // Round 2: LLM recovers with a well-formed call.
+      .mockResolvedValueOnce({
+        choices: [{
+          message: {
+            content: null,
+            tool_calls: [{
+              id: "call_good",
+              function: {
+                name: "broadcast",
+                arguments: JSON.stringify({ content: "recovered" }),
+              },
+            }],
+          },
+          finish_reason: "tool_calls",
+        }],
+      })
+      .mockResolvedValue({
+        choices: [{ message: { content: "Done.", tool_calls: undefined }, finish_reason: "stop" }],
+      });
+
+    const config = makeConfig({
+      a2ax,
+      llm: { chat: { completions: { create: createFn } } },
     });
 
-    // Should not throw
     const result = await runAgent(config);
-    expect(result).toBeDefined();
+
+    // The malformed call must never reach the broadcast sender with empty args;
+    // only the recovered, well-formed call should have executed.
+    expect(a2ax.broadcast).toHaveBeenCalledTimes(1);
+    expect(a2ax.broadcast).toHaveBeenCalledWith("team-1", "agent-1", "recovered");
+
+    // Round 2's message list must carry a tool result for the failed call
+    // describing the parse error, so the model knew why to retry.
+    const round2Messages = createFn.mock.calls[1][0].messages as Array<Record<string, unknown>>;
+    const errResult = round2Messages.find(
+      (m) => m.role === "tool" && m.tool_call_id === "call_bad",
+    );
+    expect(errResult).toBeDefined();
+    expect(String(errResult?.content)).toMatch(/not valid JSON/i);
+
+    expect(result.actionType).toBe("broadcast_sent");
   });
 
   it("respects MAX_TOOL_ROUNDS limit (3 rounds)", async () => {

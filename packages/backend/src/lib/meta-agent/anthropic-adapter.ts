@@ -6,15 +6,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { LLMClient } from "./runner";
-
-interface OpenAIToolDef {
-  type: "function";
-  function: {
-    name: string;
-    description?: string;
-    parameters?: Record<string, unknown>;
-  };
-}
+import type { OpenAIToolDef } from "./types";
 
 interface AnthropicTool {
   name: string;

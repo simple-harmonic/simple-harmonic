@@ -9,6 +9,7 @@ import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { LLMClient } from "./runner";
+import type { OpenAIToolDef } from "./types";
 
 interface CodexEvent {
   type: string;
@@ -32,15 +33,6 @@ interface OpenAIMessage {
     type: string;
     function: { name: string; arguments: string };
   }>;
-}
-
-interface OpenAIToolDef {
-  type: "function";
-  function: {
-    name: string;
-    description?: string;
-    parameters?: Record<string, unknown>;
-  };
 }
 
 /**

@@ -2,6 +2,8 @@
 // Agent tool definitions + execution
 // ---------------------------------------------------------------------------
 
+import type { OpenAIToolDef } from "./types";
+
 export interface ToolResult {
   actionType: string;
   payload: Record<string, unknown>;
@@ -26,9 +28,9 @@ export interface ToolExecContext {
 // OpenAI-format tool definitions for the agent LLM call
 // ---------------------------------------------------------------------------
 
-export const AGENT_TOOL_DEFS = [
+export const AGENT_TOOL_DEFS: OpenAIToolDef[] = [
   {
-    type: "function" as const,
+    type: "function",
     function: {
       name: "send_message",
       description:
@@ -50,7 +52,7 @@ export const AGENT_TOOL_DEFS = [
     },
   },
   {
-    type: "function" as const,
+    type: "function",
     function: {
       name: "broadcast",
       description:
@@ -68,7 +70,7 @@ export const AGENT_TOOL_DEFS = [
     },
   },
   {
-    type: "function" as const,
+    type: "function",
     function: {
       name: "report_action",
       description:

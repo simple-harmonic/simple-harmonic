@@ -12,3 +12,4 @@ export type {
   TeamLike,
   ToolCallLike,
 } from "./approval";
+export type { OpenAIToolDef } from "./types";
