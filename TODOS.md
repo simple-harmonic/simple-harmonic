@@ -34,6 +34,14 @@ Tracked work items derived from `/office-hours`, `/plan-eng-review`, and `/plan-
 
 ### Engineering gotchas to handle correctly
 
+- **Repair drizzle-kit migration state (broken by monorepo restructure)**
+  - What: `drizzle-kit generate` does not work cleanly. Two problems found during T2 (2026-05-30): (1) `drizzle.config.ts` `schema` path pointed at `./src/server/db/schema.ts`, which no longer exists post-restructure (now fixed to `packages/backend/src/server/db/schema.ts`). (2) The migration journal `drizzle/meta/_journal.json` is out of sync: it stops at `0002` while `0003_add_cofounder_name.sql` and now `0004_add_pending_approvals.sql` exist on disk, and `drizzle/meta/` only has snapshots `0000`/`0001`. Migrations 0002+ appear to be hand-written.
+  - Why: Until the journal + snapshots are rebuilt, every new migration must be hand-written and `drizzle-kit generate` can't be trusted. That is error-prone and will eventually drift the schema from the migrations.
+  - Pros: Restores `db:generate`/`db:migrate` so schema changes are mechanical and verified against the snapshot.
+  - Cons: Fiddly: needs regenerating snapshots from current schema, reconciling the journal with the on-disk SQL, and verifying against a real Postgres. ~half-day human / ~30 min CC.
+  - Context: Surfaced while adding `0004_add_pending_approvals.sql` for T2. The migration is hand-written and idempotent (IF NOT EXISTS / duplicate_object guards) so it applies safely regardless.
+  - Blocked by: Nothing; do before the next schema change after T2.
+
 - **Anthropic tool-use retry without streaming initially**
   - What: Build the planner's 3-retry loop on the NON-streaming tool-use API first. Add streaming polish later if at all.
   - Why: Streaming tool-use deltas can't be schema-validated until the content block closes, which makes retry logic fiddly. Cold-read identified this as the Tuesday-Wednesday gotcha.
