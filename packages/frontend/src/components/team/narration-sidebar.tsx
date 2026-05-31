@@ -35,7 +35,7 @@ function formatTime(iso: string) {
 // types from tools.ts (message_sent, broadcast_sent, multi_action, agent_thought,
 // noop) plus whatever the agent passes to `report_action`. Keep the unknown-fallback
 // readable so custom action types are still informative.
-function describeAction(actionType: string, payload: Record<string, unknown>): string {
+export function describeAction(actionType: string, payload: Record<string, unknown>): string {
   switch (actionType) {
     // a2ax tool calls (runner)
     case "message_sent":
@@ -164,10 +164,20 @@ export function NarrationSidebar({ entries, isLive }: NarrationSidebarProps) {
               </span>{" "}
               <span className="text-fg-muted break-words">{entry.description}</span>
             </div>
+            {entry.detail && (
+              <details className="mt-1 rounded border border-border bg-bg-subtle">
+                <summary className="cursor-pointer px-2 py-1 text-[10px] font-mono uppercase tracking-wide text-fg-faint">
+                  output
+                </summary>
+                <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words px-2 pb-2 font-mono text-[11px] text-fg-muted">
+                  {entry.detail}
+                </pre>
+              </details>
+            )}
           </div>
         ))}
       </div>
-      <style jsx>{`
+      <style>{`
         @keyframes narration-fade-in {
           from {
             opacity: 0;
@@ -182,5 +192,3 @@ export function NarrationSidebar({ entries, isLive }: NarrationSidebarProps) {
     </aside>
   );
 }
-
-export { describeAction };

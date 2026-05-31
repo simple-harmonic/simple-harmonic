@@ -15,7 +15,7 @@ interface AgentData extends Record<string, unknown> {
   id: string;
   name: string;
   role: string;
-  status: "running" | "paused" | "errored";
+  status: "running" | "paused" | "errored" | "awaiting_approval";
   inFlight: boolean;
   scheduleSeconds: number;
 }
@@ -31,6 +31,7 @@ const STATUS_COLORS = {
   running: "var(--running)",
   paused: "var(--paused)",
   errored: "var(--error)",
+  awaiting_approval: "var(--brand)",
 };
 
 function AccentBadge({ color, label }: { color: string; label: string }) {
@@ -96,7 +97,7 @@ function MetaAgentNode({ data }: { data: { cofounderName: string } }) {
 
 function AgentNode({ data }: { data: AgentData }) {
   const statusColor = STATUS_COLORS[data.status];
-  const statusLabel = data.inFlight ? "THINKING" : data.status.toUpperCase();
+  const statusLabel = data.inFlight ? "THINKING" : data.status.replace(/_/g, " ").toUpperCase();
 
   return (
     <div className="flex border border-border rounded-sm overflow-hidden w-[520px] cursor-pointer hover:border-border-strong transition-colors">
@@ -190,7 +191,7 @@ export function AgentGraph({ agents, cofounderName, userName, onAgentClick, onMe
       source: "meta",
       target: a.id,
       style: { stroke: "var(--border-strong)", strokeWidth: 1.5 },
-      animated: a.status === "running",
+      animated: a.status === "running" || a.status === "awaiting_approval",
     })),
   ];
 

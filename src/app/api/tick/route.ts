@@ -1,16 +1,12 @@
-import OpenAI from "openai";
-import { eq, sql } from "drizzle-orm";
-import { NextResponse } from "next/server";
 import { approveAgentTick, runAgent } from "@simple-harmonic/backend/lib/meta-agent";
+import { createAnthropicClient } from "@simple-harmonic/backend/lib/meta-agent/anthropic-adapter";
+import { createCodexClient } from "@simple-harmonic/backend/lib/meta-agent/codex-adapter";
 import type {
   AgentSuspension,
   LLMClient,
   ToolDecision,
 } from "@simple-harmonic/backend/lib/meta-agent/runner";
-import { createAnthropicClient } from "@simple-harmonic/backend/lib/meta-agent/anthropic-adapter";
-import { createCodexClient } from "@simple-harmonic/backend/lib/meta-agent/codex-adapter";
 import type { PeerAgent } from "@simple-harmonic/backend/lib/meta-agent/tools";
-import { createAppRegistry } from "@simple-harmonic/backend/server/tools";
 import { getA2AX } from "@simple-harmonic/backend/server/a2ax";
 import { getApiKeySource, getConfig } from "@simple-harmonic/backend/server/config";
 import { db } from "@simple-harmonic/backend/server/db";
@@ -20,6 +16,10 @@ import {
   pendingApprovals,
   teams,
 } from "@simple-harmonic/backend/server/db/schema";
+import { createAppRegistry } from "@simple-harmonic/backend/server/tools";
+import { and, eq, sql } from "drizzle-orm";
+import { NextResponse } from "next/server";
+import OpenAI from "openai";
 
 // Skip ticks for teams with no recent user activity to control costs.
 const HIBERNATE_THRESHOLD_MS = 5 * 60 * 1000;
@@ -90,7 +90,10 @@ export async function POST() {
     // Auto-recover errored agents: reset to running so they retry on next tick.
     for (const a of allAgents) {
       if (a.status === "errored") {
-        await d.update(agents).set({ status: "running", inFlight: false }).where(eq(agents.id, a.id));
+        await d
+          .update(agents)
+          .set({ status: "running", inFlight: false })
+          .where(eq(agents.id, a.id));
         a.status = "running";
         a.inFlight = false;
       }
@@ -158,20 +161,36 @@ class AgentTimeoutError extends Error {
 }
 
 /**
- * Race a promise against a wall-clock budget. On timeout, rejects with
- * AgentTimeoutError; the underlying work keeps running but its result is
- * ignored (the runner has no cancellation hook). The timer is always cleared so
- * a resolved race doesn't keep the event loop alive.
+ * Race a run against a wall-clock budget. On timeout, aborts the run's signal
+ * so provider adapters that support cancellation stop doing work, then rejects
+ * with AgentTimeoutError. The timer is always cleared so a resolved race
+ * doesn't keep the event loop alive.
  */
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+function withTimeout<T>(
+  run: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new AgentTimeoutError(label, ms)), ms);
-    p.then(
+    const controller = new AbortController();
+    let settled = false;
+    const timeoutError = new AgentTimeoutError(label, ms);
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      controller.abort(timeoutError);
+      reject(timeoutError);
+    }, ms);
+    run(controller.signal).then(
       (v) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         resolve(v);
       },
       (e) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         reject(e);
       },
@@ -199,26 +218,30 @@ interface RunArgs {
 async function runFreshAgent(args: RunArgs): Promise<boolean> {
   const { d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs } = args;
 
-  await d.update(agents).set({ inFlight: true }).where(eq(agents.id, agent.id));
+  const claimed = await claimAgent(d, agent, "running");
+  if (!claimed) return false;
 
   try {
     const ctx = await a2ax.getAgentContext(team.id, agent.id);
 
     const result = await withTimeout(
-      runAgent({
-        name: agent.name,
-        archetype: agent.archetype,
-        tools: agent.tools as string[],
-        initialPrompt: agent.initialPrompt,
-        a2axContext: ctx.formatted || undefined,
-        teamId: team.id,
-        agentId: agent.id,
-        peers: buildPeers(allAgents, agent.id),
-        a2ax,
-        llm,
-        model: modelOverride,
-        isDestructive: registry.isDestructive,
-      }),
+      (signal) =>
+        runAgent({
+          name: agent.name,
+          archetype: agent.archetype,
+          tools: agent.tools as string[],
+          initialPrompt: agent.initialPrompt,
+          a2axContext: ctx.formatted || undefined,
+          teamId: team.id,
+          agentId: agent.id,
+          peers: buildPeers(allAgents, agent.id),
+          a2ax,
+          llm,
+          model: modelOverride,
+          signal,
+          toolRegistry: registry,
+          isDestructive: registry.isDestructive,
+        }),
       timeoutMs,
       `agent ${agent.name}`,
     );
@@ -240,16 +263,11 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
 async function tryResumeAgent(args: RunArgs): Promise<boolean> {
   const { d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs } = args;
 
-  const rows = await d.query.pendingApprovals.findMany({
-    where: eq(pendingApprovals.agentId, agent.id),
-  });
-  // Only consider the still-open batch (pending rows block resume).
-  const stillPending = rows.filter((r) => r.status === "pending");
-  if (stillPending.length > 0) return false;
-
   const suspension = agent.conversationState as AgentSuspension | null;
   if (!suspension) {
-    // Defensive: parked with no state. Clear the flag and let it tick fresh.
+    // Defensive: parked with no state. Clear both sides of the parked state so
+    // stale approval cards cannot linger or contaminate a later suspension.
+    await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
     await d
       .update(agents)
       .set({ status: "running", inFlight: false, conversationState: null })
@@ -257,30 +275,50 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
     return false;
   }
 
-  const decisions: ToolDecision[] = rows.map((r) => ({
-    id: r.toolCallId,
-    approved: r.status === "approved",
-    note: r.decisionNote ?? undefined,
-  }));
+  const rows = await d.query.pendingApprovals.findMany({
+    where: eq(pendingApprovals.agentId, agent.id),
+  });
+  const expectedIds = new Set(suspension.pending.map((p) => p.id));
+  const decisionRows = rows.filter((r) => expectedIds.has(r.toolCallId));
 
-  await d.update(agents).set({ inFlight: true }).where(eq(agents.id, agent.id));
+  // Missing approval rows means the parking write was incomplete. Hold rather
+  // than implicitly treating the missing human decision as a rejection.
+  if (decisionRows.length < suspension.pending.length) return false;
+  const stillPending = decisionRows.filter((r) => r.status === "pending");
+  if (stillPending.length > 0) return false;
+
+  const rowByToolCallId = new Map(decisionRows.map((r) => [r.toolCallId, r]));
+  const decisions: ToolDecision[] = suspension.pending.map((p) => {
+    const r = rowByToolCallId.get(p.id);
+    return {
+      id: p.id,
+      approved: r?.status === "approved",
+      note: r?.decisionNote ?? undefined,
+    };
+  });
+
+  const claimed = await claimAgent(d, agent, "awaiting_approval");
+  if (!claimed) return false;
 
   try {
     const result = await withTimeout(
-      runAgent({
-        name: agent.name,
-        archetype: agent.archetype,
-        tools: agent.tools as string[],
-        initialPrompt: agent.initialPrompt,
-        teamId: team.id,
-        agentId: agent.id,
-        peers: buildPeers(allAgents, agent.id),
-        a2ax,
-        llm,
-        model: modelOverride,
-        isDestructive: registry.isDestructive,
-        resume: { suspension, decisions },
-      }),
+      (signal) =>
+        runAgent({
+          name: agent.name,
+          archetype: agent.archetype,
+          tools: agent.tools as string[],
+          initialPrompt: agent.initialPrompt,
+          teamId: team.id,
+          agentId: agent.id,
+          peers: buildPeers(allAgents, agent.id),
+          a2ax,
+          llm,
+          model: modelOverride,
+          signal,
+          toolRegistry: registry,
+          isDestructive: registry.isDestructive,
+          resume: { suspension, decisions },
+        }),
       timeoutMs,
       `agent ${agent.name} (resume)`,
     );
@@ -294,6 +332,19 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
     await failAgent({ d, agent, now, err, phase: "resume" });
     return false;
   }
+}
+
+async function claimAgent(
+  d: ReturnType<typeof db>,
+  agent: AgentRow,
+  status: AgentRow["status"],
+): Promise<boolean> {
+  const claimed = await d
+    .update(agents)
+    .set({ inFlight: true })
+    .where(and(eq(agents.id, agent.id), eq(agents.inFlight, false), eq(agents.status, status)))
+    .returning({ id: agents.id });
+  return claimed.length > 0;
 }
 
 /** Common failure handling: log, error the agent, advance nextRunAt, clear state. */
@@ -334,32 +385,34 @@ async function handleRunResult(args: {
 
   if (result.suspension) {
     const s = result.suspension;
-    await d
-      .update(agents)
-      .set({
-        inFlight: false,
-        status: "awaiting_approval",
-        conversationState: s as unknown as Record<string, unknown>,
-      })
-      .where(eq(agents.id, agent.id));
+    await d.transaction(async (tx) => {
+      await tx
+        .update(agents)
+        .set({
+          inFlight: false,
+          status: "awaiting_approval",
+          conversationState: s as unknown as Record<string, unknown>,
+        })
+        .where(eq(agents.id, agent.id));
 
-    if (s.pending.length > 0) {
-      await d.insert(pendingApprovals).values(
-        s.pending.map((p) => ({
-          teamId: agent.teamId,
-          agentId: agent.id,
-          toolCallId: p.id,
-          toolName: p.name,
-          toolArguments: p.arguments,
-        })),
-      );
-    }
+      if (s.pending.length > 0) {
+        await tx.insert(pendingApprovals).values(
+          s.pending.map((p) => ({
+            teamId: agent.teamId,
+            agentId: agent.id,
+            toolCallId: p.id,
+            toolName: p.name,
+            toolArguments: p.arguments,
+          })),
+        );
+      }
 
-    // Log the suspension so it shows in the narration feed.
-    await d.insert(actionLog).values({
-      agentId: agent.id,
-      actionType: "awaiting_approval",
-      payload: result.payload,
+      // Log the suspension so it shows in the narration feed.
+      await tx.insert(actionLog).values({
+        agentId: agent.id,
+        actionType: "awaiting_approval",
+        payload: result.payload,
+      });
     });
     return;
   }

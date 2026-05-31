@@ -7,7 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
-import { dirname, relative } from "node:path";
+import { basename, dirname, relative } from "node:path";
 import { z } from "zod";
 import type { ToolDefinition, ToolImpl } from "../../lib/meta-agent/registry";
 import { resolveInJailReal, toolsRoot, toolsEnabled, JailEscapeError } from "./sandbox";
@@ -44,6 +44,14 @@ export const readFileDef: ToolDefinition<typeof readFileSchema> = {
 export const readFileImpl: ToolImpl<typeof readFileSchema> = async (args) => {
   try {
     const abs = await resolveInJailReal(args.path);
+    const rel = relative(toolsRoot(), abs);
+    if (isSensitivePath(rel)) {
+      return {
+        toolName: "read_file",
+        success: false,
+        result: `Refusing to read sensitive path: ${args.path}`,
+      };
+    }
     const info = await stat(abs);
     if (!info.isFile()) {
       return {
@@ -135,4 +143,14 @@ function errToMessage(tool: string, path: string, err: unknown): string {
   if (code === "EACCES") return `Permission denied: ${path}`;
   if (code === "EISDIR") return `Path is a directory, not a file: ${path}`;
   return `${tool} failed for ${path}: ${err instanceof Error ? err.message : String(err)}`;
+}
+
+function isSensitivePath(path: string): boolean {
+  const normalized = path.replaceAll("\\", "/").toLowerCase();
+  const base = basename(normalized);
+  if (base.startsWith(".env") && !/\.(example|sample|template)$/.test(base)) return true;
+  if ([".npmrc", ".pypirc", ".netrc"].includes(base)) return true;
+  if (["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"].includes(base)) return true;
+  if (base.endsWith(".pem") || base.endsWith(".key")) return true;
+  return normalized === ".ssh" || normalized.startsWith(".ssh/") || normalized.includes("/.ssh/");
 }

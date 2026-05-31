@@ -241,7 +241,7 @@ function parseStructuredResponse(
   return { content: parsed.content ?? text };
 }
 
-function runCodexExec(prompt: string, model: string): Promise<string> {
+function runCodexExec(prompt: string, model: string, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     // Write prompt to a temp file to avoid shell escaping issues
     const tmpDir = mkdtempSync(join(tmpdir(), "sh-codex-"));
@@ -263,13 +263,18 @@ function runCodexExec(prompt: string, model: string): Promise<string> {
       "-",
     ];
 
+    let settled = false;
+    const cleanup = () => {
+      try { rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
+    };
     const child = execFile("codex", args, {
       timeout: 120_000,
       maxBuffer: 1024 * 1024,
       env: { ...process.env },
     }, (err, stdout, stderr) => {
-      // Cleanup temp files
-      try { rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
+      if (settled) return;
+      settled = true;
+      cleanup();
 
       if (err && !stdout) {
         reject(new Error(`codex exec failed: ${err.message}`));
@@ -277,6 +282,19 @@ function runCodexExec(prompt: string, model: string): Promise<string> {
       }
       resolve(stdout);
     });
+
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      cleanup();
+      reject(signal?.reason instanceof Error ? signal.reason : new Error("codex exec aborted"));
+    };
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
 
     // Pipe the prompt via stdin
     if (child.stdin) {
@@ -296,14 +314,14 @@ export function createCodexClient(opts?: { model?: string }): LLMClient {
   return {
     chat: {
       completions: {
-        create: async (params: Record<string, unknown>) => {
+        create: async (params: Record<string, unknown>, options?: { signal?: AbortSignal }) => {
           const messages = params.messages as OpenAIMessage[];
           const tools = params.tools as OpenAIToolDef[] | undefined;
           const requestModel = (params.model as string) || model;
 
           const prompt = buildCodexPrompt(messages, tools);
 
-          const output = await runCodexExec(prompt, requestModel);
+          const output = await runCodexExec(prompt, requestModel, options?.signal);
           const text = parseCodexOutput(output);
 
           if (!text) {

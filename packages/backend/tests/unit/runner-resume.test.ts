@@ -113,6 +113,45 @@ describe("runAgent — suspend on destructive tool", () => {
     expect(result.suspension?.round).toBe(1);
   });
 
+  it("defers safe calls from a mixed approval batch so every tool_call gets a result on resume", async () => {
+    const a2ax = {
+      sendDirect: vi.fn().mockResolvedValue(undefined),
+      broadcast: vi.fn().mockResolvedValue(undefined),
+    };
+    const { llm } = makeLLM([
+      {
+        content: null,
+        tool_calls: [
+          { id: "safe_1", function: { name: "broadcast", arguments: JSON.stringify({ content: "heads up" }) } },
+          { id: "danger_1", function: { name: "write_file", arguments: JSON.stringify({ path: "x.txt", content: "hi" }) } },
+        ],
+        finish_reason: "tool_calls",
+      },
+    ]);
+
+    const suspended = await runAgent(makeConfig({ a2ax, llm }));
+
+    expect(suspended.actionType).toBe("suspended");
+    expect(a2ax.broadcast).not.toHaveBeenCalled();
+    expect(suspended.suspension?.pending.map((c) => c.id)).toEqual(["danger_1"]);
+    expect(suspended.suspension?.deferredSafe?.map((c) => c.id)).toEqual(["safe_1"]);
+
+    const resumedLLM = makeLLM([{ content: "done", finish_reason: "stop" }]);
+    const resumed = await runAgent(
+      makeConfig({
+        a2ax,
+        llm: resumedLLM.llm,
+        resume: {
+          suspension: suspended.suspension!,
+          decisions: [{ id: "danger_1", approved: true }],
+        },
+      }),
+    );
+
+    expect(a2ax.broadcast).toHaveBeenCalledWith("team-1", "agent-1", "heads up");
+    expect(resumed.actionType).toBe("broadcast_sent");
+  });
+
   it("does not suspend when no classifier is provided (pre-T2 behavior)", async () => {
     // Without isDestructive, every tool runs inline. A 'write_file' here would
     // fall through to executeTool and come back as an unknown-tool error, but

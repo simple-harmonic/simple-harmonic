@@ -122,7 +122,7 @@ export interface ToolCallLike {
  * Kept as an injected predicate so this module stays pure — no import of the
  * registry, no I/O — and remains trivially testable.
  */
-export type DestructiveClassifier = (toolName: string) => boolean;
+export type DestructiveClassifier = (toolName: string, rawArgs?: unknown) => boolean;
 
 /**
  * Decide whether a single tool call may execute without human sign-off.
@@ -142,7 +142,7 @@ export function approveAgentAction(
   call: ToolCallLike,
   isDestructive: DestructiveClassifier = () => true,
 ): ApprovalDecision {
-  if (!isDestructive(call.toolName)) {
+  if (!isDestructive(call.toolName, call.arguments)) {
     return { allowed: true };
   }
   return {

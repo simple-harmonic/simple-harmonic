@@ -24,19 +24,14 @@ const TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_BYTES = 64 * 1024;
 
 // Allowlisted programs. Read-mostly dev tooling for dogfooding. Anything not
-// here is refused. git is allowed but write-capable subcommands are filtered
-// below — the allowlist is per-program, the deny-list is per-git-subcommand.
+// here is refused. Interpreters/package runners are intentionally excluded:
+// they can execute arbitrary code and bypass a command allowlist.
 const ALLOWED_PROGRAMS = new Set([
   "git",
   "ls",
   "cat",
   "rg",
   "grep",
-  "find",
-  "node",
-  "npm",
-  "npx",
-  "bun",
   "tsc",
   "vitest",
   "echo",
@@ -46,26 +41,24 @@ const ALLOWED_PROGRAMS = new Set([
   "tail",
 ]);
 
-// git subcommands that mutate remote/repo state. Refused even though `git`
-// is allowed, so an agent can inspect (status/log/diff) but not push/reset
-// while the gate is still maturing.
-const DENIED_GIT_SUBCOMMANDS = new Set([
-  "push",
-  "reset",
-  "clean",
-  "rebase",
-  "merge",
-  "commit",
-  "checkout",
-  "switch",
-  "restore",
+// Explicit read-only git subcommands. A denylist is too easy to bypass with
+// write-capable porcelain like apply, worktree, tag -d, config, or aliases.
+const ALLOWED_GIT_SUBCOMMANDS = new Set([
+  "status",
+  "log",
+  "diff",
+  "show",
+  "rev-parse",
+  "ls-files",
+  "grep",
+  "blame",
 ]);
 
 const runCommandSchema = z.object({
   command: z
     .string()
     .describe(
-      "Program to run (must be on the allowlist, e.g. git, ls, rg, node). No shell features.",
+      "Program to run (must be on the allowlist, e.g. git, ls, rg, vitest). No shell features.",
     ),
   args: z
     .array(z.string())
@@ -76,7 +69,7 @@ const runCommandSchema = z.object({
 export const runCommandDef: ToolDefinition<typeof runCommandSchema> = {
   name: "run_command",
   description:
-    "Run an allowlisted program in the project working directory and return its output. Arguments are passed as a literal argv — there is no shell, so pipes/redirection/variable expansion do not work. Allowed: git (read-only subcommands), ls, cat, rg, grep, find, node, npm, npx, bun, tsc, vitest, echo, pwd, wc, head, tail.",
+    "Run an allowlisted program in the project working directory and return its output. Arguments are passed as a literal argv — there is no shell, so pipes/redirection/variable expansion do not work. Allowed: git (read-only subcommands), ls, cat, rg, grep, tsc, vitest, echo, pwd, wc, head, tail.",
   category: "shell",
   risk: "destructive",
   schema: runCommandSchema,
@@ -103,12 +96,24 @@ export const runCommandImpl: ToolImpl<typeof runCommandSchema> = async (args) =>
     };
   }
 
-  if (program === "git" && argv.length > 0 && DENIED_GIT_SUBCOMMANDS.has(argv[0])) {
+  const badArg = argv.find(isEscapingArg);
+  if (badArg) {
     return {
       toolName: "run_command",
       success: false,
-      result: `git ${argv[0]} is not allowed (mutates repo/remote state). Use read-only git subcommands like status, log, diff, show.`,
+      result: `Argument "${badArg}" is not allowed because it can access paths outside the working directory`,
     };
+  }
+
+  if (program === "git") {
+    const subcommand = argv[0];
+    if (!subcommand || !ALLOWED_GIT_SUBCOMMANDS.has(subcommand)) {
+      return {
+        toolName: "run_command",
+        success: false,
+        result: `git ${subcommand ?? "(missing subcommand)"} is not allowed. Use read-only git subcommands like status, log, diff, show, ls-files, grep, or blame.`,
+      };
+    }
   }
 
   return new Promise((resolvePromise) => {
@@ -168,3 +173,11 @@ export const runCommandImpl: ToolImpl<typeof runCommandSchema> = async (args) =>
     );
   });
 };
+
+function isEscapingArg(arg: string): boolean {
+  if (arg.includes("\0")) return true;
+  if (arg.startsWith("/") || arg === "~" || arg.startsWith("~/")) return true;
+  if (arg === ".." || arg.startsWith("../") || arg.includes("/../")) return true;
+  if (/^--(?:git-dir|work-tree|output|exec-path)=/.test(arg)) return true;
+  return false;
+}

@@ -10,7 +10,7 @@ interface AgentInfo {
   id: string;
   name: string;
   role: string;
-  status: "running" | "paused" | "errored";
+  status: "running" | "paused" | "errored" | "awaiting_approval";
 }
 
 interface ActionEntry {
@@ -118,6 +118,7 @@ const STATUS_STYLE: Record<string, { dot: string; text: string; label: string }>
   running: { dot: "bg-running", text: "text-running", label: "running" },
   paused: { dot: "bg-paused", text: "text-paused", label: "paused" },
   errored: { dot: "bg-error", text: "text-error", label: "errored" },
+  awaiting_approval: { dot: "bg-brand", text: "text-brand", label: "awaiting approval" },
 };
 
 // ---------------------------------------------------------------------------

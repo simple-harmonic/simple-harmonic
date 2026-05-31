@@ -14,6 +14,11 @@ const mockInsertValues = vi.fn().mockReturnValue({ returning: mockInsertReturnin
 const mockInsert = vi.fn().mockReturnValue({ values: mockInsertValues });
 
 const mockDb = {
+  query: {
+    agents: {
+      findFirst: vi.fn(),
+    },
+  },
   update: mockUpdate,
   insert: mockInsert,
 };
@@ -58,6 +63,9 @@ function makeRequest(body: unknown): Request {
 describe("PATCH /api/agent/[id]", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDb.query.agents.findFirst.mockResolvedValue({ id: "agent-1", status: "running" });
+    mockUpdate.mockReturnValue({ set: mockSet });
+    mockSet.mockReturnValue({ where: mockWhere });
   });
 
   it("updates a valid field and returns the updated agent", async () => {
@@ -120,8 +128,34 @@ describe("PATCH /api/agent/[id]", () => {
     expect(mockUpdate).not.toHaveBeenCalled();
   });
 
+  it("returns 400 for protected approval status writes", async () => {
+    const res = await PATCH(
+      makeRequest({ status: "awaiting_approval" }),
+      { params: Promise.resolve({ id: "agent-1" }) },
+    );
+
+    expect(res.status).toBe(400);
+    expect(mockDb.query.agents.findFirst).not.toHaveBeenCalled();
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it("blocks wake/status changes while awaiting approval", async () => {
+    mockDb.query.agents.findFirst.mockResolvedValueOnce({
+      id: "agent-1",
+      status: "awaiting_approval",
+    });
+
+    const res = await PATCH(
+      makeRequest({ wake: true }),
+      { params: Promise.resolve({ id: "agent-1" }) },
+    );
+
+    expect(res.status).toBe(409);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
   it("returns 404 when agent is not found", async () => {
-    mockReturning.mockResolvedValueOnce([]);
+    mockDb.query.agents.findFirst.mockResolvedValueOnce(undefined);
 
     const res = await PATCH(
       makeRequest({ name: "ghost" }),
@@ -131,6 +165,7 @@ describe("PATCH /api/agent/[id]", () => {
     expect(res.status).toBe(404);
     const json = await res.json();
     expect(json.error).toBe("not found");
+    expect(mockUpdate).not.toHaveBeenCalled();
   });
 });
 

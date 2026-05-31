@@ -41,6 +41,8 @@ export interface ToolDefinition<S extends z.ZodType = z.ZodType> {
   description: string;
   category: ToolCategory;
   risk: ToolRisk;
+  /** Optional argument-aware risk classifier for tools with both read and write modes. */
+  isDestructive?: (args: z.infer<S>) => boolean;
   /** Zod schema for the tool's arguments. Also the source of its JSON Schema. */
   schema: S;
 }
@@ -125,9 +127,14 @@ export class ToolRegistry {
    * approveAgentAction / runAgent({ isDestructive }) to back the approval gate
    * with the registry's risk labels.
    */
-  isDestructive = (toolName: string): boolean => {
+  isDestructive = (toolName: string, rawArgs?: unknown): boolean => {
     const tool = this.tools.get(toolName);
     if (!tool) return true;
+    if (tool.def.isDestructive) {
+      const parsed = tool.def.schema.safeParse(rawArgs);
+      if (!parsed.success) return true;
+      return tool.def.isDestructive(parsed.data);
+    }
     return tool.def.risk === "destructive";
   };
 

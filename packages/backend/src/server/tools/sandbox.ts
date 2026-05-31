@@ -109,12 +109,12 @@ export async function resolveInJailReal(requestedPath: string): Promise<string> 
  */
 export function scrubbedEnv(): NodeJS.ProcessEnv {
   const allow = ["PATH", "HOME", "USER", "SHELL", "LANG", "LC_ALL", "TMPDIR", "TZ"];
-  const out: NodeJS.ProcessEnv = {};
+  const out: Record<string, string> = {};
   for (const key of allow) {
     const v = process.env[key];
     if (v !== undefined) out[key] = v;
   }
-  return out;
+  return out as NodeJS.ProcessEnv;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
+import { db } from "@simple-harmonic/backend/server/db";
+import { agents, pendingApprovals, teams } from "@simple-harmonic/backend/server/db/schema";
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { db } from "@simple-harmonic/backend/server/db";
-import { agents, pendingApprovals } from "@simple-harmonic/backend/server/db/schema";
 
 // GET /api/team/[id]/approvals — list pending approvals for the team's agents.
 // Powers the approval queue in the team view.
@@ -47,37 +47,40 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const d = db();
 
   const row = await d.query.pendingApprovals.findFirst({
-    where: and(
-      eq(pendingApprovals.id, body.approvalId),
-      eq(pendingApprovals.teamId, id),
-    ),
+    where: and(eq(pendingApprovals.id, body.approvalId), eq(pendingApprovals.teamId, id)),
   });
   if (!row) {
     return NextResponse.json({ error: "approval not found" }, { status: 404 });
   }
   if (row.status !== "pending") {
-    return NextResponse.json(
-      { error: `approval already ${row.status}` },
-      { status: 409 },
-    );
+    return NextResponse.json({ error: `approval already ${row.status}` }, { status: 409 });
   }
 
-  await d
+  const decidedAt = new Date();
+  const [resolved] = await d
     .update(pendingApprovals)
     .set({
       status: body.decision,
       decisionNote: body.note ?? null,
-      resolvedAt: new Date(),
+      resolvedAt: decidedAt,
     })
-    .where(eq(pendingApprovals.id, body.approvalId));
+    .where(
+      and(
+        eq(pendingApprovals.id, body.approvalId),
+        eq(pendingApprovals.teamId, id),
+        eq(pendingApprovals.status, "pending"),
+      ),
+    )
+    .returning({ agentId: pendingApprovals.agentId });
+  if (!resolved) {
+    return NextResponse.json({ error: "approval already resolved" }, { status: 409 });
+  }
 
   // Touch the agent so the resume pass re-checks it promptly. We don't change
   // status here — the tick route owns the parked -> running transition once all
   // approvals for the agent are resolved.
-  await d
-    .update(agents)
-    .set({ inFlight: false })
-    .where(eq(agents.id, row.agentId));
+  await d.update(agents).set({ inFlight: false }).where(eq(agents.id, resolved.agentId));
+  await d.update(teams).set({ lastUserActiveAt: decidedAt }).where(eq(teams.id, id));
 
   return NextResponse.json({ ok: true, decision: body.decision });
 }

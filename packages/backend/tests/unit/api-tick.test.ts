@@ -8,6 +8,7 @@ const mockInsertValues = vi.fn().mockResolvedValue(undefined);
 const mockInsert = vi.fn().mockReturnValue({ values: mockInsertValues });
 
 const mockWhereOnUpdate = vi.fn().mockResolvedValue(undefined);
+const mockUpdateReturning = vi.fn().mockResolvedValue([{ id: "agent-1" }]);
 const mockSet = vi.fn().mockReturnValue({ where: mockWhereOnUpdate });
 const mockUpdate = vi.fn().mockReturnValue({ set: mockSet });
 
@@ -29,6 +30,7 @@ const mockDb = {
   update: mockUpdate,
   insert: mockInsert,
   delete: mockDelete,
+  transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(mockDb)),
 };
 
 vi.mock("@/server/db", () => ({
@@ -36,10 +38,15 @@ vi.mock("@/server/db", () => ({
 }));
 
 vi.mock("@/server/db/schema", () => ({
-  teams: { id: "teams.id", paused: "teams.paused" },
-  agents: { id: "agents.id", teamId: "agents.teamId" },
+  teams: { id: "teams.id", paused: "teams.paused", tickCount: "teams.tickCount" },
+  agents: {
+    id: "agents.id",
+    teamId: "agents.teamId",
+    inFlight: "agents.inFlight",
+    status: "agents.status",
+  },
   actionLog: {},
-  pendingApprovals: { agentId: "pending_approvals.agentId" },
+  pendingApprovals: { agentId: "pending_approvals.agentId", status: "pending_approvals.status" },
 }));
 
 // T2: the tick route builds a tool registry to classify destructive tools.
@@ -49,6 +56,7 @@ vi.mock("@/server/tools", () => ({
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ _eq: val })),
+  and: vi.fn((...clauses: unknown[]) => ({ _and: clauses })),
   // The tick route builds an atomic increment via sql`${tickCount} + 1`.
   // Mock the tagged-template so the route code runs without a real driver.
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
@@ -166,7 +174,14 @@ beforeEach(() => {
   // Re-wire chained mock returns after clearAllMocks
   mockUpdate.mockReturnValue({ set: mockSet });
   mockSet.mockReturnValue({ where: mockWhereOnUpdate });
-  mockWhereOnUpdate.mockResolvedValue(undefined);
+  mockUpdateReturning.mockResolvedValue([{ id: "agent-1" }]);
+  mockWhereOnUpdate.mockImplementation(() => {
+    const result = Promise.resolve(undefined) as Promise<undefined> & {
+      returning: typeof mockUpdateReturning;
+    };
+    result.returning = mockUpdateReturning;
+    return result;
+  });
   mockInsert.mockReturnValue({ values: mockInsertValues });
   mockInsertValues.mockResolvedValue(undefined);
   mockDelete.mockReturnValue({ where: mockDeleteWhere });
@@ -179,6 +194,8 @@ beforeEach(() => {
   mockDb.query.teams.findMany.mockReset();
   mockDb.query.agents.findMany.mockReset();
   mockDb.query.pendingApprovals.findMany.mockReset();
+  mockDb.transaction.mockReset();
+  mockDb.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(mockDb));
   mockDb.query.teams.findMany.mockResolvedValue([]);
   mockDb.query.agents.findMany.mockResolvedValue([]);
   mockDb.query.pendingApprovals.findMany.mockResolvedValue([]);
@@ -440,6 +457,7 @@ describe("POST /api/tick — approval suspend/resume", () => {
 
     await POST();
 
+    expect(mockDb.transaction).toHaveBeenCalled();
     // Agent parked: status awaiting_approval + conversation state saved.
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({

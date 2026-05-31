@@ -105,6 +105,65 @@ describe("runAgent", () => {
     expect(result.payload.summary).toBe("all good");
   });
 
+  it("offers and executes tools from an injected app registry", async () => {
+    const execute = vi.fn().mockResolvedValue({
+      toolName: "read_file",
+      success: true,
+      result: "file contents",
+      action: { actionType: "file_read", payload: { path: "notes.txt" } },
+    });
+    const registry = {
+      execute,
+      getOpenAIDefs: vi.fn().mockReturnValue([
+        {
+          type: "function",
+          function: {
+            name: "read_file",
+            description: "Read a file",
+            parameters: { type: "object", properties: {} },
+          },
+        },
+      ]),
+      listForAgent: vi.fn().mockReturnValue([{ name: "read_file", description: "Read a file" }]),
+      isDestructive: vi.fn().mockReturnValue(false),
+    };
+    const config = makeConfig({
+      tools: ["read_file"],
+      toolRegistry: registry,
+      llm: makeLLM([
+        {
+          content: null,
+          tool_calls: [
+            {
+              id: "call_read",
+              function: {
+                name: "read_file",
+                arguments: JSON.stringify({ path: "notes.txt" }),
+              },
+            },
+          ],
+          finish_reason: "tool_calls",
+        },
+        { content: "Done.", finish_reason: "stop" },
+      ]),
+    });
+
+    const result = await runAgent(config);
+
+    expect(registry.getOpenAIDefs).toHaveBeenCalledWith([
+      "send_message",
+      "broadcast",
+      "report_action",
+      "read_file",
+    ]);
+    expect(execute).toHaveBeenCalledWith(
+      "read_file",
+      { path: "notes.txt" },
+      expect.objectContaining({ agentId: "agent-1" }),
+    );
+    expect(result.actionType).toBe("file_read");
+  });
+
   it("executes send_message tool call and calls a2ax", async () => {
     const a2ax = {
       sendDirect: vi.fn().mockResolvedValue(undefined),

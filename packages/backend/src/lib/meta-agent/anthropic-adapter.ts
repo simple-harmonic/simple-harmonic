@@ -113,7 +113,7 @@ export function createAnthropicClient(opts: {
   return {
     chat: {
       completions: {
-        create: async (params: Record<string, unknown>) => {
+        create: async (params: Record<string, unknown>, options?: { signal?: AbortSignal }) => {
           const { system, messages } = convertMessages(
             params.messages as Array<Record<string, unknown>>,
           );
@@ -131,6 +131,7 @@ export function createAnthropicClient(opts: {
 
           const response = await client.messages.create(
             anthropicParams as unknown as Parameters<typeof client.messages.create>[0],
+            options?.signal ? { signal: options.signal } : undefined,
           ) as Anthropic.Message;
 
           // Convert Anthropic response to OpenAI format

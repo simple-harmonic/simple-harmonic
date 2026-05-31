@@ -79,6 +79,10 @@ async function runPlannerEval(): Promise<EvalReport[]> {
 async function main(): Promise<void> {
   console.log("=== Planner eval (10 vision inputs) ===");
   const planner = await runPlannerEval();
+  if (planner.length === 0) {
+    console.log("\nPlanner: 0/0 passed (no provider configured)");
+    process.exit(1);
+  }
   const s = summarize(planner);
   console.log(`\nPlanner: ${s.passed}/${s.total} passed (${Math.round(s.passRate * 100)}%)`);
 

@@ -104,6 +104,14 @@ describe("read_file", () => {
     expect(res.action?.payload.output).toBe("world");
   });
 
+  it("refuses to read sensitive files from the jail", async () => {
+    writeFileSync(join(jail, ".env"), "OPENAI_API_KEY=sk-secret");
+    const res = await readFileImpl({ path: ".env" }, ctx());
+    expect(res.success).toBe(false);
+    expect(res.result).toContain("sensitive");
+    expect(res.result).not.toContain("sk-secret");
+  });
+
   it("returns an error for a missing file", async () => {
     const res = await readFileImpl({ path: "nope.txt" }, ctx());
     expect(res.success).toBe(false);
@@ -235,9 +243,23 @@ describe("http_fetch", () => {
     expect(res.success).toBe(true);
     expect(res.result).toBe("hello body");
     expect(mockProxyFetch).toHaveBeenCalledWith(
-      "https://example.com",
+      "https://example.com/",
       expect.objectContaining({ method: "GET" }),
     );
+  });
+
+  it("rejects non-HTTPS and private-network URLs before fetching", async () => {
+    for (const url of [
+      "http://example.com",
+      "https://localhost:3000",
+      "https://127.0.0.1",
+      "https://169.254.169.254/latest/meta-data",
+      "https://192.168.1.10",
+    ]) {
+      const res = await httpFetchImpl({ url }, ctx());
+      expect(res.success).toBe(false);
+    }
+    expect(mockProxyFetch).not.toHaveBeenCalled();
   });
 
   it("reports non-2xx as failure", async () => {

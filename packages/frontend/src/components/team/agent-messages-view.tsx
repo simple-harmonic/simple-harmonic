@@ -55,7 +55,7 @@ interface AgentInfo {
   id: string;
   name: string;
   role: string;
-  status: "running" | "paused" | "errored";
+  status: "running" | "paused" | "errored" | "awaiting_approval";
 }
 
 interface AgentMessagesViewProps {
@@ -95,7 +95,14 @@ function formatTime(iso: string): string {
 }
 
 function statusDot(status: AgentInfo["status"]) {
-  const color = status === "running" ? "bg-running" : status === "paused" ? "bg-paused" : "bg-error";
+  const color =
+    status === "running"
+      ? "bg-running"
+      : status === "paused"
+        ? "bg-paused"
+        : status === "awaiting_approval"
+          ? "bg-brand"
+          : "bg-error";
   return <span className={`inline-block w-2 h-2 rounded-full ${color}`} />;
 }
 
@@ -675,13 +682,14 @@ export function AgentMessagesView({ teamId, cofounderName, agents, onClose }: Ag
                 {povId === POV_USER && activeThread.channelType === "direct" && activeThread.peerAgentId && (() => {
                   const peerAgent = agents.find((a) => a.id === activeThread.peerAgentId);
                   if (!peerAgent) return null;
+                  const blockedByApproval = peerAgent.status === "awaiting_approval";
                   return (
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => handleWakeAgent(peerAgent.id)}
-                        disabled={actionPending === peerAgent.id}
-                        title="Schedule this agent to run on the next tick"
+                        disabled={actionPending === peerAgent.id || blockedByApproval}
+                        title={blockedByApproval ? "Resolve the pending approval first" : "Schedule this agent to run on the next tick"}
                         className="text-[11px] font-mono px-2 py-1 rounded border border-border text-fg-muted hover:text-fg hover:border-brand cursor-pointer transition-colors disabled:opacity-50"
                       >
                         Wake
@@ -689,11 +697,11 @@ export function AgentMessagesView({ teamId, cofounderName, agents, onClose }: Ag
                       <button
                         type="button"
                         onClick={() => handleToggleAgentStatus(peerAgent)}
-                        disabled={actionPending === peerAgent.id}
-                        title={peerAgent.status === "paused" ? "Resume this agent" : "Pause this agent"}
+                        disabled={actionPending === peerAgent.id || blockedByApproval}
+                        title={blockedByApproval ? "Resolve the pending approval first" : peerAgent.status === "paused" ? "Resume this agent" : "Pause this agent"}
                         className="text-[11px] font-mono px-2 py-1 rounded border border-border text-fg-muted hover:text-fg hover:border-brand cursor-pointer transition-colors disabled:opacity-50"
                       >
-                        {peerAgent.status === "paused" ? "Resume" : "Pause"}
+                        {blockedByApproval ? "Awaiting" : peerAgent.status === "paused" ? "Resume" : "Pause"}
                       </button>
                     </div>
                   );

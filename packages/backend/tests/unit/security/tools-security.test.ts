@@ -225,9 +225,9 @@ describe("env scrubbing", () => {
 
   it("run_command cannot echo a secret from the environment", async () => {
     process.env.ANTHROPIC_API_KEY = "sk-ant-LEAKME";
-    // `node -e` is allowlisted; have it print the secret. With the scrubbed env
-    // the var is absent, so the real value can never reach stdout. The
-    // security-critical assertion is the absence of the secret in the output.
+    // Interpreters are not allowlisted; this blocks the most direct way to
+    // bypass argv policy and print process.env. Direct scrubbedEnv coverage
+    // above verifies the child environment itself is stripped.
     const res = await runCommandImpl(
       {
         command: "node",
@@ -235,10 +235,9 @@ describe("env scrubbing", () => {
       },
       ctx(),
     );
-    expect(res.success).toBe(true);
+    expect(res.success).toBe(false);
     expect(res.result).not.toContain("LEAKME");
-    // And the var was genuinely absent (printed as undefined), not just empty.
-    expect(res.result).toContain("VAL[undefined]");
+    expect(res.result).toContain("not allowed");
   });
 });
 
@@ -286,6 +285,8 @@ describe("destructive boundary", () => {
     const r = createAppRegistry();
     expect(r.isDestructive("write_file")).toBe(true);
     expect(r.isDestructive("run_command")).toBe(true);
+    expect(r.isDestructive("github_api", { method: "POST", path: "/repos/o/r/issues" })).toBe(true);
+    expect(r.isDestructive("github_api", { method: "GET", path: "/repos/o/r" })).toBe(false);
     expect(r.isDestructive("github_api")).toBe(true);
     expect(r.isDestructive("read_file")).toBe(false);
     expect(r.isDestructive("http_fetch")).toBe(false);

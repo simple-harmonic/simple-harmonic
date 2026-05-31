@@ -28,8 +28,16 @@
 // approval-aware tick route checks `result.suspension`.
 // ---------------------------------------------------------------------------
 
-import type { A2AXSender, PeerAgent, ToolExecContext, ToolResult } from "./tools";
-import { AGENT_TOOL_DEFS, executeTool } from "./tools";
+import { createDefaultRegistry } from "./default-tools";
+import type { ToolRegistry } from "./registry";
+import type {
+  A2AXSender,
+  PeerAgent,
+  ToolResult,
+  ToolRunContext,
+} from "./tools";
+
+const FALLBACK_TOOL_NAMES = ["send_message", "broadcast", "report_action"];
 
 /** A tool call the LLM asked for, in OpenAI wire shape (args are a JSON string). */
 export interface PendingToolCall {
@@ -49,6 +57,8 @@ export interface AgentSuspension {
   messages: Array<Record<string, unknown>>;
   /** Destructive tool calls awaiting a human decision. */
   pending: PendingToolCall[];
+  /** Safe calls from the same assistant turn, deferred so every call gets a result on resume. */
+  deferredSafe?: PendingToolCall[];
   /** Actions already logged this tick before the suspension (safe tools). */
   actions: ToolResult[];
   /** Loop round at the point of suspension, so resume continues counting. */
@@ -86,13 +96,19 @@ export interface AgentConfig {
   llm: LLMClient;
   /** Model to use for LLM calls */
   model?: string;
+  /** Abort signal propagated from the tick budget so provider calls can cancel. */
+  signal?: AbortSignal;
   /**
    * Classifier: does this tool require human approval before it runs? Defaults
-   * to "nothing is destructive", which preserves pre-T2 behavior (every tool
-   * runs inline). The app passes a classifier backed by the registry's risk
-   * labels.
+   * to the registry's risk labels.
    */
-  isDestructive?: (toolName: string) => boolean;
+  isDestructive?: (toolName: string, rawArgs?: unknown) => boolean;
+  /**
+   * Registry for tool definitions and execution. Defaults to the internal
+   * message-passing registry; the app passes the full filesystem/shell/network
+   * registry.
+   */
+  toolRegistry?: Pick<ToolRegistry, "execute" | "getOpenAIDefs" | "isDestructive" | "listForAgent">;
   /**
    * Resume a previously suspended tick. When present, the runner reconstructs
    * the conversation, applies the decisions to the pending calls, then
@@ -113,7 +129,10 @@ export interface AgentRunResult {
 export interface LLMClient {
   chat: {
     completions: {
-      create: (params: Record<string, unknown>) => Promise<LLMResponse>;
+      create: (
+        params: Record<string, unknown>,
+        options?: { signal?: AbortSignal },
+      ) => Promise<LLMResponse>;
     };
   };
 }
@@ -132,15 +151,21 @@ interface LLMResponse {
 }
 
 const MAX_TOOL_ROUNDS = 3;
+const defaultRegistry = createDefaultRegistry();
 
 export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
-  const isDestructive = config.isDestructive ?? (() => false);
+  const registry = config.toolRegistry ?? defaultRegistry;
+  const allowedTools = toolAllowlist(config.tools);
+  const toolDefs = registry.getOpenAIDefs(allowedTools);
+  const toolDescriptions = registry.listForAgent(allowedTools);
+  const isDestructive = config.isDestructive ?? registry.isDestructive;
 
-  const toolCtx: ToolExecContext = {
+  const toolCtx: ToolRunContext = {
     teamId: config.teamId,
     agentId: config.agentId,
     agentName: config.name,
     peers: config.peers,
+    a2ax: config.a2ax,
   };
 
   // --- Initialize or restore conversation state -----------------------------
@@ -154,29 +179,34 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
     const { suspension, decisions } = config.resume;
     messages = suspension.messages;
     actions.push(...suspension.actions);
-    startRound = suspension.round;
+    startRound = suspension.round + 1;
 
     const decisionById = new Map(decisions.map((d) => [d.id, d]));
-    for (const call of suspension.pending) {
-      const decision = decisionById.get(call.id);
-      if (decision?.approved) {
-        const execResult = await runToolCall(call, toolCtx, config.a2ax, actions);
-        messages.push(toolResultMessage(call.id, execResult));
+    for (const { call, needsApproval } of orderedResumeCalls(suspension)) {
+      if (needsApproval) {
+        const decision = decisionById.get(call.id);
+        if (decision?.approved) {
+          const execResult = await runToolCall(call, toolCtx, actions, registry);
+          messages.push(toolResultMessage(call.id, execResult));
+        } else {
+          const note = decision?.note ?? "The user rejected this action.";
+          messages.push(
+            toolMessage(
+              call.id,
+              `Action not approved: ${note} Do not retry it; continue with other work or stop.`,
+            ),
+          );
+        }
       } else {
-        const note = decision?.note ?? "The user rejected this action.";
-        messages.push(
-          toolMessage(
-            call.id,
-            `Action not approved: ${note} Do not retry it; continue with other work or stop.`,
-          ),
-        );
+        const execResult = await runToolCall(call, toolCtx, actions, registry);
+        messages.push(toolResultMessage(call.id, execResult));
       }
     }
     // After applying decisions, fall through into the loop for another LLM turn
     // (the model reacts to the approval/rejection results).
   } else {
     messages = [
-      { role: "system", content: buildSystemPrompt(config) },
+      { role: "system", content: buildSystemPrompt(config, toolDescriptions) },
       { role: "user", content: buildTickPrompt(config) },
     ];
   }
@@ -186,7 +216,9 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
     const response = await config.llm.chat.completions.create({
       model: config.model || "o4-mini",
       messages,
-      tools: AGENT_TOOL_DEFS,
+      tools: toolDefs,
+    }, {
+      signal: config.signal,
     });
 
     const choice = response.choices[0];
@@ -219,24 +251,23 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
     // First pass: any destructive calls? If so, suspend the whole tick BEFORE
     // executing anything in this round — we don't want to half-run a round and
     // then pause (the LLM issued these calls as one batch).
-    const destructive = msg.tool_calls.filter((tc) => isDestructive(tc.function.name));
+    const calls = msg.tool_calls.map(toPendingToolCall);
+    const destructive = calls.filter((tc) => isDestructive(tc.name, parseToolArgs(tc.arguments)));
     if (destructive.length > 0) {
+      const destructiveIds = new Set(destructive.map((tc) => tc.id));
       return {
         actionType: "suspended",
         payload: {
           agent: config.name,
           pending: destructive.map((tc) => ({
             id: tc.id,
-            name: tc.function.name,
+            name: tc.name,
           })),
         },
         suspension: {
           messages,
-          pending: destructive.map((tc) => ({
-            id: tc.id,
-            name: tc.function.name,
-            arguments: tc.function.arguments,
-          })),
+          pending: destructive,
+          deferredSafe: calls.filter((tc) => !destructiveIds.has(tc.id)),
           actions,
           // Resume continues from THIS round: the destructive calls become
           // tool results, then the loop does one more LLM turn.
@@ -246,14 +277,9 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
     }
 
     // No destructive calls this round: execute them all inline.
-    for (const tc of msg.tool_calls) {
-      const call: PendingToolCall = {
-        id: tc.id,
-        name: tc.function.name,
-        arguments: tc.function.arguments,
-      };
-      const execResult = await runToolCall(call, toolCtx, config.a2ax, actions);
-      messages.push(toolResultMessage(tc.id, execResult));
+    for (const call of calls) {
+      const execResult = await runToolCall(call, toolCtx, actions, registry);
+      messages.push(toolResultMessage(call.id, execResult));
     }
 
     if (choice.finish_reason === "stop") break;
@@ -279,9 +305,9 @@ interface RunToolOutcome {
  */
 async function runToolCall(
   call: PendingToolCall,
-  ctx: ToolExecContext,
-  a2ax: A2AXSender,
+  ctx: ToolRunContext,
   actions: ToolResult[],
+  registry: Pick<ToolRegistry, "execute">,
 ): Promise<RunToolOutcome> {
   let args: Record<string, unknown>;
   try {
@@ -293,9 +319,69 @@ async function runToolCall(
     };
   }
 
-  const result = await executeTool({ name: call.name, arguments: args }, ctx, a2ax);
+  const result = await registry.execute(call.name, args, ctx);
   if (result.action) actions.push(result.action);
   return { content: result.result };
+}
+
+function toolAllowlist(tools: string[]): string[] {
+  return [...new Set([...FALLBACK_TOOL_NAMES, ...tools])];
+}
+
+function toPendingToolCall(tc: {
+  id: string;
+  function: { name: string; arguments: string };
+}): PendingToolCall {
+  return {
+    id: tc.id,
+    name: tc.function.name,
+    arguments: tc.function.arguments,
+  };
+}
+
+function parseToolArgs(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+function orderedResumeCalls(
+  suspension: AgentSuspension,
+): Array<{ call: PendingToolCall; needsApproval: boolean }> {
+  const pendingById = new Map(suspension.pending.map((call) => [call.id, call]));
+  const safeById = new Map((suspension.deferredSafe ?? []).map((call) => [call.id, call]));
+  const ordered: Array<{ call: PendingToolCall; needsApproval: boolean }> = [];
+  const seen = new Set<string>();
+
+  const assistant = [...suspension.messages]
+    .reverse()
+    .find((msg) => Array.isArray(msg.tool_calls));
+  const toolCalls = (assistant?.tool_calls ?? []) as Array<{ id: string }>;
+
+  for (const tc of toolCalls) {
+    const pending = pendingById.get(tc.id);
+    if (pending) {
+      ordered.push({ call: pending, needsApproval: true });
+      seen.add(tc.id);
+      continue;
+    }
+    const safe = safeById.get(tc.id);
+    if (safe) {
+      ordered.push({ call: safe, needsApproval: false });
+      seen.add(tc.id);
+    }
+  }
+
+  for (const call of suspension.pending) {
+    if (!seen.has(call.id)) ordered.push({ call, needsApproval: true });
+  }
+  for (const call of suspension.deferredSafe ?? []) {
+    if (!seen.has(call.id)) ordered.push({ call, needsApproval: false });
+  }
+
+  return ordered;
 }
 
 function toolResultMessage(toolCallId: string, outcome: RunToolOutcome): Record<string, unknown> {
@@ -330,8 +416,11 @@ function summarize(agentName: string, actions: ToolResult[]): AgentRunResult {
 // Prompt builders
 // ---------------------------------------------------------------------------
 
-function buildSystemPrompt(config: AgentConfig): string {
+function buildSystemPrompt(config: AgentConfig, tools: Array<{ name: string; description: string }>): string {
   const peerList = config.peers.map((p) => `- ${p.name} (${p.role})`).join("\n");
+  const toolList = tools
+    .map((t) => `- ${t.name}: ${t.description}`)
+    .join("\n");
 
   return `${config.initialPrompt}
 
@@ -341,9 +430,7 @@ Your peers:
 ${peerList || "No other agents in this team."}
 
 You have these tools available:
-- send_message: Send a direct message to a specific peer agent
-- broadcast: Send a message to all agents in the team
-- report_action: Log an action or finding
+${toolList || "- No tools are currently enabled for this agent."}
 
 Coordinate with your peers when it makes sense. Share relevant findings, ask for help, delegate when appropriate. Be concise in messages.`;
 }

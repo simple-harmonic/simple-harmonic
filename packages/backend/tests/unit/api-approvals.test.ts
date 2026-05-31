@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Mocks
 // ---------------------------------------------------------------------------
 
+const mockUpdateReturning = vi.fn();
 const mockUpdateWhere = vi.fn().mockResolvedValue(undefined);
 const mockUpdateSet = vi.fn().mockReturnValue({ where: mockUpdateWhere });
 const mockUpdate = vi.fn().mockReturnValue({ set: mockUpdateSet });
@@ -24,8 +25,10 @@ vi.mock("@/server/db", () => ({
 
 vi.mock("@/server/db/schema", () => ({
   agents: { id: "agents.id" },
+  teams: { id: "teams.id" },
   pendingApprovals: {
     id: "pending_approvals.id",
+    agentId: "pending_approvals.agentId",
     teamId: "pending_approvals.teamId",
     status: "pending_approvals.status",
   },
@@ -50,7 +53,14 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockUpdate.mockReturnValue({ set: mockUpdateSet });
   mockUpdateSet.mockReturnValue({ where: mockUpdateWhere });
-  mockUpdateWhere.mockResolvedValue(undefined);
+  mockUpdateReturning.mockResolvedValue([{ agentId: "agent-1" }]);
+  mockUpdateWhere.mockImplementation(() => {
+    const result = Promise.resolve(undefined) as Promise<undefined> & {
+      returning: typeof mockUpdateReturning;
+    };
+    result.returning = mockUpdateReturning;
+    return result;
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -128,6 +138,7 @@ describe("POST /api/team/[id]/approvals", () => {
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({ status: "approved", resolvedAt: expect.any(Date) }),
     );
+    expect(mockUpdateReturning).toHaveBeenCalledWith({ agentId: "pending_approvals.agentId" });
   });
 
   it("stores the rejection note", async () => {
@@ -147,5 +158,20 @@ describe("POST /api/team/[id]/approvals", () => {
     expect(mockUpdateSet).toHaveBeenCalledWith(
       expect.objectContaining({ status: "rejected", decisionNote: "no thanks" }),
     );
+  });
+
+  it("409s when the pending row is resolved concurrently", async () => {
+    const { POST } = await import("@/app/api/team/[id]/approvals/route");
+    mockDb.query.pendingApprovals.findFirst.mockResolvedValueOnce({
+      id: "ap-1",
+      agentId: "agent-1",
+      teamId: "team-1",
+      status: "pending",
+    });
+    mockUpdateReturning.mockResolvedValueOnce([]);
+
+    const res = await POST(makeReq({ approvalId: "ap-1", decision: "approved" }), { params });
+
+    expect(res.status).toBe(409);
   });
 });
