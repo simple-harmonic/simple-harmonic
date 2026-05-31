@@ -142,43 +142,103 @@ function parseCodexOutput(jsonlOutput: string): string {
 }
 
 /**
- * Try to parse the agent's text response as structured JSON with tool calls.
+ * Extract the most likely JSON object from a model response. Codex (unlike the
+ * tool-use APIs) returns free text, so with 8 tools the model often wraps the
+ * JSON in prose or a code fence despite instructions. Strategy, in order:
+ *   1. a ```json fenced block, or any ``` fenced block
+ *   2. the first BALANCED top-level {...} object found by brace scanning
+ *      (tolerates leading/trailing prose, which a naive index slice can't)
+ * Returns the candidate JSON string, or null if nothing object-like is present.
  */
-function parseStructuredResponse(text: string): {
+export function extractJsonObject(text: string): string | null {
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) {
+    const inner = fence[1].trim();
+    if (inner.startsWith("{")) return inner;
+  }
+
+  // Brace-scan for the first balanced object, skipping braces inside strings.
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * Try to parse the agent's text response as structured JSON with tool calls.
+ * `allowedTools` (the names the prompt offered) gates tool_calls: a call naming
+ * a tool that wasn't offered is dropped, so a hallucinated tool name can't reach
+ * the dispatcher. With 8 tools this matters — the model occasionally invents a
+ * plausible-but-wrong name.
+ */
+function parseStructuredResponse(
+  text: string,
+  allowedTools: Set<string>,
+): {
   content: string | null;
   tool_calls?: Array<{
     id: string;
     function: { name: string; arguments: string };
   }>;
 } {
-  // Try to extract JSON from the text (might be wrapped in markdown fences)
-  let jsonStr = text;
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch) {
-    jsonStr = fenceMatch[1];
-  }
+  const jsonStr = extractJsonObject(text);
+  if (!jsonStr) return { content: text };
 
+  let parsed: {
+    content?: string | null;
+    tool_calls?: Array<{ name?: string; arguments?: Record<string, unknown> }>;
+  };
   try {
-    const parsed = JSON.parse(jsonStr.trim());
-    if (parsed.tool_calls && Array.isArray(parsed.tool_calls)) {
-      return {
-        content: parsed.content ?? null,
-        tool_calls: parsed.tool_calls.map(
-          (tc: { name: string; arguments: Record<string, unknown> }, i: number) => ({
-            id: `call_${Date.now()}_${i}`,
-            function: {
-              name: tc.name,
-              arguments: JSON.stringify(tc.arguments || {}),
-            },
-          }),
-        ),
-      };
-    }
-    return { content: parsed.content ?? text };
+    parsed = JSON.parse(jsonStr);
   } catch {
-    // Not valid JSON, treat as plain text response
+    // Not valid JSON, treat as plain text response.
     return { content: text };
   }
+
+  if (parsed.tool_calls && Array.isArray(parsed.tool_calls)) {
+    const calls = parsed.tool_calls
+      .filter((tc) => typeof tc?.name === "string" && allowedTools.has(tc.name))
+      .map((tc, i) => ({
+        // Per-response uniqueness is all the runner needs (it matches these IDs
+        // to tool results within the same round). Index-based keeps it
+        // deterministic for tests.
+        id: `call_${i}`,
+        function: {
+          name: tc.name as string,
+          arguments: JSON.stringify(tc.arguments ?? {}),
+        },
+      }));
+    if (calls.length > 0) {
+      return { content: parsed.content ?? null, tool_calls: calls };
+    }
+    // tool_calls present but all filtered out (hallucinated names): fall through
+    // to content so the turn isn't silently empty.
+    return { content: parsed.content ?? text };
+  }
+  return { content: parsed.content ?? text };
 }
 
 function runCodexExec(prompt: string, model: string): Promise<string> {
@@ -257,9 +317,11 @@ export function createCodexClient(opts?: { model?: string }): LLMClient {
             };
           }
 
-          // If tools were provided, try to parse structured response
+          // If tools were provided, try to parse structured response. Gate
+          // tool calls to the names actually offered this turn.
           if (tools && tools.length > 0) {
-            const parsed = parseStructuredResponse(text);
+            const allowedTools = new Set(tools.map((t) => t.function.name));
+            const parsed = parseStructuredResponse(text, allowedTools);
             return {
               choices: [
                 {
