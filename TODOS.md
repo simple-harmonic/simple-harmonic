@@ -130,6 +130,16 @@ Captured from `/plan-design-review` 2026-05-18. None block ship; address before 
 
 ## v0.1 build (weeks 3-12, deadline ~2026-08-10)
 
+> **v0.1 status (2026-05-31):** Core tool-integration work SHIPPED. Plugin
+> registry + 5 tools (T1), approval gate with conversation serialization (T2),
+> sandbox hardening + security suite (T3/T4), per-agent timeout + parallel tick
+> (T5), Codex adapter for 8 tools (T7), inline tool results (T8), tool env vars
+> (T9), and the planner/tool-use eval suite (T10) are all merged. 540 tests
+> passing. Remaining for the milestone: real integration selection (alpha-user
+> driven), rewind (deferred to v0.1.1), Inngest-vs-cron decision, and flipping
+> `SH_ENABLE_TOOLS` on a live dogfooding checkout. The items below are the
+> original plan, kept for the audit trail.
+
 ### Critical — v0.1 core (tool integrations + safety)
 
 - **Plugin registry + 5 new tools (read_file, write_file, run_command, github_api, http_fetch)**
