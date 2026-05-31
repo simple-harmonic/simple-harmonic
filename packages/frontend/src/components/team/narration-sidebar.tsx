@@ -7,6 +7,19 @@ export interface NarrationEntry {
   actionType: string;
   description: string;
   timestamp: string;
+  /** Tool output (file contents, stdout, API body) shown in a collapsible (T8). */
+  detail?: string;
+}
+
+/**
+ * Pull a UI-displayable output snippet from an action payload, if the action is
+ * a tool that produced one (read_file, run_command, http_fetch, github_api all
+ * store `output`). Returns undefined for actions with no inline output.
+ */
+export function extractDetail(payload: Record<string, unknown>): string | undefined {
+  const output = payload?.output;
+  if (typeof output === "string" && output.length > 0) return output;
+  return undefined;
 }
 
 function formatTime(iso: string) {
@@ -37,6 +50,20 @@ function describeAction(actionType: string, payload: Record<string, unknown>): s
       return truncate((payload.content as string) || "thinking", 80);
     case "noop":
       return "no action this tick";
+
+    // v0.1 tools (T1) — the detail/output is shown in the collapsible below.
+    case "file_read":
+      return `read ${payload.path || "a file"} (${payload.bytes ?? 0} bytes)`;
+    case "file_written":
+      return `wrote ${payload.path || "a file"} (${payload.chars ?? 0} chars)`;
+    case "command_run":
+      return `ran ${payload.command || "a command"} ${((payload.args as string[]) ?? []).join(" ")}`.trim();
+    case "http_fetched":
+      return `fetched ${payload.url || "a URL"} → ${payload.status ?? "?"}`;
+    case "github_api_called":
+      return `GitHub ${payload.method || "GET"} ${payload.path || ""} → ${payload.status ?? "?"}`;
+    case "awaiting_approval":
+      return "awaiting your approval of a pending action";
 
     // Legacy / archetype-specific reports (kept for backward compat)
     case "draft_reply":

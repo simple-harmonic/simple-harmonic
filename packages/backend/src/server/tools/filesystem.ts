@@ -15,6 +15,10 @@ import { resolveInJailReal, toolsRoot, toolsEnabled, JailEscapeError } from "./s
 // Cap reads so a giant file can't blow the LLM context or the tick budget.
 const MAX_READ_BYTES = 256 * 1024;
 
+// Cap the UI-facing output snippet stored in action_log (T8). Much smaller than
+// the LLM-facing result so the narration feed and DB stay lean.
+const UI_SNIPPET_BYTES = 2_000;
+
 const readFileSchema = z.object({
   path: z
     .string()
@@ -62,7 +66,14 @@ export const readFileImpl: ToolImpl<typeof readFileSchema> = async (args) => {
       result: content,
       action: {
         actionType: "file_read",
-        payload: { path: relative(toolsRoot(), abs), bytes: info.size },
+        payload: {
+          path: relative(toolsRoot(), abs),
+          bytes: info.size,
+          // UI snippet (T8/D19): the action log shows tool output inline. The
+          // LLM still gets the full content via `result`; this is capped so
+          // action_log rows don't bloat.
+          output: content.slice(0, UI_SNIPPET_BYTES),
+        },
       },
     };
   } catch (err) {

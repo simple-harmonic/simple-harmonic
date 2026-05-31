@@ -149,13 +149,19 @@ export const runCommandImpl: ToolImpl<typeof runCommandSchema> = async (args) =>
         }
 
         const combined = errOut ? `${out}\n[stderr]\n${errOut}` : out;
+        const text = combined.slice(0, MAX_OUTPUT_BYTES) || "(no output)";
         resolvePromise({
           toolName: "run_command",
           success: true,
-          result: combined.slice(0, MAX_OUTPUT_BYTES) || "(no output)",
+          result: text,
           action: {
             actionType: "command_run",
-            payload: { command: program, args: argv },
+            payload: {
+              command: program,
+              args: argv,
+              // UI snippet (T8/D19) — capped so action_log stays lean.
+              output: text.slice(0, 2_000),
+            },
           },
         });
       },

@@ -100,6 +100,8 @@ describe("read_file", () => {
     expect(res.success).toBe(true);
     expect(res.result).toBe("world");
     expect(res.action?.actionType).toBe("file_read");
+    // T8: the content snippet is mirrored into the action payload for the UI.
+    expect(res.action?.payload.output).toBe("world");
   });
 
   it("returns an error for a missing file", async () => {

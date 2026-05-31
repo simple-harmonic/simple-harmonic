@@ -51,7 +51,13 @@ export const httpFetchImpl: ToolImpl<typeof httpFetchSchema> = async (args) => {
         : `HTTP ${res.status} ${res.statusText}: ${text.slice(0, 2000)}`,
       action: {
         actionType: "http_fetched",
-        payload: { url: args.url, status: res.status, bytes: text.length },
+        payload: {
+          url: args.url,
+          status: res.status,
+          bytes: text.length,
+          // UI snippet (T8/D19).
+          output: text.slice(0, 2_000),
+        },
       },
     };
   } catch (err) {
@@ -143,7 +149,13 @@ export const githubApiImpl: ToolImpl<typeof githubApiSchema> = async (args) => {
         : `GitHub ${res.status} ${res.statusText}: ${text.slice(0, 2000)}`,
       action: {
         actionType: "github_api_called",
-        payload: { method: args.method, path: args.path, status: res.status },
+        payload: {
+          method: args.method,
+          path: args.path,
+          status: res.status,
+          // UI snippet (T8/D19).
+          output: text.slice(0, 2_000),
+        },
       },
     };
   } catch (err) {
