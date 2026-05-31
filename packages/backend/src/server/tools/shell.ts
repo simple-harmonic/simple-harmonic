@@ -18,7 +18,7 @@
 import { execFile } from "node:child_process";
 import { z } from "zod";
 import type { ToolDefinition, ToolImpl } from "../../lib/meta-agent/registry";
-import { toolsRoot, toolsEnabled } from "./sandbox";
+import { toolsRoot, toolsEnabled, scrubbedEnv } from "./sandbox";
 
 const TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_BYTES = 64 * 1024;
@@ -119,8 +119,9 @@ export const runCommandImpl: ToolImpl<typeof runCommandSchema> = async (args) =>
         cwd: toolsRoot(),
         timeout: TIMEOUT_MS,
         maxBuffer: MAX_OUTPUT_BYTES,
-        // Inherit env for now; T3 scrubs secrets out of the child env.
-        env: process.env,
+        // T3: scrubbed env — secrets (API keys, DB URL) are stripped so a
+        // shelled-out command can't read credentials from the agent process.
+        env: scrubbedEnv(),
       },
       (err, stdout, stderr) => {
         const out = (stdout || "").toString();

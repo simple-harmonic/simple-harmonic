@@ -1,16 +1,16 @@
 // ---------------------------------------------------------------------------
 // Filesystem tools: read_file (safe) and write_file (destructive).
 //
-// Both are cwd-jailed via resolveInJail. write_file additionally requires the
-// destructive-tools kill switch (toolsEnabled) to be on, so it cannot mutate
-// the working tree on the live loop until T2/T3 land.
+// Both are jailed via resolveInJailReal, which is symlink-aware (T3): a symlink
+// inside the jail that points outside is rejected, not followed. write_file
+// additionally requires the destructive-tools kill switch (toolsEnabled).
 // ---------------------------------------------------------------------------
 
 import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
 import { dirname, relative } from "node:path";
 import { z } from "zod";
 import type { ToolDefinition, ToolImpl } from "../../lib/meta-agent/registry";
-import { resolveInJail, toolsRoot, toolsEnabled, JailEscapeError } from "./sandbox";
+import { resolveInJailReal, toolsRoot, toolsEnabled, JailEscapeError } from "./sandbox";
 
 // Cap reads so a giant file can't blow the LLM context or the tick budget.
 const MAX_READ_BYTES = 256 * 1024;
@@ -39,7 +39,7 @@ export const readFileDef: ToolDefinition<typeof readFileSchema> = {
 
 export const readFileImpl: ToolImpl<typeof readFileSchema> = async (args) => {
   try {
-    const abs = resolveInJail(args.path);
+    const abs = await resolveInJailReal(args.path);
     const info = await stat(abs);
     if (!info.isFile()) {
       return {
@@ -93,7 +93,7 @@ export const writeFileImpl: ToolImpl<typeof writeFileSchema> = async (args) => {
     };
   }
   try {
-    const abs = resolveInJail(args.path);
+    const abs = await resolveInJailReal(args.path);
     await mkdir(dirname(abs), { recursive: true });
     await writeFile(abs, args.content, "utf-8");
     return {
