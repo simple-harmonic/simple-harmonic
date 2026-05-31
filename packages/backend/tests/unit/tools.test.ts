@@ -55,9 +55,16 @@ describe("AGENT_TOOL_DEFS", () => {
 
   it("all tools have required fields in parameters", () => {
     for (const t of AGENT_TOOL_DEFS) {
-      expect(t.function.parameters.type).toBe("object");
-      expect(t.function.parameters.required).toBeInstanceOf(Array);
-      expect(t.function.parameters.required.length).toBeGreaterThan(0);
+      // OpenAIToolDef types `parameters` as optional (OpenAI allows arg-less
+      // tools), so narrow it before asserting on the JSON Schema shape.
+      const params = t.function.parameters as {
+        type: string;
+        required: unknown[];
+      };
+      expect(params).toBeDefined();
+      expect(params.type).toBe("object");
+      expect(params.required).toBeInstanceOf(Array);
+      expect(params.required.length).toBeGreaterThan(0);
     }
   });
 });

@@ -126,50 +126,77 @@ describe("approveAgentAction", () => {
   const team = makeTeam();
   const agent = makeAgent();
 
-  it("allows send_message (internal tool)", () => {
-    const result = approveAgentAction(team, agent, {
-      toolName: "send_message",
-      arguments: { to_agent: "peer", content: "hi" },
-    });
+  // T2: safety is decided by an injected classifier (the app backs it with the
+  // registry's risk labels). Here, the three internal tools are the safe ones.
+  const isDestructive = (name: string) =>
+    !["send_message", "broadcast", "report_action"].includes(name);
+
+  it("allows send_message (safe tool)", () => {
+    const result = approveAgentAction(
+      team,
+      agent,
+      { toolName: "send_message", arguments: { to_agent: "peer", content: "hi" } },
+      isDestructive,
+    );
     expect(result).toEqual({ allowed: true });
   });
 
-  it("allows broadcast (internal tool)", () => {
-    const result = approveAgentAction(team, agent, {
-      toolName: "broadcast",
-      arguments: { content: "update" },
-    });
+  it("allows broadcast (safe tool)", () => {
+    const result = approveAgentAction(
+      team,
+      agent,
+      { toolName: "broadcast", arguments: { content: "update" } },
+      isDestructive,
+    );
     expect(result).toEqual({ allowed: true });
   });
 
-  it("allows report_action (internal tool)", () => {
-    const result = approveAgentAction(team, agent, {
-      toolName: "report_action",
-      arguments: { action_type: "test", summary: "done" },
-    });
+  it("allows report_action (safe tool)", () => {
+    const result = approveAgentAction(
+      team,
+      agent,
+      { toolName: "report_action", arguments: { action_type: "test", summary: "done" } },
+      isDestructive,
+    );
     expect(result).toEqual({ allowed: true });
   });
 
-  it("rejects unknown/external tools", () => {
-    const result = approveAgentAction(team, agent, {
-      toolName: "send_email",
-      arguments: { to: "user@example.com" },
-    });
+  it("rejects destructive tools", () => {
+    const result = approveAgentAction(
+      team,
+      agent,
+      { toolName: "write_file", arguments: { path: "x", content: "y" } },
+      isDestructive,
+    );
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
       expect(result.reasonCode).toBe("destructive_unconfirmed");
-      expect(result.reason).toContain("send_email");
+      expect(result.reason).toContain("write_file");
     }
   });
 
-  it("rejects empty tool name", () => {
+  it("fails safe: with no classifier, every tool is held", () => {
     const result = approveAgentAction(team, agent, {
-      toolName: "",
+      toolName: "send_message",
       arguments: {},
     });
     expect(result.allowed).toBe(false);
     if (!result.allowed) {
       expect(result.reasonCode).toBe("destructive_unconfirmed");
+    }
+  });
+});
+
+describe("approveAgentTick — awaiting_approval", () => {
+  it("blocks an agent parked awaiting approval", () => {
+    const result = approveAgentTick(
+      makeTeam(),
+      makeAgent({ status: "awaiting_approval" }),
+      NOW,
+    );
+    expect(result.allowed).toBe(false);
+    if (!result.allowed) {
+      expect(result.reasonCode).toBe("awaiting_approval");
     }
   });
 });

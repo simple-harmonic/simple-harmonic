@@ -15,7 +15,7 @@ interface AgentDetail {
   tools: string[];
   scheduleSeconds: number;
   initialPrompt: string;
-  status: "running" | "paused" | "errored";
+  status: "running" | "paused" | "errored" | "awaiting_approval";
   inFlight: boolean;
 }
 
@@ -89,6 +89,7 @@ const STATUS_STYLE: Record<string, { dot: string; text: string; label: string }>
   running: { dot: "bg-running", text: "text-running", label: "running" },
   paused: { dot: "bg-paused", text: "text-paused", label: "paused" },
   errored: { dot: "bg-error", text: "text-error", label: "errored" },
+  awaiting_approval: { dot: "bg-brand", text: "text-brand", label: "awaiting approval" },
 };
 
 // ---------------------------------------------------------------------------
@@ -887,10 +888,21 @@ function ConfigTab({
     setSaving(true);
     try {
       const tools = toolsText.split(",").map((t) => t.trim()).filter(Boolean);
+      const body: Record<string, unknown> = {
+        name,
+        role,
+        archetype,
+        tools,
+        scheduleSeconds,
+        initialPrompt,
+      };
+      if (status !== "awaiting_approval") {
+        body.status = status;
+      }
       const res = await fetch(`/api/agent/${agent.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, role, archetype, tools, scheduleSeconds, initialPrompt, status }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         const updated = await res.json();
@@ -947,11 +959,13 @@ function ConfigTab({
               <select
                 className={inputClass}
                 value={status}
+                disabled={agent.status === "awaiting_approval"}
                 onChange={(e) => markDirty(setStatus)(e.target.value as AgentDetail["status"])}
               >
                 <option value="running">running</option>
                 <option value="paused">paused</option>
                 <option value="errored">errored</option>
+                <option value="awaiting_approval">awaiting approval</option>
               </select>
             </div>
             <div>

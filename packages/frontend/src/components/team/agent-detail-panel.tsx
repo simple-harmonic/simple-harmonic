@@ -10,7 +10,7 @@ interface AgentDetail {
   tools: string[];
   scheduleSeconds: number;
   initialPrompt: string;
-  status: "running" | "paused" | "errored";
+  status: "running" | "paused" | "errored" | "awaiting_approval";
 }
 
 interface AgentDetailPanelProps {
@@ -137,10 +137,21 @@ export function AgentDetailPanel({ agent, teamId, teamAgents, onClose, onUpdated
     setSaving(true);
     try {
       const tools = toolsText.split(",").map((t) => t.trim()).filter(Boolean);
+      const body: Record<string, unknown> = {
+        name,
+        role,
+        archetype,
+        tools,
+        scheduleSeconds,
+        initialPrompt,
+      };
+      if (status !== "awaiting_approval") {
+        body.status = status;
+      }
       const res = await fetch(`/api/agent/${agent.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, role, archetype, tools, scheduleSeconds, initialPrompt, status }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         const updated = await res.json();
@@ -272,11 +283,13 @@ export function AgentDetailPanel({ agent, teamId, teamAgents, onClose, onUpdated
                 <select
                   className={inputClass}
                   value={status}
+                  disabled={agent.status === "awaiting_approval"}
                   onChange={(e) => markDirty(setStatus)(e.target.value as AgentDetail["status"])}
                 >
                   <option value="running">running</option>
                   <option value="paused">paused</option>
                   <option value="errored">errored</option>
+                  <option value="awaiting_approval">awaiting approval</option>
                 </select>
               </div>
 

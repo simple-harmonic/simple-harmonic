@@ -1,20 +1,33 @@
 // ---------------------------------------------------------------------------
-// Agent tool definitions + execution
+// Agent tool types + the back-compat dispatch surface.
+//
+// The source of truth for tools is now the ToolRegistry (./registry) loaded
+// with the internal tools by createDefaultRegistry (./default-tools). This
+// file keeps the original `AGENT_TOOL_DEFS` and `executeTool(call, ctx, a2ax)`
+// exports as thin shims over a default registry instance, so existing callers
+// (and tests) keep working unchanged while there is a single implementation
+// underneath — no parallel switch + registry systems.
 // ---------------------------------------------------------------------------
+
+import { createDefaultRegistry } from "./default-tools";
 
 export interface ToolResult {
   actionType: string;
   payload: Record<string, unknown>;
 }
 
-/** Peer agent info passed to tool execution context */
+/** Peer agent info passed to tool execution context. */
 export interface PeerAgent {
   id: string;
   name: string;
   role: string;
 }
 
-/** Context available during tool execution */
+/**
+ * Context available to a tool's public callers. Does NOT carry the a2ax sender
+ * — back-compat callers pass that separately to executeTool, which merges it
+ * into the ToolRunContext the registry impls receive.
+ */
 export interface ToolExecContext {
   teamId: string;
   agentId: string;
@@ -22,82 +35,10 @@ export interface ToolExecContext {
   peers: PeerAgent[];
 }
 
-// ---------------------------------------------------------------------------
-// OpenAI-format tool definitions for the agent LLM call
-// ---------------------------------------------------------------------------
-
-export const AGENT_TOOL_DEFS = [
-  {
-    type: "function" as const,
-    function: {
-      name: "send_message",
-      description:
-        "Send a direct message to another agent in the team. Use this to coordinate, delegate, share findings, or ask questions.",
-      parameters: {
-        type: "object",
-        properties: {
-          to_agent: {
-            type: "string",
-            description: "Name of the agent to send to (e.g. 'content-scheduler')",
-          },
-          content: {
-            type: "string",
-            description: "The message content",
-          },
-        },
-        required: ["to_agent", "content"],
-      },
-    },
-  },
-  {
-    type: "function" as const,
-    function: {
-      name: "broadcast",
-      description:
-        "Send a message to ALL agents in the team. Use for announcements, status updates, or information everyone needs.",
-      parameters: {
-        type: "object",
-        properties: {
-          content: {
-            type: "string",
-            description: "The broadcast message content",
-          },
-        },
-        required: ["content"],
-      },
-    },
-  },
-  {
-    type: "function" as const,
-    function: {
-      name: "report_action",
-      description:
-        "Report an action you took or a finding from your work. This gets logged to the team's action log and narration feed.",
-      parameters: {
-        type: "object",
-        properties: {
-          action_type: {
-            type: "string",
-            description: "Short label for the action (e.g. 'draft_reply', 'research_summary', 'metrics_check')",
-          },
-          summary: {
-            type: "string",
-            description: "Brief description of what you did or found",
-          },
-          details: {
-            type: "object",
-            description: "Any structured data relevant to the action",
-          },
-        },
-        required: ["action_type", "summary"],
-      },
-    },
-  },
-];
-
-// ---------------------------------------------------------------------------
-// Tool execution (called after LLM returns tool_calls)
-// ---------------------------------------------------------------------------
+/** What a registry tool implementation actually receives: ctx + the a2ax bus. */
+export interface ToolRunContext extends ToolExecContext {
+  a2ax: A2AXSender;
+}
 
 export interface ToolCallInput {
   name: string;
@@ -108,80 +49,44 @@ export interface ToolExecResult {
   toolName: string;
   success: boolean;
   result: string;
-  /** If the tool produced an action to log */
+  /** If the tool produced an action to log. */
   action?: ToolResult;
 }
 
 export type A2AXSender = {
-  sendDirect: (teamId: string, from: string, to: string, content: string) => Promise<unknown>;
+  sendDirect: (
+    teamId: string,
+    from: string,
+    to: string,
+    content: string,
+  ) => Promise<unknown>;
   broadcast: (teamId: string, from: string, content: string) => Promise<unknown>;
 };
 
+// ---------------------------------------------------------------------------
+// Default registry + back-compat exports
+// ---------------------------------------------------------------------------
+
+/**
+ * Process-wide default registry, pre-loaded with the internal tools. The
+ * internal tools are stateless (a2ax arrives via ctx), so a single shared
+ * instance is safe. The app builds on this via createDefaultRegistry() when it
+ * needs the filesystem/shell/network tools too.
+ */
+const defaultRegistry = createDefaultRegistry();
+
+/** OpenAI-format defs for the internal tools, for the LLM `tools` argument. */
+export const AGENT_TOOL_DEFS = defaultRegistry.getOpenAIDefs();
+
+/**
+ * Execute one tool call against the default registry. Kept at its original
+ * 3-arg shape — args validated by the registry against the tool's Zod schema,
+ * with a2ax merged into the run context.
+ */
 export async function executeTool(
   call: ToolCallInput,
   ctx: ToolExecContext,
   a2ax: A2AXSender,
 ): Promise<ToolExecResult> {
-  switch (call.name) {
-    case "send_message": {
-      const toName = call.arguments.to_agent as string;
-      const content = call.arguments.content as string;
-      const peer = ctx.peers.find(
-        (p) => p.name.toLowerCase() === toName.toLowerCase(),
-      );
-      if (!peer) {
-        return {
-          toolName: "send_message",
-          success: false,
-          result: `Agent "${toName}" not found. Available agents: ${ctx.peers.map((p) => p.name).join(", ")}`,
-        };
-      }
-      await a2ax.sendDirect(ctx.teamId, ctx.agentId, peer.id, content);
-      return {
-        toolName: "send_message",
-        success: true,
-        result: `Message sent to ${peer.name}`,
-        action: {
-          actionType: "message_sent",
-          payload: { to: peer.name, toId: peer.id, content },
-        },
-      };
-    }
-
-    case "broadcast": {
-      const content = call.arguments.content as string;
-      await a2ax.broadcast(ctx.teamId, ctx.agentId, content);
-      return {
-        toolName: "broadcast",
-        success: true,
-        result: `Broadcast sent to all ${ctx.peers.length} peers`,
-        action: {
-          actionType: "broadcast_sent",
-          payload: { content, peerCount: ctx.peers.length },
-        },
-      };
-    }
-
-    case "report_action": {
-      const actionType = call.arguments.action_type as string;
-      const summary = call.arguments.summary as string;
-      const details = (call.arguments.details as Record<string, unknown>) ?? {};
-      return {
-        toolName: "report_action",
-        success: true,
-        result: `Action logged: ${actionType}`,
-        action: {
-          actionType,
-          payload: { summary, ...details },
-        },
-      };
-    }
-
-    default:
-      return {
-        toolName: call.name,
-        success: false,
-        result: `Unknown tool: ${call.name}`,
-      };
-  }
+  return defaultRegistry.execute(call.name, call.arguments, { ...ctx, a2ax });
 }

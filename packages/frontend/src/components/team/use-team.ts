@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { NarrationEntry } from "./narration-sidebar";
-import { describeAction } from "./narration-sidebar";
+import { describeAction, extractDetail } from "./narration-sidebar";
 
 interface TeamAgent {
   id: string;
   name: string;
   role: string;
-  status: "running" | "paused" | "errored";
+  status: "running" | "paused" | "errored" | "awaiting_approval";
   inFlight: boolean;
   scheduleSeconds: number;
   archetype: string;
@@ -140,6 +140,7 @@ export function useTeam(teamId: string): UseTeamReturn {
                     actionType: e.actionType,
                     description: describeAction(e.actionType, e.payload),
                     timestamp: e.executedAt,
+                    detail: extractDetail(e.payload),
                   }),
                 );
                 if (data.type === "history") {

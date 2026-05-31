@@ -8,8 +8,12 @@ const mockInsertValues = vi.fn().mockResolvedValue(undefined);
 const mockInsert = vi.fn().mockReturnValue({ values: mockInsertValues });
 
 const mockWhereOnUpdate = vi.fn().mockResolvedValue(undefined);
+const mockUpdateReturning = vi.fn().mockResolvedValue([{ id: "agent-1" }]);
 const mockSet = vi.fn().mockReturnValue({ where: mockWhereOnUpdate });
 const mockUpdate = vi.fn().mockReturnValue({ set: mockSet });
+
+const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
+const mockDelete = vi.fn().mockReturnValue({ where: mockDeleteWhere });
 
 const mockDb = {
   query: {
@@ -19,9 +23,14 @@ const mockDb = {
     agents: {
       findMany: vi.fn().mockResolvedValue([]),
     },
+    pendingApprovals: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   },
   update: mockUpdate,
   insert: mockInsert,
+  delete: mockDelete,
+  transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(mockDb)),
 };
 
 vi.mock("@/server/db", () => ({
@@ -29,13 +38,31 @@ vi.mock("@/server/db", () => ({
 }));
 
 vi.mock("@/server/db/schema", () => ({
-  teams: { id: "teams.id", paused: "teams.paused" },
-  agents: { id: "agents.id", teamId: "agents.teamId" },
+  teams: { id: "teams.id", paused: "teams.paused", tickCount: "teams.tickCount" },
+  agents: {
+    id: "agents.id",
+    teamId: "agents.teamId",
+    inFlight: "agents.inFlight",
+    status: "agents.status",
+  },
   actionLog: {},
+  pendingApprovals: { agentId: "pending_approvals.agentId", status: "pending_approvals.status" },
+}));
+
+// T2: the tick route builds a tool registry to classify destructive tools.
+vi.mock("@/server/tools", () => ({
+  createAppRegistry: () => ({ isDestructive: () => false }),
 }));
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ _eq: val })),
+  and: vi.fn((...clauses: unknown[]) => ({ _and: clauses })),
+  // The tick route builds an atomic increment via sql`${tickCount} + 1`.
+  // Mock the tagged-template so the route code runs without a real driver.
+  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
+    _sql: strings.join("?"),
+    values,
+  })),
 }));
 
 // ---------------------------------------------------------------------------
@@ -112,7 +139,10 @@ const sampleTeam = {
   tickCount: 3,
   metaAgentPrompt: null,
   cofounderName: null,
-  lastUserActiveAt: new Date("2026-05-20T00:00:00Z"),
+  // Must be recent: the tick route hibernates teams idle >5 min, so a fixed
+  // past date would make every "agent runs" test see a hibernated team and
+  // run zero agents. Stamp it at module load (suite runs well under 5 min).
+  lastUserActiveAt: new Date(),
   createdAt: new Date("2026-05-19T00:00:00Z"),
 };
 
@@ -144,13 +174,31 @@ beforeEach(() => {
   // Re-wire chained mock returns after clearAllMocks
   mockUpdate.mockReturnValue({ set: mockSet });
   mockSet.mockReturnValue({ where: mockWhereOnUpdate });
-  mockWhereOnUpdate.mockResolvedValue(undefined);
+  mockUpdateReturning.mockResolvedValue([{ id: "agent-1" }]);
+  mockWhereOnUpdate.mockImplementation(() => {
+    const result = Promise.resolve(undefined) as Promise<undefined> & {
+      returning: typeof mockUpdateReturning;
+    };
+    result.returning = mockUpdateReturning;
+    return result;
+  });
   mockInsert.mockReturnValue({ values: mockInsertValues });
   mockInsertValues.mockResolvedValue(undefined);
+  mockDelete.mockReturnValue({ where: mockDeleteWhere });
+  mockDeleteWhere.mockResolvedValue(undefined);
 
-  // Defaults
+  // Defaults. mockReset (not just clearAllMocks) drains any leftover
+  // mockResolvedValueOnce queue from a prior test — clearAllMocks only clears
+  // call history, so an unconsumed once-value would otherwise bleed across
+  // tests and make ordering matter (surfaced when the tick route went parallel).
+  mockDb.query.teams.findMany.mockReset();
+  mockDb.query.agents.findMany.mockReset();
+  mockDb.query.pendingApprovals.findMany.mockReset();
+  mockDb.transaction.mockReset();
+  mockDb.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(mockDb));
   mockDb.query.teams.findMany.mockResolvedValue([]);
   mockDb.query.agents.findMany.mockResolvedValue([]);
+  mockDb.query.pendingApprovals.findMany.mockResolvedValue([]);
   mockGetConfig.mockReturnValue({
     openaiApiKey: "",
     openaiBaseUrl: "https://api.openai.com/v1",
@@ -279,10 +327,15 @@ describe("POST /api/tick", () => {
 
     await POST();
 
-    // tickCount should be incremented (3 + 1 = 4)
-    expect(mockSet).toHaveBeenCalledWith(
-      expect.objectContaining({ tickCount: 4 }),
+    // tickCount is incremented atomically in SQL (sql`${tickCount} + 1`)
+    // rather than read-modify-write, so the value passed to .set() is the
+    // mocked sql fragment, not a literal 4. Assert the increment was issued
+    // against the tickCount column.
+    const tickCountCall = mockSet.mock.calls.find(
+      (call) => call[0] && "tickCount" in call[0],
     );
+    expect(tickCountCall).toBeDefined();
+    expect(tickCountCall?.[0].tickCount).toMatchObject({ _sql: "? + 1" });
   });
 
   it("skips agents that are not approved", async () => {
@@ -376,6 +429,208 @@ describe("POST /api/tick", () => {
       (call) => call[0] && "tickCount" in call[0],
     );
     expect(tickCountCalls).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T2: suspend / resume on destructive tools
+// ---------------------------------------------------------------------------
+
+describe("POST /api/tick — approval suspend/resume", () => {
+  const suspension = {
+    messages: [{ role: "assistant", content: null, tool_calls: [] }],
+    pending: [{ id: "call_w", name: "write_file", arguments: '{"path":"x"}' }],
+    actions: [],
+    round: 0,
+  };
+
+  it("parks an agent and creates pending_approvals when a run suspends", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    mockApproveAgentTick.mockReturnValue({ allowed: true });
+    mockRunAgent.mockResolvedValueOnce({
+      actionType: "suspended",
+      payload: { agent: "Researcher" },
+      suspension,
+    });
+
+    await POST();
+
+    expect(mockDb.transaction).toHaveBeenCalled();
+    // Agent parked: status awaiting_approval + conversation state saved.
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "awaiting_approval",
+        conversationState: suspension,
+      }),
+    );
+    // A pending_approvals row was inserted for the destructive call.
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ toolCallId: "call_w", toolName: "write_file" }),
+      ]),
+    );
+    // nextRunAt must NOT advance while parked (no objectContaining with nextRunAt
+    // among the awaiting_approval set).
+    const parkCall = mockSet.mock.calls.find(
+      (c) => c[0] && c[0].status === "awaiting_approval",
+    );
+    expect(parkCall?.[0].nextRunAt).toBeUndefined();
+  });
+
+  it("does not run a fresh tick for an awaiting_approval agent", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+    const parked = makeDueAgent({ status: "awaiting_approval", conversationState: suspension });
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
+    // approveAgentTick is the real gate in the route; here it's mocked, but the
+    // route only adds awaiting_approval agents via the resume pass. Keep it
+    // blocked so the fresh pass can't pick it up.
+    mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "awaiting_approval" });
+    // Still has an unresolved approval -> must NOT resume.
+    mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
+      { toolCallId: "call_w", status: "pending", decisionNote: null },
+    ]);
+
+    await POST();
+
+    expect(mockRunAgent).not.toHaveBeenCalled();
+  });
+
+  it("resumes with decisions once all approvals are resolved", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+    const parked = makeDueAgent({ status: "awaiting_approval", conversationState: suspension });
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
+    mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "awaiting_approval" });
+    mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
+      { toolCallId: "call_w", status: "approved", decisionNote: null },
+    ]);
+    mockRunAgent.mockResolvedValueOnce({
+      actionType: "file_written",
+      payload: { agent: "Researcher" },
+    });
+
+    await POST();
+
+    // runAgent called with resume carrying the decision.
+    expect(mockRunAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resume: expect.objectContaining({
+          suspension,
+          decisions: [{ id: "call_w", approved: true, note: undefined }],
+        }),
+      }),
+    );
+    // Resolved approvals consumed.
+    expect(mockDelete).toHaveBeenCalled();
+    // Completed -> back to running, conversation cleared.
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "running", conversationState: null }),
+    );
+  });
+
+  it("passes rejection notes through as decisions", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+    const parked = makeDueAgent({ status: "awaiting_approval", conversationState: suspension });
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
+    mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "awaiting_approval" });
+    mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
+      { toolCallId: "call_w", status: "rejected", decisionNote: "too risky" },
+    ]);
+    mockRunAgent.mockResolvedValueOnce({ actionType: "agent_thought", payload: {} });
+
+    await POST();
+
+    expect(mockRunAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resume: expect.objectContaining({
+          decisions: [{ id: "call_w", approved: false, note: "too risky" }],
+        }),
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T5: per-agent timeout budget + parallel execution
+// ---------------------------------------------------------------------------
+
+describe("POST /api/tick — timeout + parallelism", () => {
+  it("errors an agent whose run exceeds the per-agent budget", async () => {
+    process.env.SH_AGENT_TIMEOUT_MS = "20"; // tiny budget
+    const { POST } = await import("@/app/api/tick/route");
+
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    mockApproveAgentTick.mockReturnValue({ allowed: true });
+    // runAgent hangs well past the budget.
+    mockRunAgent.mockImplementationOnce(
+      () => new Promise((resolve) => setTimeout(() => resolve({ actionType: "noop", payload: {} }), 500)),
+    );
+
+    const res = await POST();
+    const body = await res.json();
+
+    expect(body.agentsRan).toBe(0);
+    // The timed-out agent is errored and rescheduled.
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "errored", inFlight: false }),
+    );
+    delete process.env.SH_AGENT_TIMEOUT_MS;
+  });
+
+  it("runs all due agents in a team concurrently (Promise.allSettled)", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+
+    const a1 = makeDueAgent({ id: "agent-1", name: "Alpha" });
+    const a2 = makeDueAgent({ id: "agent-2", name: "Beta" });
+    const a3 = makeDueAgent({ id: "agent-3", name: "Gamma" });
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([a1, a2, a3]);
+    mockApproveAgentTick.mockReturnValue({ allowed: true });
+
+    // Each run resolves after a delay; if they ran sequentially the total would
+    // be ~3x the delay. We only assert all three ran + were started together.
+    const started: string[] = [];
+    mockRunAgent.mockImplementation((cfg: { agentId: string }) => {
+      started.push(cfg.agentId);
+      return new Promise((resolve) =>
+        setTimeout(() => resolve({ actionType: "noop", payload: {} }), 30),
+      );
+    });
+
+    const res = await POST();
+    const body = await res.json();
+
+    expect(body.agentsRan).toBe(3);
+    // All three were invoked before any resolved (concurrent kickoff).
+    expect(started).toHaveLength(3);
+    expect(new Set(started)).toEqual(new Set(["agent-1", "agent-2", "agent-3"]));
+  });
+
+  it("one agent failing does not stop its teammates", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+
+    const a1 = makeDueAgent({ id: "agent-1", name: "Alpha" });
+    const a2 = makeDueAgent({ id: "agent-2", name: "Beta" });
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([a1, a2]);
+    mockApproveAgentTick.mockReturnValue({ allowed: true });
+    mockRunAgent
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce({ actionType: "noop", payload: {} });
+
+    const res = await POST();
+    const body = await res.json();
+
+    // One failed, one succeeded — tick still completes, count reflects the win.
+    expect(body.agentsRan).toBe(1);
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "errored" }),
+    );
   });
 });
 

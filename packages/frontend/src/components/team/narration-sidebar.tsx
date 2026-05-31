@@ -7,6 +7,19 @@ export interface NarrationEntry {
   actionType: string;
   description: string;
   timestamp: string;
+  /** Tool output (file contents, stdout, API body) shown in a collapsible (T8). */
+  detail?: string;
+}
+
+/**
+ * Pull a UI-displayable output snippet from an action payload, if the action is
+ * a tool that produced one (read_file, run_command, http_fetch, github_api all
+ * store `output`). Returns undefined for actions with no inline output.
+ */
+export function extractDetail(payload: Record<string, unknown>): string | undefined {
+  const output = payload?.output;
+  if (typeof output === "string" && output.length > 0) return output;
+  return undefined;
 }
 
 function formatTime(iso: string) {
@@ -22,7 +35,7 @@ function formatTime(iso: string) {
 // types from tools.ts (message_sent, broadcast_sent, multi_action, agent_thought,
 // noop) plus whatever the agent passes to `report_action`. Keep the unknown-fallback
 // readable so custom action types are still informative.
-function describeAction(actionType: string, payload: Record<string, unknown>): string {
+export function describeAction(actionType: string, payload: Record<string, unknown>): string {
   switch (actionType) {
     // a2ax tool calls (runner)
     case "message_sent":
@@ -37,6 +50,20 @@ function describeAction(actionType: string, payload: Record<string, unknown>): s
       return truncate((payload.content as string) || "thinking", 80);
     case "noop":
       return "no action this tick";
+
+    // v0.1 tools (T1) — the detail/output is shown in the collapsible below.
+    case "file_read":
+      return `read ${payload.path || "a file"} (${payload.bytes ?? 0} bytes)`;
+    case "file_written":
+      return `wrote ${payload.path || "a file"} (${payload.chars ?? 0} chars)`;
+    case "command_run":
+      return `ran ${payload.command || "a command"} ${((payload.args as string[]) ?? []).join(" ")}`.trim();
+    case "http_fetched":
+      return `fetched ${payload.url || "a URL"} → ${payload.status ?? "?"}`;
+    case "github_api_called":
+      return `GitHub ${payload.method || "GET"} ${payload.path || ""} → ${payload.status ?? "?"}`;
+    case "awaiting_approval":
+      return "awaiting your approval of a pending action";
 
     // Legacy / archetype-specific reports (kept for backward compat)
     case "draft_reply":
@@ -137,10 +164,20 @@ export function NarrationSidebar({ entries, isLive }: NarrationSidebarProps) {
               </span>{" "}
               <span className="text-fg-muted break-words">{entry.description}</span>
             </div>
+            {entry.detail && (
+              <details className="mt-1 rounded border border-border bg-bg-subtle">
+                <summary className="cursor-pointer px-2 py-1 text-[10px] font-mono uppercase tracking-wide text-fg-faint">
+                  output
+                </summary>
+                <pre className="max-h-44 overflow-auto whitespace-pre-wrap break-words px-2 pb-2 font-mono text-[11px] text-fg-muted">
+                  {entry.detail}
+                </pre>
+              </details>
+            )}
           </div>
         ))}
       </div>
-      <style jsx>{`
+      <style>{`
         @keyframes narration-fade-in {
           from {
             opacity: 0;
@@ -155,5 +192,3 @@ export function NarrationSidebar({ entries, isLive }: NarrationSidebarProps) {
     </aside>
   );
 }
-
-export { describeAction };

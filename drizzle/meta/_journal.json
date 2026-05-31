@@ -22,6 +22,20 @@
       "when": 1779868800000,
       "tag": "0002_replace_agent_messages_with_a2ax",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779348855215,
+      "tag": "0003_add_cofounder_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780193460000,
+      "tag": "0004_add_pending_approvals",
+      "breakpoints": true
     }
   ]
 }

@@ -14,7 +14,7 @@ interface Agent {
   id: string;
   name: string;
   role: string;
-  status: "running" | "paused" | "errored";
+  status: "running" | "paused" | "errored" | "awaiting_approval";
 }
 
 function SidebarInner() {
@@ -180,7 +180,8 @@ function SidebarInner() {
                       indicator={
                         <span className={`w-1 h-1 rounded-full inline-block shrink-0 ${
                           agent.status === "running" ? "bg-running" :
-                          agent.status === "errored" ? "bg-error" : "bg-paused"
+                          agent.status === "errored" ? "bg-error" :
+                          agent.status === "awaiting_approval" ? "bg-brand" : "bg-paused"
                         }`} />
                       }
                     />

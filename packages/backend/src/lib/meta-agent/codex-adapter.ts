@@ -9,6 +9,7 @@ import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { LLMClient } from "./runner";
+import type { OpenAIToolDef } from "./types";
 
 interface CodexEvent {
   type: string;
@@ -32,15 +33,6 @@ interface OpenAIMessage {
     type: string;
     function: { name: string; arguments: string };
   }>;
-}
-
-interface OpenAIToolDef {
-  type: "function";
-  function: {
-    name: string;
-    description?: string;
-    parameters?: Record<string, unknown>;
-  };
 }
 
 /**
@@ -150,46 +142,106 @@ function parseCodexOutput(jsonlOutput: string): string {
 }
 
 /**
- * Try to parse the agent's text response as structured JSON with tool calls.
+ * Extract the most likely JSON object from a model response. Codex (unlike the
+ * tool-use APIs) returns free text, so with 8 tools the model often wraps the
+ * JSON in prose or a code fence despite instructions. Strategy, in order:
+ *   1. a ```json fenced block, or any ``` fenced block
+ *   2. the first BALANCED top-level {...} object found by brace scanning
+ *      (tolerates leading/trailing prose, which a naive index slice can't)
+ * Returns the candidate JSON string, or null if nothing object-like is present.
  */
-function parseStructuredResponse(text: string): {
+export function extractJsonObject(text: string): string | null {
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) {
+    const inner = fence[1].trim();
+    if (inner.startsWith("{")) return inner;
+  }
+
+  // Brace-scan for the first balanced object, skipping braces inside strings.
+  const start = text.indexOf("{");
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * Try to parse the agent's text response as structured JSON with tool calls.
+ * `allowedTools` (the names the prompt offered) gates tool_calls: a call naming
+ * a tool that wasn't offered is dropped, so a hallucinated tool name can't reach
+ * the dispatcher. With 8 tools this matters — the model occasionally invents a
+ * plausible-but-wrong name.
+ */
+function parseStructuredResponse(
+  text: string,
+  allowedTools: Set<string>,
+): {
   content: string | null;
   tool_calls?: Array<{
     id: string;
     function: { name: string; arguments: string };
   }>;
 } {
-  // Try to extract JSON from the text (might be wrapped in markdown fences)
-  let jsonStr = text;
-  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch) {
-    jsonStr = fenceMatch[1];
-  }
+  const jsonStr = extractJsonObject(text);
+  if (!jsonStr) return { content: text };
 
+  let parsed: {
+    content?: string | null;
+    tool_calls?: Array<{ name?: string; arguments?: Record<string, unknown> }>;
+  };
   try {
-    const parsed = JSON.parse(jsonStr.trim());
-    if (parsed.tool_calls && Array.isArray(parsed.tool_calls)) {
-      return {
-        content: parsed.content ?? null,
-        tool_calls: parsed.tool_calls.map(
-          (tc: { name: string; arguments: Record<string, unknown> }, i: number) => ({
-            id: `call_${Date.now()}_${i}`,
-            function: {
-              name: tc.name,
-              arguments: JSON.stringify(tc.arguments || {}),
-            },
-          }),
-        ),
-      };
-    }
-    return { content: parsed.content ?? text };
+    parsed = JSON.parse(jsonStr);
   } catch {
-    // Not valid JSON, treat as plain text response
+    // Not valid JSON, treat as plain text response.
     return { content: text };
   }
+
+  if (parsed.tool_calls && Array.isArray(parsed.tool_calls)) {
+    const calls = parsed.tool_calls
+      .filter((tc) => typeof tc?.name === "string" && allowedTools.has(tc.name))
+      .map((tc, i) => ({
+        // Per-response uniqueness is all the runner needs (it matches these IDs
+        // to tool results within the same round). Index-based keeps it
+        // deterministic for tests.
+        id: `call_${i}`,
+        function: {
+          name: tc.name as string,
+          arguments: JSON.stringify(tc.arguments ?? {}),
+        },
+      }));
+    if (calls.length > 0) {
+      return { content: parsed.content ?? null, tool_calls: calls };
+    }
+    // tool_calls present but all filtered out (hallucinated names): fall through
+    // to content so the turn isn't silently empty.
+    return { content: parsed.content ?? text };
+  }
+  return { content: parsed.content ?? text };
 }
 
-function runCodexExec(prompt: string, model: string): Promise<string> {
+function runCodexExec(prompt: string, model: string, signal?: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     // Write prompt to a temp file to avoid shell escaping issues
     const tmpDir = mkdtempSync(join(tmpdir(), "sh-codex-"));
@@ -211,13 +263,18 @@ function runCodexExec(prompt: string, model: string): Promise<string> {
       "-",
     ];
 
+    let settled = false;
+    const cleanup = () => {
+      try { rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
+    };
     const child = execFile("codex", args, {
       timeout: 120_000,
       maxBuffer: 1024 * 1024,
       env: { ...process.env },
     }, (err, stdout, stderr) => {
-      // Cleanup temp files
-      try { rmSync(tmpDir, { recursive: true }); } catch { /* ignore */ }
+      if (settled) return;
+      settled = true;
+      cleanup();
 
       if (err && !stdout) {
         reject(new Error(`codex exec failed: ${err.message}`));
@@ -225,6 +282,19 @@ function runCodexExec(prompt: string, model: string): Promise<string> {
       }
       resolve(stdout);
     });
+
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      cleanup();
+      reject(signal?.reason instanceof Error ? signal.reason : new Error("codex exec aborted"));
+    };
+    if (signal?.aborted) {
+      abort();
+      return;
+    }
+    signal?.addEventListener("abort", abort, { once: true });
 
     // Pipe the prompt via stdin
     if (child.stdin) {
@@ -244,14 +314,14 @@ export function createCodexClient(opts?: { model?: string }): LLMClient {
   return {
     chat: {
       completions: {
-        create: async (params: Record<string, unknown>) => {
+        create: async (params: Record<string, unknown>, options?: { signal?: AbortSignal }) => {
           const messages = params.messages as OpenAIMessage[];
           const tools = params.tools as OpenAIToolDef[] | undefined;
           const requestModel = (params.model as string) || model;
 
           const prompt = buildCodexPrompt(messages, tools);
 
-          const output = await runCodexExec(prompt, requestModel);
+          const output = await runCodexExec(prompt, requestModel, options?.signal);
           const text = parseCodexOutput(output);
 
           if (!text) {
@@ -265,9 +335,11 @@ export function createCodexClient(opts?: { model?: string }): LLMClient {
             };
           }
 
-          // If tools were provided, try to parse structured response
+          // If tools were provided, try to parse structured response. Gate
+          // tool calls to the names actually offered this turn.
           if (tools && tools.length > 0) {
-            const parsed = parseStructuredResponse(text);
+            const allowedTools = new Set(tools.map((t) => t.function.name));
+            const parsed = parseStructuredResponse(text, allowedTools);
             return {
               choices: [
                 {

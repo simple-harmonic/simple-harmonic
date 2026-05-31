@@ -56,10 +56,14 @@ describe("db()", () => {
     const { Pool } = await import("pg");
     const instances = (Pool as unknown as { instances: Array<{ config: Record<string, unknown> }> }).instances;
     expect(instances).toHaveLength(1);
+    // max:1 is intentional — the pooled Neon connection must cap at 1 so the
+    // 10s tick loop can't exhaust the pool (see db/index.ts + CLAUDE.md
+    // "Critical pre-commit items"). The timeout settings are asserted
+    // separately in the "configures pool with timeout settings" test below.
     expect(instances[0].config).toEqual(
       expect.objectContaining({
         connectionString: "postgresql://localhost:5432/test_db",
-        max: 10,
+        max: 1,
       }),
     );
     expect(mockDrizzle).toHaveBeenCalledTimes(1);

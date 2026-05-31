@@ -19,7 +19,7 @@
 export interface AgentLike {
   id: string;
   name: string;
-  status: "running" | "paused" | "errored";
+  status: "running" | "paused" | "errored" | "awaiting_approval";
   inFlight: boolean;
   nextRunAt: Date | null;
 }
@@ -38,6 +38,7 @@ export type ApprovalReasonCode =
   | "agent_paused"
   | "agent_errored"
   | "agent_in_flight"
+  | "awaiting_approval"
   | "not_due"
   | "destructive_unconfirmed";
 
@@ -71,6 +72,16 @@ export function approveAgentTick(
       reasonCode: "agent_errored",
     };
   }
+  if (agent.status === "awaiting_approval") {
+    // The agent is parked mid-tick waiting on a human decision. It does NOT
+    // run a fresh tick; the tick loop resumes it separately once its pending
+    // approvals are resolved (see approveAgentTick callers + the resume path).
+    return {
+      allowed: false,
+      reason: `${agent.name} is awaiting approval of a pending action.`,
+      reasonCode: "awaiting_approval",
+    };
+  }
   if (agent.inFlight) {
     return {
       allowed: false,
@@ -100,28 +111,43 @@ export function approveAgentTick(
 //   - dry-run preview before commit
 // ---------------------------------------------------------------------------
 
-// Tools considered safe (internal-only, no external side effects).
-const INTERNAL_TOOLS = new Set(["send_message", "broadcast", "report_action"]);
-
 export interface ToolCallLike {
   toolName: string;
   arguments: Record<string, unknown>;
 }
 
+/**
+ * Classifies whether a tool needs human approval before it runs. The app backs
+ * this with the ToolRegistry's risk labels (risk === "destructive" -> true).
+ * Kept as an injected predicate so this module stays pure — no import of the
+ * registry, no I/O — and remains trivially testable.
+ */
+export type DestructiveClassifier = (toolName: string, rawArgs?: unknown) => boolean;
+
+/**
+ * Decide whether a single tool call may execute without human sign-off.
+ *
+ * `isDestructive` is the source of truth: safe tools are allowed; destructive
+ * tools are held with reasonCode "destructive_unconfirmed", which the runner
+ * turns into a suspension and the tick loop turns into a pending_approvals row.
+ *
+ * An unknown tool (one the classifier can't vouch for) is treated as
+ * destructive — fail safe. Callers that don't pass a classifier get the
+ * conservative default where everything is held, matching the pre-T2 stance
+ * that only the internal tools were ever allowed.
+ */
 export function approveAgentAction(
   _team: TeamLike,
   _agent: AgentLike,
   call: ToolCallLike,
+  isDestructive: DestructiveClassifier = () => true,
 ): ApprovalDecision {
-  if (INTERNAL_TOOLS.has(call.toolName)) {
+  if (!isDestructive(call.toolName, call.arguments)) {
     return { allowed: true };
   }
-  // Unknown / external tool: require explicit confirmation. v0.0 never hits
-  // this branch because the agent tool set is internal-only. Wired here so
-  // v0.1 can replace the body with a human-approval queue.
   return {
     allowed: false,
-    reason: `Tool '${call.toolName}' is not on the v0.0 allowlist.`,
+    reason: `Tool '${call.toolName}' requires approval before it runs.`,
     reasonCode: "destructive_unconfirmed",
   };
 }

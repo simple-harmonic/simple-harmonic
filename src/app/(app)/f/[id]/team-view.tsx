@@ -1,14 +1,15 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { resolveCofounderName } from "@simple-harmonic/backend/lib/meta-agent/identity";
 import { AgentGraph } from "@simple-harmonic/frontend/components/team/agent-graph";
 import { AgentPovView } from "@simple-harmonic/frontend/components/team/agent-pov-view";
+import { ApprovalQueue } from "@simple-harmonic/frontend/components/team/approval-queue";
 import { MetaAgentPanel } from "@simple-harmonic/frontend/components/team/meta-agent-panel";
 import { NarrationSidebar } from "@simple-harmonic/frontend/components/team/narration-sidebar";
-import { UserPovView } from "@simple-harmonic/frontend/components/team/user-pov-view";
 import { useTeam } from "@simple-harmonic/frontend/components/team/use-team";
-import { resolveCofounderName } from "@simple-harmonic/backend/lib/meta-agent/identity";
+import { UserPovView } from "@simple-harmonic/frontend/components/team/user-pov-view";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
 interface TeamViewProps {
   teamId: string;
@@ -34,13 +35,17 @@ function TeamViewInner({ teamId }: TeamViewProps) {
         const p = JSON.parse(raw);
         if (p.displayName) setUserName(p.displayName);
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     const onStorage = (e: StorageEvent) => {
       if (e.key === "sh:user-profile") {
         try {
           const p = JSON.parse(e.newValue ?? "{}");
           if (p.displayName) setUserName(p.displayName);
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     };
     window.addEventListener("storage", onStorage);
@@ -63,7 +68,7 @@ function TeamViewInner({ teamId }: TeamViewProps) {
       tools: string[];
       scheduleSeconds: number;
       initialPrompt: string;
-      status: "running" | "paused" | "errored";
+      status: "running" | "paused" | "errored" | "awaiting_approval";
     }) => {
       updateAgent(updated);
     },
@@ -71,11 +76,7 @@ function TeamViewInner({ teamId }: TeamViewProps) {
   );
 
   const handleMetaUpdated = useCallback(
-    (updates: {
-      name: string;
-      metaAgentPrompt: string | null;
-      cofounderName: string | null;
-    }) => {
+    (updates: { name: string; metaAgentPrompt: string | null; cofounderName: string | null }) => {
       updateTeam(updates);
     },
     [updateTeam],
@@ -125,22 +126,27 @@ function TeamViewInner({ teamId }: TeamViewProps) {
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                if (e.key === "Escape") { setEditingName(false); }
+                if (e.key === "Escape") {
+                  setEditingName(false);
+                }
               }}
               className="text-[13px] font-semibold bg-transparent border-b border-brand outline-none text-fg px-0 py-0 w-auto min-w-[80px]"
               style={{ width: `${Math.max(draftName.length, 6)}ch` }}
             />
           ) : (
-            <h1
-              className="text-[13px] font-semibold cursor-pointer hover:text-brand transition-colors leading-tight"
-              title="Click to rename"
-              onClick={() => {
-                setDraftName(team.name);
-                setEditingName(true);
-                setTimeout(() => nameInputRef.current?.select(), 0);
-              }}
-            >
-              {team.name}
+            <h1 className="leading-tight">
+              <button
+                type="button"
+                className="text-[13px] font-semibold cursor-pointer hover:text-brand transition-colors leading-tight"
+                title="Click to rename"
+                onClick={() => {
+                  setDraftName(team.name);
+                  setEditingName(true);
+                  setTimeout(() => nameInputRef.current?.select(), 0);
+                }}
+              >
+                {team.name}
+              </button>
             </h1>
           )}
           <span className="inline-flex items-center gap-1.5 text-[11px] text-fg-faint font-mono">
@@ -149,19 +155,15 @@ function TeamViewInner({ teamId }: TeamViewProps) {
                 team.paused ? "bg-paused" : "bg-running"
               }`}
             />
-            {team.paused
-              ? `${agents.length} agents paused`
-              : `${runningCount} running`}
-            {" "}· tick {team.tickCount}
+            {team.paused ? `${agents.length} agents paused` : `${runningCount} running`} · tick{" "}
+            {team.tickCount}
           </span>
           <span className="text-[11px] text-fg-faint font-mono">
             · {fmt(tokensUp)} in / {fmt(tokensDown)} out · ${apiCost.toFixed(2)}
           </span>
         </div>
         <div className="flex items-center gap-3">
-          {team.paused && (
-            <span className="text-[11px] text-paused font-mono">paused by you</span>
-          )}
+          {team.paused && <span className="text-[11px] text-paused font-mono">paused by you</span>}
           <button
             type="button"
             onClick={togglePause}
@@ -196,8 +198,13 @@ function TeamViewInner({ teamId }: TeamViewProps) {
           />
         </div>
       ) : povId === "team" ? (
-        /* Team dashboard: graph + narration */
+        /* Team dashboard: approval queue + graph + narration */
         <div className="flex-1 flex flex-col min-h-0">
+          {/* Pending destructive-tool approvals (T2). Renders nothing when empty. */}
+          <ApprovalQueue
+            teamId={teamId}
+            agentNames={Object.fromEntries(agents.map((a) => [a.id, a.name]))}
+          />
           {/* Graph + Narration */}
           <div className="flex-1 grid grid-cols-[1fr_340px] min-h-0">
             <main className="relative">

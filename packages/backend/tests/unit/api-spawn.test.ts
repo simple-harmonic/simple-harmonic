@@ -194,12 +194,13 @@ describe("POST /api/spawn", () => {
     expect(secondInsertValues).toEqual({ teamId: "team-new" });
   });
 
-  it("creates agents with nextRunAt set to now", async () => {
+  it("schedules the first agent's first run at now + scheduleSeconds", async () => {
     const { POST } = await import("@/app/api/spawn/route");
 
     const before = new Date();
     await POST(
       makeReq({
+        // schedule_seconds defaults to 300 in validAgent().
         agents: [validAgent({ name: "Bot" })],
       }),
     );
@@ -211,8 +212,38 @@ describe("POST /api/spawn", () => {
     const agentRow = thirdInsertValues[0];
     expect(agentRow.teamId).toBe("team-new");
     expect(agentRow.name).toBe("Bot");
-    expect(agentRow.nextRunAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
-    expect(agentRow.nextRunAt.getTime()).toBeLessThanOrEqual(after.getTime());
+
+    // The route schedules the first run at now + schedule_seconds*1000 + i*2000.
+    // For agent index 0 with schedule_seconds=300 the stagger offset is 0, so
+    // nextRunAt should land 300s after the POST, bracketed by before/after.
+    const scheduleMs = 300 * 1000;
+    expect(agentRow.nextRunAt.getTime()).toBeGreaterThanOrEqual(before.getTime() + scheduleMs);
+    expect(agentRow.nextRunAt.getTime()).toBeLessThanOrEqual(after.getTime() + scheduleMs);
+  });
+
+  it("staggers first runs of later agents by 2s each", async () => {
+    const { POST } = await import("@/app/api/spawn/route");
+
+    await POST(
+      makeReq({
+        agents: [
+          validAgent({ name: "A", schedule_seconds: 300 }),
+          validAgent({ name: "B", schedule_seconds: 300 }),
+          validAgent({ name: "C", schedule_seconds: 300 }),
+        ],
+      }),
+    );
+
+    const agentRows = mockValues.mock.calls[2][0] as Array<{
+      name: string;
+      nextRunAt: Date;
+    }>;
+    const [a, b, c] = agentRows;
+
+    // Each later agent's first run is offset by an extra 2s (i * 2000) so the
+    // very first tick doesn't fire every agent's LLM call simultaneously.
+    expect(b.nextRunAt.getTime() - a.nextRunAt.getTime()).toBe(2000);
+    expect(c.nextRunAt.getTime() - a.nextRunAt.getTime()).toBe(4000);
   });
 
   it("maps agent fields from snake_case payload to camelCase DB columns", async () => {
