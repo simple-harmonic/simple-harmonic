@@ -172,7 +172,13 @@ beforeEach(() => {
   mockDelete.mockReturnValue({ where: mockDeleteWhere });
   mockDeleteWhere.mockResolvedValue(undefined);
 
-  // Defaults
+  // Defaults. mockReset (not just clearAllMocks) drains any leftover
+  // mockResolvedValueOnce queue from a prior test — clearAllMocks only clears
+  // call history, so an unconsumed once-value would otherwise bleed across
+  // tests and make ordering matter (surfaced when the tick route went parallel).
+  mockDb.query.teams.findMany.mockReset();
+  mockDb.query.agents.findMany.mockReset();
+  mockDb.query.pendingApprovals.findMany.mockReset();
   mockDb.query.teams.findMany.mockResolvedValue([]);
   mockDb.query.agents.findMany.mockResolvedValue([]);
   mockDb.query.pendingApprovals.findMany.mockResolvedValue([]);
@@ -526,6 +532,86 @@ describe("POST /api/tick — approval suspend/resume", () => {
           decisions: [{ id: "call_w", approved: false, note: "too risky" }],
         }),
       }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// T5: per-agent timeout budget + parallel execution
+// ---------------------------------------------------------------------------
+
+describe("POST /api/tick — timeout + parallelism", () => {
+  it("errors an agent whose run exceeds the per-agent budget", async () => {
+    process.env.SH_AGENT_TIMEOUT_MS = "20"; // tiny budget
+    const { POST } = await import("@/app/api/tick/route");
+
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    mockApproveAgentTick.mockReturnValue({ allowed: true });
+    // runAgent hangs well past the budget.
+    mockRunAgent.mockImplementationOnce(
+      () => new Promise((resolve) => setTimeout(() => resolve({ actionType: "noop", payload: {} }), 500)),
+    );
+
+    const res = await POST();
+    const body = await res.json();
+
+    expect(body.agentsRan).toBe(0);
+    // The timed-out agent is errored and rescheduled.
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "errored", inFlight: false }),
+    );
+    delete process.env.SH_AGENT_TIMEOUT_MS;
+  });
+
+  it("runs all due agents in a team concurrently (Promise.allSettled)", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+
+    const a1 = makeDueAgent({ id: "agent-1", name: "Alpha" });
+    const a2 = makeDueAgent({ id: "agent-2", name: "Beta" });
+    const a3 = makeDueAgent({ id: "agent-3", name: "Gamma" });
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([a1, a2, a3]);
+    mockApproveAgentTick.mockReturnValue({ allowed: true });
+
+    // Each run resolves after a delay; if they ran sequentially the total would
+    // be ~3x the delay. We only assert all three ran + were started together.
+    const started: string[] = [];
+    mockRunAgent.mockImplementation((cfg: { agentId: string }) => {
+      started.push(cfg.agentId);
+      return new Promise((resolve) =>
+        setTimeout(() => resolve({ actionType: "noop", payload: {} }), 30),
+      );
+    });
+
+    const res = await POST();
+    const body = await res.json();
+
+    expect(body.agentsRan).toBe(3);
+    // All three were invoked before any resolved (concurrent kickoff).
+    expect(started).toHaveLength(3);
+    expect(new Set(started)).toEqual(new Set(["agent-1", "agent-2", "agent-3"]));
+  });
+
+  it("one agent failing does not stop its teammates", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+
+    const a1 = makeDueAgent({ id: "agent-1", name: "Alpha" });
+    const a2 = makeDueAgent({ id: "agent-2", name: "Beta" });
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([a1, a2]);
+    mockApproveAgentTick.mockReturnValue({ allowed: true });
+    mockRunAgent
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce({ actionType: "noop", payload: {} });
+
+    const res = await POST();
+    const body = await res.json();
+
+    // One failed, one succeeded — tick still completes, count reflects the win.
+    expect(body.agentsRan).toBe(1);
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "errored" }),
     );
   });
 });

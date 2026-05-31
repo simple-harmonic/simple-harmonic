@@ -24,6 +24,15 @@ import {
 // Skip ticks for teams with no recent user activity to control costs.
 const HIBERNATE_THRESHOLD_MS = 5 * 60 * 1000;
 
+// Per-agent wall-clock budget for a single tick (T5/D14). A hung LLM call or a
+// slow tool can't pin an agent inFlight forever or stall the tick response. On
+// timeout the agent is errored and rescheduled like any other failure. Override
+// with SH_AGENT_TIMEOUT_MS. Default 120s matches the LLM client timeout.
+function agentTimeoutMs(): number {
+  const v = Number.parseInt(process.env.SH_AGENT_TIMEOUT_MS ?? "", 10);
+  return Number.isFinite(v) && v > 0 ? v : 120_000;
+}
+
 // The tool registry decides which tools are destructive (need approval). One
 // instance is fine — registration is stateless and the impls read per-call ctx.
 const registry = createAppRegistry();
@@ -70,6 +79,8 @@ export async function POST() {
     modelOverride = cfg.model;
   }
 
+  const timeoutMs = agentTimeoutMs();
+
   for (const team of activeTeams) {
     // Get all agents in team for peer context
     const allAgents = await d.query.agents.findMany({
@@ -85,70 +96,31 @@ export async function POST() {
       }
     }
 
-    // --- Resume pass: agents parked awaiting approval --------------------------
-    // An agent in "awaiting_approval" does not run a fresh tick; it resumes
-    // once ALL of its pending approvals have been resolved (approved/rejected).
-    for (const agent of allAgents) {
-      if (agent.status !== "awaiting_approval") continue;
-      const resumed = await tryResumeAgent({
-        d,
-        team,
-        agent,
-        allAgents,
-        a2ax,
-        llm,
-        modelOverride,
-        now,
-      });
-      if (resumed) totalRan++;
-    }
+    // Agents in a team run CONCURRENTLY within each pass (T5/D20). They are
+    // distinct DB rows and each has its own a2ax context, so they don't
+    // contend; the team-level tickCount increment happens once after both
+    // passes. Each agent run is independently time-bounded, so one slow agent
+    // can't delay the others. Passes stay sequential: a resuming agent must
+    // settle before the fresh pass (it's excluded from dueAgents anyway).
+
+    // --- Resume pass: agents parked awaiting approval -------------------------
+    const parked = allAgents.filter((a) => a.status === "awaiting_approval");
+    const resumeOutcomes = await Promise.allSettled(
+      parked.map((agent) =>
+        tryResumeAgent({ d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs }),
+      ),
+    );
+    totalRan += countRan(resumeOutcomes);
 
     // --- Fresh pass: due agents ----------------------------------------------
-    // approveAgentTick now also blocks "awaiting_approval", so parked agents
-    // never enter this pass.
+    // approveAgentTick blocks "awaiting_approval", so parked agents never enter.
     const dueAgents = allAgents.filter((a) => approveAgentTick(team, a, now).allowed);
-
-    for (const agent of dueAgents) {
-      await d.update(agents).set({ inFlight: true }).where(eq(agents.id, agent.id));
-
-      const peers = buildPeers(allAgents, agent.id);
-
-      try {
-        const ctx = await a2ax.getAgentContext(team.id, agent.id);
-
-        const result = await runAgent({
-          name: agent.name,
-          archetype: agent.archetype,
-          tools: agent.tools as string[],
-          initialPrompt: agent.initialPrompt,
-          a2axContext: ctx.formatted || undefined,
-          teamId: team.id,
-          agentId: agent.id,
-          peers,
-          a2ax,
-          llm,
-          model: modelOverride,
-          isDestructive: registry.isDestructive,
-        });
-
-        await a2ax.markContextRead(ctx.messageIds);
-        await handleRunResult({ d, agent, result, now });
-        totalRan++;
-      } catch (err) {
-        console.error(`[tick] Agent ${agent.name} failed:`, err instanceof Error ? err.message : err);
-        // Advance nextRunAt even on failure so auto-recover doesn't create a
-        // tight retry loop. Clear any parked conversation state.
-        await d
-          .update(agents)
-          .set({
-            inFlight: false,
-            status: "errored",
-            conversationState: null,
-            nextRunAt: new Date(now.getTime() + agent.scheduleSeconds * 1000),
-          })
-          .where(eq(agents.id, agent.id));
-      }
-    }
+    const freshOutcomes = await Promise.allSettled(
+      dueAgents.map((agent) =>
+        runFreshAgent({ d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs }),
+      ),
+    );
+    totalRan += countRan(freshOutcomes);
 
     await d
       .update(teams)
@@ -169,12 +141,45 @@ function buildPeers(allAgents: AgentRow[], selfId: string): PeerAgent[] {
     .map((a) => ({ id: a.id, name: a.name, role: a.role }));
 }
 
+/** Count how many parallel agent runs reported they actually ran. */
+function countRan(outcomes: PromiseSettledResult<boolean>[]): number {
+  let n = 0;
+  for (const o of outcomes) {
+    if (o.status === "fulfilled" && o.value) n++;
+  }
+  return n;
+}
+
+class AgentTimeoutError extends Error {
+  constructor(label: string, ms: number) {
+    super(`${label} exceeded the ${ms}ms tick budget`);
+    this.name = "AgentTimeoutError";
+  }
+}
+
 /**
- * Resume an agent parked awaiting approval, IF all its pending approvals are
- * resolved. Returns true if the agent actually resumed (ran), false if it is
- * still waiting on at least one decision.
+ * Race a promise against a wall-clock budget. On timeout, rejects with
+ * AgentTimeoutError; the underlying work keeps running but its result is
+ * ignored (the runner has no cancellation hook). The timer is always cleared so
+ * a resolved race doesn't keep the event loop alive.
  */
-async function tryResumeAgent(args: {
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new AgentTimeoutError(label, ms)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
+interface RunArgs {
   d: ReturnType<typeof db>;
   team: typeof teams.$inferSelect;
   agent: AgentRow;
@@ -183,8 +188,57 @@ async function tryResumeAgent(args: {
   llm: LLMClient;
   modelOverride: string | undefined;
   now: Date;
-}): Promise<boolean> {
-  const { d, team, agent, allAgents, a2ax, llm, modelOverride, now } = args;
+  timeoutMs: number;
+}
+
+/**
+ * Run a fresh tick for a due agent, time-bounded. Returns true if it ran (even
+ * if it then suspended), false only on failure/timeout. Failures (including
+ * timeout) error the agent and advance nextRunAt so the tick can't tight-loop.
+ */
+async function runFreshAgent(args: RunArgs): Promise<boolean> {
+  const { d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs } = args;
+
+  await d.update(agents).set({ inFlight: true }).where(eq(agents.id, agent.id));
+
+  try {
+    const ctx = await a2ax.getAgentContext(team.id, agent.id);
+
+    const result = await withTimeout(
+      runAgent({
+        name: agent.name,
+        archetype: agent.archetype,
+        tools: agent.tools as string[],
+        initialPrompt: agent.initialPrompt,
+        a2axContext: ctx.formatted || undefined,
+        teamId: team.id,
+        agentId: agent.id,
+        peers: buildPeers(allAgents, agent.id),
+        a2ax,
+        llm,
+        model: modelOverride,
+        isDestructive: registry.isDestructive,
+      }),
+      timeoutMs,
+      `agent ${agent.name}`,
+    );
+
+    await a2ax.markContextRead(ctx.messageIds);
+    await handleRunResult({ d, agent, result, now });
+    return true;
+  } catch (err) {
+    await failAgent({ d, agent, now, err, phase: "tick" });
+    return false;
+  }
+}
+
+/**
+ * Resume an agent parked awaiting approval, IF all its pending approvals are
+ * resolved. Returns true if the agent actually resumed (ran), false if it is
+ * still waiting on at least one decision (or failed). Time-bounded.
+ */
+async function tryResumeAgent(args: RunArgs): Promise<boolean> {
+  const { d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs } = args;
 
   const rows = await d.query.pendingApprovals.findMany({
     where: eq(pendingApprovals.agentId, agent.id),
@@ -212,39 +266,56 @@ async function tryResumeAgent(args: {
   await d.update(agents).set({ inFlight: true }).where(eq(agents.id, agent.id));
 
   try {
-    const result = await runAgent({
-      name: agent.name,
-      archetype: agent.archetype,
-      tools: agent.tools as string[],
-      initialPrompt: agent.initialPrompt,
-      teamId: team.id,
-      agentId: agent.id,
-      peers: buildPeers(allAgents, agent.id),
-      a2ax,
-      llm,
-      model: modelOverride,
-      isDestructive: registry.isDestructive,
-      resume: { suspension, decisions },
-    });
+    const result = await withTimeout(
+      runAgent({
+        name: agent.name,
+        archetype: agent.archetype,
+        tools: agent.tools as string[],
+        initialPrompt: agent.initialPrompt,
+        teamId: team.id,
+        agentId: agent.id,
+        peers: buildPeers(allAgents, agent.id),
+        a2ax,
+        llm,
+        model: modelOverride,
+        isDestructive: registry.isDestructive,
+        resume: { suspension, decisions },
+      }),
+      timeoutMs,
+      `agent ${agent.name} (resume)`,
+    );
 
     // Consume the resolved approvals so they don't block a future suspension.
     await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
     await handleRunResult({ d, agent, result, now });
     return true;
   } catch (err) {
-    console.error(`[tick] Resume of ${agent.name} failed:`, err instanceof Error ? err.message : err);
     await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
-    await d
-      .update(agents)
-      .set({
-        inFlight: false,
-        status: "errored",
-        conversationState: null,
-        nextRunAt: new Date(now.getTime() + agent.scheduleSeconds * 1000),
-      })
-      .where(eq(agents.id, agent.id));
+    await failAgent({ d, agent, now, err, phase: "resume" });
     return false;
   }
+}
+
+/** Common failure handling: log, error the agent, advance nextRunAt, clear state. */
+async function failAgent(args: {
+  d: ReturnType<typeof db>;
+  agent: AgentRow;
+  now: Date;
+  err: unknown;
+  phase: "tick" | "resume";
+}): Promise<void> {
+  const { d, agent, now, err, phase } = args;
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error(`[tick] ${phase} of ${agent.name} failed:`, msg);
+  await d
+    .update(agents)
+    .set({
+      inFlight: false,
+      status: "errored",
+      conversationState: null,
+      nextRunAt: new Date(now.getTime() + agent.scheduleSeconds * 1000),
+    })
+    .where(eq(agents.id, agent.id));
 }
 
 /**
