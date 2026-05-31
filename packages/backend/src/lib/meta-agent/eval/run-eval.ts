@@ -13,7 +13,6 @@
 // fixtures/validators elsewhere never triggers an LLM call.
 // ---------------------------------------------------------------------------
 
-import { createAnthropicClient } from "../anthropic-adapter";
 import { plannerStream } from "../planner";
 import { VISION_INPUTS } from "./fixtures";
 import { type EvalReport, summarize, validateSpawnResult } from "./validators";
@@ -32,12 +31,13 @@ const KNOWN_TOOLS = new Set([
 ]);
 
 async function runPlannerEval(): Promise<EvalReport[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.error("ANTHROPIC_API_KEY not set — cannot run the live planner eval.");
+  // plannerStream picks its backend from config (getApiKeySource): Codex CLI if
+  // logged in, else the OpenAI-compatible key. It does NOT take an injected
+  // client, so we just need *a* configured provider in the environment.
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
+    console.error("No LLM provider configured (set ANTHROPIC_API_KEY or OPENAI_API_KEY).");
     return [];
   }
-  const llm = createAnthropicClient({ apiKey });
   const reports: EvalReport[] = [];
 
   for (const input of VISION_INPUTS) {
@@ -46,21 +46,21 @@ async function runPlannerEval(): Promise<EvalReport[]> {
       const result = await plannerStream(
         [{ role: "user", content: input.vision }],
         () => {}, // ignore streamed tokens
-        { llm, model: "claude-sonnet-4-20250514" },
       );
 
-      if (!result.spawn) {
+      // PlannerResult is a union: only the "spawn" variant carries a team.
+      if (result.type !== "spawn") {
         reports.push({
           passed: false,
-          issues: [{ severity: "error", code: "no_spawn", message: "Planner produced no team." }],
+          issues: [{ severity: "error", code: "no_spawn", message: "Planner did not produce a team (returned a message)." }],
         });
         console.log("FAIL — no team produced");
         continue;
       }
 
-      const report = validateSpawnResult(result.spawn, KNOWN_TOOLS);
+      const report = validateSpawnResult(result.result, KNOWN_TOOLS);
       reports.push(report);
-      const n = result.spawn.agents.length;
+      const n = result.result.agents.length;
       const [lo, hi] = input.expectAgentsBetween;
       const sizeNote = n >= lo && n <= hi ? "" : ` (size ${n}, expected ${lo}-${hi})`;
       console.log(report.passed ? `PASS — ${n} agents${sizeNote}` : "FAIL");

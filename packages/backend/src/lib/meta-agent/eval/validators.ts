@@ -53,7 +53,7 @@ export function validateSpawnResult(
 ): EvalReport {
   const issues: EvalIssue[] = [];
 
-  if (!spawn.teamName || spawn.teamName.trim().length === 0) {
+  if (!spawn.team_name || spawn.team_name.trim().length === 0) {
     issues.push(err("team_name_empty", "Team has no name."));
   }
 

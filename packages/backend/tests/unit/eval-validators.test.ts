@@ -33,7 +33,7 @@ function goodAgent(overrides: Record<string, unknown> = {}) {
 
 function goodSpawn(overrides: Partial<SpawnTeamResult> = {}): SpawnTeamResult {
   return {
-    teamName: "Growth Team",
+    team_name: "Growth Team",
     agents: [goodAgent(), goodAgent({ name: "Writer", archetype: "writer" })],
     ...overrides,
   } as SpawnTeamResult;
@@ -57,7 +57,7 @@ describe("validateSpawnResult", () => {
   });
 
   it("fails a team with no name", () => {
-    const r = validateSpawnResult(goodSpawn({ teamName: "  " }), KNOWN_TOOLS);
+    const r = validateSpawnResult(goodSpawn({ team_name: "  " }), KNOWN_TOOLS);
     expect(r.passed).toBe(false);
     expect(r.issues.some((i) => i.code === "team_name_empty")).toBe(true);
   });
