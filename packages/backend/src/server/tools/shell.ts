@@ -32,18 +32,32 @@ const ALLOWED_PROGRAMS = new Set([
   "cat",
   "rg",
   "grep",
+  "find",
+  "diff",
   "tsc",
   "vitest",
+  "npm",
+  "npx",
+  "biome",
   "echo",
   "pwd",
   "wc",
   "head",
   "tail",
+  "mkdir",
+  "cp",
+  "mv",
+  "sort",
+  "uniq",
+  "tr",
 ]);
 
-// Explicit read-only git subcommands. A denylist is too easy to bypass with
-// write-capable porcelain like apply, worktree, tag -d, config, or aliases.
+// Git subcommand allowlist. Read-only subcommands are always allowed. Write
+// subcommands are allowed here because run_command itself is classified as
+// destructive and goes through the approval gate (T2), so the human always
+// approves before any write-capable git operation runs.
 const ALLOWED_GIT_SUBCOMMANDS = new Set([
+  // read-only
   "status",
   "log",
   "diff",
@@ -52,13 +66,29 @@ const ALLOWED_GIT_SUBCOMMANDS = new Set([
   "ls-files",
   "grep",
   "blame",
+  "branch",
+  "stash",
+  // write (gated by approval)
+  "add",
+  "commit",
+  "push",
+  "pull",
+  "fetch",
+  "checkout",
+  "switch",
+  "merge",
+  "rebase",
+  "cherry-pick",
+  "restore",
+  "reset",
+  "tag",
 ]);
 
 const runCommandSchema = z.object({
   command: z
     .string()
     .describe(
-      "Program to run (must be on the allowlist, e.g. git, ls, rg, vitest). No shell features.",
+      "Program to run (must be on the allowlist, e.g. git, ls, rg, vitest, npm, biome). No shell features.",
     ),
   args: z
     .array(z.string())
@@ -69,7 +99,7 @@ const runCommandSchema = z.object({
 export const runCommandDef: ToolDefinition<typeof runCommandSchema> = {
   name: "run_command",
   description:
-    "Run an allowlisted program in the project working directory and return its output. Arguments are passed as a literal argv — there is no shell, so pipes/redirection/variable expansion do not work. Allowed: git (read-only subcommands), ls, cat, rg, grep, tsc, vitest, echo, pwd, wc, head, tail.",
+    "Run an allowlisted program in the project working directory and return its output. Arguments are passed as a literal argv — there is no shell, so pipes/redirection/variable expansion do not work. Allowed: git (read and write subcommands), ls, cat, rg, grep, find, diff, tsc, vitest, npm, npx, biome, echo, pwd, wc, head, tail, mkdir, cp, mv, sort, uniq, tr.",
   category: "shell",
   risk: "destructive",
   schema: runCommandSchema,

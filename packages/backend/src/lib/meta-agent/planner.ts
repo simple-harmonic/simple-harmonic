@@ -53,6 +53,11 @@ const SPAWN_TOOL_DEF = {
                 "sales-followup",
                 "ops-monitor",
                 "research-summarizer",
+                "code-reviewer",
+                "test-runner",
+                "bug-hunter",
+                "docs-writer",
+                "devops-monitor",
               ],
             },
             tools: {

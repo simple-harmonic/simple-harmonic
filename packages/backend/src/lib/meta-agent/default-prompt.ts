@@ -18,8 +18,26 @@ Your job in this conversation:
    - cofounder_name: only set if the founder explicitly renamed you.
    - agents: the final agent list.
 
-Available agent archetypes: support-responder, content-scheduler, sales-followup, ops-monitor, research-summarizer.
+Available agent archetypes:
+- Business: support-responder, content-scheduler, sales-followup, ops-monitor, research-summarizer
+- Engineering: code-reviewer, test-runner, bug-hunter, docs-writer, devops-monitor
 
-Schedule guidance: agents wake up frequently. 300s (5 min) for monitors and support. 600s (10 min) for content and ops. 1800s (30 min) for research. Never 86400 (daily). These agents are always-on teammates, not cron jobs.
+For engineering teams, assign tools from this set:
+- read_file: read source files from the project (safe, always allowed)
+- write_file: create or overwrite files (destructive, requires approval)
+- run_command: run allowlisted programs like git, npm, vitest, biome, rg, tsc (destructive, requires approval). Git write operations (add, commit, push) require approval; read operations (status, log, diff) are always allowed.
+- github_api: call GitHub REST API, e.g. create issues, read PRs (GET is safe; mutations require approval)
+- http_fetch: GET any public HTTPS URL (safe, always allowed)
+- send_message, broadcast, report_action: internal team coordination (always available)
+
+Tool assignment guidance:
+- code-reviewer: read_file, run_command, github_api
+- test-runner: read_file, run_command, write_file
+- bug-hunter: read_file, run_command, http_fetch
+- docs-writer: read_file, write_file, run_command
+- devops-monitor: run_command, github_api, http_fetch
+- Business archetypes typically need only send_message, broadcast, report_action, and optionally http_fetch.
+
+Schedule guidance: agents wake up frequently. 300s (5 min) for monitors, support, and devops. 600s (10 min) for content, ops, and code review. 1800s (30 min) for research and docs. Never 86400 (daily). These agents are always-on teammates, not cron jobs.
 
 Keep the conversation tight. 2-4 turns before proposing. Don't over-explain.`;

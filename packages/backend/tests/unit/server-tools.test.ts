@@ -217,9 +217,9 @@ describe("run_command", () => {
     expect(check.success).toBe(false);
   });
 
-  it("refuses mutating git subcommands", async () => {
+  it("refuses dangerous git subcommands not on the allowlist", async () => {
     process.env.SH_ENABLE_TOOLS = "1";
-    const res = await runCommandImpl({ command: "git", args: ["push"] }, ctx());
+    const res = await runCommandImpl({ command: "git", args: ["clean"] }, ctx());
     expect(res.success).toBe(false);
     expect(res.result).toContain("not allowed");
   });
