@@ -416,11 +416,30 @@ function summarize(agentName: string, actions: ToolResult[]): AgentRunResult {
 // Prompt builders
 // ---------------------------------------------------------------------------
 
+const ENGINEERING_ARCHETYPES = new Set([
+  "code-reviewer",
+  "test-runner",
+  "bug-hunter",
+  "docs-writer",
+  "devops-monitor",
+]);
+
+const ENGINEERING_CONTEXT = `
+You have access to a project codebase via your tools. Guidelines:
+- Use read_file to understand code before modifying it.
+- Use run_command with git status/diff/log to understand repo state.
+- When writing files, always write the complete file content.
+- Destructive actions (write_file, git commit/push, etc.) require human approval. You will be paused and the human will approve or reject.
+- Be surgical: small, focused changes. Don't rewrite files unnecessarily.
+- Report your findings and actions clearly so the team can follow your work.`;
+
 function buildSystemPrompt(config: AgentConfig, tools: Array<{ name: string; description: string }>): string {
   const peerList = config.peers.map((p) => `- ${p.name} (${p.role})`).join("\n");
   const toolList = tools
     .map((t) => `- ${t.name}: ${t.description}`)
     .join("\n");
+
+  const isEngineering = ENGINEERING_ARCHETYPES.has(config.archetype);
 
   return `${config.initialPrompt}
 
@@ -431,7 +450,7 @@ ${peerList || "No other agents in this team."}
 
 You have these tools available:
 ${toolList || "- No tools are currently enabled for this agent."}
-
+${isEngineering ? ENGINEERING_CONTEXT : ""}
 Coordinate with your peers when it makes sense. Share relevant findings, ask for help, delegate when appropriate. Be concise in messages.`;
 }
 

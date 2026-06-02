@@ -186,11 +186,21 @@ describe("command injection (run_command is shell-free)", () => {
     }
   });
 
-  it("refuses mutating git subcommands", async () => {
-    for (const sub of ["push", "reset", "clean", "commit", "checkout"]) {
+  it("refuses dangerous git subcommands not on the allowlist", async () => {
+    for (const sub of ["clean", "gc", "filter-branch", "reflog"]) {
       const res = await runCommandImpl({ command: "git", args: [sub] }, ctx());
       expect(res.success).toBe(false);
       expect(res.result).toContain("not allowed");
+    }
+  });
+
+  it("allows write git subcommands (gated by approval at runtime)", async () => {
+    // These are on the allowlist. In production the approval gate blocks them
+    // until the human approves; here we just verify the allowlist accepts them.
+    // They will fail with git errors (no repo in temp dir), not "not allowed".
+    for (const sub of ["push", "commit", "checkout", "add"]) {
+      const res = await runCommandImpl({ command: "git", args: [sub] }, ctx());
+      expect(res.result).not.toContain("not allowed");
     }
   });
 

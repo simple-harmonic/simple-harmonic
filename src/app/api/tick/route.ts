@@ -24,6 +24,9 @@ import OpenAI from "openai";
 // Skip ticks for teams with no recent user activity to control costs.
 const HIBERNATE_THRESHOLD_MS = 5 * 60 * 1000;
 
+// Reset agents stuck in-flight from a previous crash, once per process.
+let didResetInFlight = false;
+
 // Per-agent wall-clock budget for a single tick (T5/D14). A hung LLM call or a
 // slow tool can't pin an agent inFlight forever or stall the tick response. On
 // timeout the agent is errored and rescheduled like any other failure. Override
@@ -42,6 +45,19 @@ type AgentRow = typeof agents.$inferSelect;
 export async function POST() {
   const d = db();
   const now = new Date();
+
+  if (!didResetInFlight) {
+    didResetInFlight = true;
+    try {
+      await d
+        .update(agents)
+        .set({ inFlight: false })
+        .where(eq(agents.inFlight, true));
+    } catch {
+      didResetInFlight = false;
+    }
+  }
+
   const allActive = await d.query.teams.findMany({
     where: eq(teams.paused, false),
   });
