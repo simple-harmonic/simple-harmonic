@@ -298,6 +298,8 @@ function TeamTreeNode({
   const agents = showAgents ? (teamAgents[node.id] ?? []) : [];
   const hasChildren = node.children.length > 0;
 
+  const showExpanded = activeTeamId === node.id || (hasChildren && (depth === 0 || isInActivePath));
+
   return (
     <div style={{ paddingLeft: depth > 0 ? 8 : 0 }}>
       <SidebarLink
@@ -308,37 +310,39 @@ function TeamTreeNode({
           <span className={`w-1.5 h-1.5 rounded-full inline-block shrink-0 ${node.paused ? "bg-paused" : "bg-running"}`} />
         }
       />
-      {activeTeamId === node.id && (
-        <div className="ml-3 border-l border-border pl-1.5 my-0.5">
-          {/* People */}
-          <div className="mb-1">
-            <SidebarLink
-              href={`/f/${node.id}?agent=user`}
-              active={activeAgentId === "user"}
-              label={displayName}
-              small
-              indicator={
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-user, #3b82f6)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
-                </svg>
-              }
-            />
-            <SidebarLink
-              href={`/f/${node.id}?agent=meta`}
-              active={activeAgentId === "meta"}
-              label={teamCofounderNames[node.id] || "Harmon"}
-              small
-              indicator={
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-meta, #f59e0b)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                  <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
-                </svg>
-              }
-            />
-          </div>
-          {/* Agents */}
-          {agents.length > 0 && (
-            <div className="mt-0.5">
-              <div className="px-2 mb-0.5">
+      {showExpanded && (
+        <div className="ml-[11px] border-l border-border pl-2 my-0.5">
+          {/* People (only when this team is active) */}
+          {activeTeamId === node.id && (
+            <>
+              <SidebarLink
+                href={`/f/${node.id}?agent=user`}
+                active={activeAgentId === "user"}
+                label={displayName}
+                small
+                indicator={
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-user, #3b82f6)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+                  </svg>
+                }
+              />
+              <SidebarLink
+                href={`/f/${node.id}?agent=meta`}
+                active={activeAgentId === "meta"}
+                label={teamCofounderNames[node.id] || "Harmon"}
+                small
+                indicator={
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-meta, #f59e0b)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
+                  </svg>
+                }
+              />
+            </>
+          )}
+          {/* Agents (only when this team is active and has direct agents) */}
+          {activeTeamId === node.id && agents.length > 0 && (
+            <>
+              <div className="px-2 mt-1 mb-0.5">
                 <span className="text-[8px] text-fg-faint font-mono uppercase tracking-[1px]">Agents</span>
               </div>
               {agents.map((agent) => (
@@ -357,31 +361,30 @@ function TeamTreeNode({
                   }
                 />
               ))}
-            </div>
+            </>
           )}
-        </div>
-      )}
-      {hasChildren && (depth === 0 || isInActivePath) && (
-        <div className={activeTeamId === node.id ? "mt-1" : ""}>
-          {activeTeamId === node.id && (
-            <div className="ml-3 border-l border-border pl-1.5 px-2 mb-0.5">
-              <span className="text-[8px] text-fg-faint font-mono uppercase tracking-[1px]">Sub-teams</span>
-            </div>
+          {/* Sub-teams */}
+          {hasChildren && (
+            <>
+              {activeTeamId === node.id && (
+                <div className="px-2 mt-1 mb-0.5">
+                  <span className="text-[8px] text-fg-faint font-mono uppercase tracking-[1px]">Sub-teams</span>
+                </div>
+              )}
+              {node.children.map((child) => (
+                <TeamTreeNode
+                  key={child.id}
+                  node={child}
+                  depth={depth + 1}
+                  activeTeamId={activeTeamId}
+                  activeAgentId={activeAgentId}
+                  teamAgents={teamAgents}
+                  teamCofounderNames={teamCofounderNames}
+                  displayName={displayName}
+                />
+              ))}
+            </>
           )}
-          <div className={depth === 0 ? "ml-2 border-l border-border/50 pl-0.5" : "ml-2 border-l border-border/30 pl-0.5"}>
-          {node.children.map((child) => (
-            <TeamTreeNode
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              activeTeamId={activeTeamId}
-              activeAgentId={activeAgentId}
-              teamAgents={teamAgents}
-              teamCofounderNames={teamCofounderNames}
-              displayName={displayName}
-            />
-          ))}
-          </div>
         </div>
       )}
     </div>
