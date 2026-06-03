@@ -58,6 +58,7 @@ export const a2axTaskState = pgEnum("a2ax_task_state", [
 
 export const teams = pgTable("teams", {
   id: uuid("id").defaultRandom().primaryKey(),
+  parentTeamId: uuid("parent_team_id"),
   name: text("name").notNull(),
   paused: boolean("paused").notNull().default(false),
   tickCount: integer("tick_count").notNull().default(0),
@@ -65,7 +66,9 @@ export const teams = pgTable("teams", {
   cofounderName: text("cofounder_name"),
   lastUserActiveAt: timestamp("last_user_active_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index("teams_parent_idx").on(t.parentTeamId),
+]);
 
 export const agents = pgTable("agents", {
   id: uuid("id").defaultRandom().primaryKey(),

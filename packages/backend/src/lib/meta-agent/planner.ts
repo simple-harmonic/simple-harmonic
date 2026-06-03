@@ -24,7 +24,7 @@ function openaiClient() {
 const SPAWN_TOOL_DEF = {
   name: "spawn_team",
   description:
-    "Spawn a team of agents based on the conversation. Call this when you and the founder have aligned on a team composition.",
+    "Spawn a team of agents. Can be a root team or a sub-team of an existing team. Call this when you and the founder have aligned on a team composition.",
   parameters: {
     type: "object" as const,
     properties: {
@@ -32,6 +32,11 @@ const SPAWN_TOOL_DEF = {
         type: "string" as const,
         description:
           "Short, human-friendly team name derived from the company or focus area (e.g., 'Acme Studio', 'Newsletter Ops', 'Indie Launch'). 1-4 words. NOT auto-generated from archetypes.",
+      },
+      parent_team: {
+        type: "string" as const,
+        description:
+          "Optional. Name of the existing parent team to nest this team under. Omit for a root team.",
       },
       cofounder_name: {
         type: "string" as const,
@@ -148,6 +153,7 @@ export interface SpawnTeamAgent {
 
 export interface SpawnTeamResult {
   team_name: string;
+  parent_team?: string;
   cofounder_name?: string;
   agents: SpawnTeamAgent[];
 }

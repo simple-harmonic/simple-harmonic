@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
 import { db } from "@simple-harmonic/backend/server/db";
 import { agents, chatSessions, teams } from "@simple-harmonic/backend/server/db/schema";
 
@@ -14,11 +15,13 @@ interface SpawnAgent {
 interface SpawnPayload {
   agents: SpawnAgent[];
   teamName?: string;
+  parentTeam?: string;
+  parentTeamId?: string;
   cofounderName?: string | null;
 }
 
 export async function POST(request: Request) {
-  const { agents: agentList, teamName, cofounderName } =
+  const { agents: agentList, teamName, parentTeam, parentTeamId, cofounderName } =
     (await request.json()) as SpawnPayload;
 
   if (!agentList || !Array.isArray(agentList) || agentList.length === 0) {
@@ -27,8 +30,21 @@ export async function POST(request: Request) {
 
   const d = db();
 
-  // Prefer the planner-derived team name. Fall back to the legacy
-  // archetype-join only if the client didn't provide one.
+  // Resolve parent team: by ID or by name
+  let resolvedParentId: string | null = parentTeamId ?? null;
+  if (!resolvedParentId && parentTeam) {
+    const parent = await d.query.teams.findFirst({
+      where: eq(teams.name, parentTeam),
+    });
+    if (!parent) {
+      return NextResponse.json(
+        { error: `Parent team "${parentTeam}" not found` },
+        { status: 400 },
+      );
+    }
+    resolvedParentId = parent.id;
+  }
+
   const resolvedTeamName =
     teamName?.trim() ||
     agentList.map((a) => a.archetype).join("-").slice(0, 50);
@@ -37,6 +53,7 @@ export async function POST(request: Request) {
     .insert(teams)
     .values({
       name: resolvedTeamName,
+      parentTeamId: resolvedParentId,
       cofounderName: cofounderName?.trim() || null,
     })
     .returning({ id: teams.id });
@@ -53,12 +70,9 @@ export async function POST(request: Request) {
       tools: a.tools,
       scheduleSeconds: a.schedule_seconds,
       initialPrompt: a.initial_prompt,
-      // Stagger first runs: agent 0 fires at now + schedule, agent 1 at
-      // now + schedule + 2s, etc. Avoids slamming the LLM API with all
-      // agents simultaneously on the very first tick.
       nextRunAt: new Date(now.getTime() + a.schedule_seconds * 1000 + i * 2000),
     })),
   );
 
-  return NextResponse.json({ teamId: team.id });
+  return NextResponse.json({ teamId: team.id, parentTeamId: resolvedParentId });
 }

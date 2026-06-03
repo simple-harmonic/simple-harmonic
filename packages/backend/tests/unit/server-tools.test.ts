@@ -355,7 +355,7 @@ describe("github_api", () => {
 // ---------------------------------------------------------------------------
 
 describe("createAppRegistry", () => {
-  it("registers all 9 tools (3 internal + 6 app)", () => {
+  it("registers all 11 tools (3 internal + 8 app)", () => {
     const r = createAppRegistry();
     const names = r.listForAgent().map((d) => d.name).sort();
     expect(names).toEqual([
@@ -363,10 +363,12 @@ describe("createAppRegistry", () => {
       "coding_task",
       "github_api",
       "http_fetch",
+      "modify_agent",
       "read_file",
       "report_action",
       "run_command",
       "send_message",
+      "spawn_sub_team",
       "write_file",
     ]);
   });
@@ -378,12 +380,12 @@ describe("createAppRegistry", () => {
       .filter((d) => d.risk === "destructive")
       .map((d) => d.name)
       .sort();
-    expect(destructive).toEqual(["coding_task", "github_api", "run_command", "write_file"]);
+    expect(destructive).toEqual(["coding_task", "github_api", "modify_agent", "run_command", "spawn_sub_team", "write_file"]);
   });
 
   it("getOpenAIDefs emits a valid function def per tool", () => {
     const defs = createAppRegistry().getOpenAIDefs();
-    expect(defs).toHaveLength(9);
+    expect(defs).toHaveLength(11);
     for (const d of defs) {
       expect(d.type).toBe("function");
       expect(typeof d.function.name).toBe("string");

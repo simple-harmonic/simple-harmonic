@@ -26,6 +26,12 @@ import {
   githubApiDef,
   githubApiImpl,
 } from "./network";
+import {
+  spawnSubTeamDef,
+  spawnSubTeamImpl,
+  modifyAgentDef,
+  modifyAgentImpl,
+} from "./management";
 
 /**
  * Build the built-in tool registry. Does NOT include custom tools from files.
@@ -39,6 +45,8 @@ export function createAppRegistry(): ToolRegistry {
   registry.register(codingTaskDef, codingTaskImpl);
   registry.register(httpFetchDef, httpFetchImpl);
   registry.register(githubApiDef, githubApiImpl);
+  registry.register(spawnSubTeamDef, spawnSubTeamImpl);
+  registry.register(modifyAgentDef, modifyAgentImpl);
 
   return registry;
 }
@@ -79,6 +87,12 @@ export {
   githubApiDef,
   githubApiImpl,
 } from "./network";
+export {
+  spawnSubTeamDef,
+  spawnSubTeamImpl,
+  modifyAgentDef,
+  modifyAgentImpl,
+} from "./management";
 export {
   toolsRoot,
   toolsEnabled,

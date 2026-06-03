@@ -56,6 +56,7 @@ export async function POST(request: Request) {
                 type: "spawn",
                 agents: result.result.agents,
                 teamName: result.result.team_name,
+                parentTeam: result.result.parent_team ?? null,
                 cofounderName: result.result.cofounder_name ?? null,
                 content: result.content,
               })}\n\n`,
