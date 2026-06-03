@@ -41,6 +41,31 @@ function agentTimeoutMs(): number {
 // How many recent actions to feed back as working memory per tick.
 const HISTORY_LIMIT = 10;
 
+const VALIDATION_HISTORY_LIMIT = 5;
+
+async function fetchRecentValidations(d: ReturnType<typeof db>, agentId: string): Promise<string | undefined> {
+  const rows = await d.query.actionLog.findMany({
+    where: eq(actionLog.agentId, agentId),
+    orderBy: [desc(actionLog.executedAt)],
+    limit: VALIDATION_HISTORY_LIMIT * 2,
+  });
+
+  const validations: string[] = [];
+  for (const r of rows.reverse()) {
+    const v = r.payload?.validation as { valid?: boolean; issues?: Array<{ path: string; message: string }> } | undefined;
+    if (v === undefined) continue;
+    if (v.valid) {
+      validations.push(`[${r.executedAt.toISOString().slice(11, 19)}] PASS`);
+    } else {
+      const issueStr = (v.issues || []).map((i) => `${i.path}: ${i.message}`).join("; ");
+      validations.push(`[${r.executedAt.toISOString().slice(11, 19)}] FAIL: ${issueStr}`);
+    }
+    if (validations.length >= VALIDATION_HISTORY_LIMIT) break;
+  }
+
+  return validations.length > 0 ? validations.join("\n") : undefined;
+}
+
 async function fetchRecentHistory(d: ReturnType<typeof db>, agentId: string): Promise<string | undefined> {
   const rows = await d.query.actionLog.findMany({
     where: eq(actionLog.agentId, agentId),
@@ -273,9 +298,11 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
   if (!claimed) return false;
 
   try {
-    const [ctx, recentHistory] = await Promise.all([
+    const contract = agent.outputContract as Record<string, unknown> | null;
+    const [ctx, recentHistory, recentValidations] = await Promise.all([
       a2ax.getAgentContext(team.id, agent.id),
       fetchRecentHistory(d, agent.id),
+      contract ? fetchRecentValidations(d, agent.id) : Promise.resolve(undefined),
     ]);
 
     const result = await withTimeout(
@@ -287,6 +314,8 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
           initialPrompt: agent.initialPrompt,
           a2axContext: ctx.formatted || undefined,
           recentHistory,
+          outputContract: contract ?? undefined,
+          recentValidations,
           teamId: team.id,
           agentId: agent.id,
           peers: buildPeers(allAgents, agent.id),
@@ -474,10 +503,14 @@ async function handleRunResult(args: {
     return;
   }
 
+  const payload = result.validation
+    ? { ...result.payload, validation: { valid: result.validation.valid, issues: result.validation.issues } }
+    : result.payload;
+
   await d.insert(actionLog).values({
     agentId: agent.id,
     actionType: result.actionType,
-    payload: result.payload,
+    payload,
   });
 
   await d

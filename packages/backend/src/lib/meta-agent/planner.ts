@@ -127,6 +127,13 @@ const MODIFY_AGENT_TOOL_DEF = {
             type: "string" as const,
             description: "Update the agent's role description.",
           },
+          output_contract: {
+            type: "object" as const,
+            description:
+              "JSON Schema defining the agent's expected output structure. " +
+              "The agent's report_action payload is validated against this each tick. " +
+              'Example: {"type":"object","required":["bugs"],"properties":{"bugs":{"type":"array","items":{"type":"object","required":["file","description","severity"],"properties":{"file":{"type":"string"},"description":{"type":"string"},"severity":{"type":"string"}}}}}}',
+          },
         },
       },
     },
@@ -164,6 +171,7 @@ export interface ModifyAgentUpdates {
   schedule_seconds?: number;
   status?: "running" | "paused";
   role?: string;
+  output_contract?: Record<string, unknown>;
 }
 
 export interface ModifyAgentResult {

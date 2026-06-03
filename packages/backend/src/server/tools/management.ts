@@ -111,6 +111,9 @@ const modifyAgentSchema = z.object({
     schedule_seconds: z.number().optional().describe("Change the tick interval."),
     status: z.enum(["running", "paused"]).optional().describe("Pause or resume."),
     role: z.string().optional().describe("Update the role description."),
+    output_contract: z.record(z.string(), z.unknown()).optional().describe(
+      "JSON Schema defining expected output. The agent's payload is validated against this each tick.",
+    ),
   }).describe("Fields to update."),
 });
 
@@ -173,6 +176,7 @@ export const modifyAgentImpl: ToolImpl<typeof modifyAgentSchema> = async (args, 
     if (u.schedule_seconds !== undefined) set.scheduleSeconds = u.schedule_seconds;
     if (u.status !== undefined) set.status = u.status;
     if (u.role !== undefined) set.role = u.role;
+    if (u.output_contract !== undefined) set.outputContract = u.output_contract;
 
     if (Object.keys(set).length === 0) {
       return {

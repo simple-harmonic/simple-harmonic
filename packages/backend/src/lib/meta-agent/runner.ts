@@ -28,6 +28,7 @@
 // approval-aware tick route checks `result.suspension`.
 // ---------------------------------------------------------------------------
 
+import { validateContract, type ValidationResult } from "./contract";
 import { createDefaultRegistry } from "./default-tools";
 import type { ToolRegistry } from "./registry";
 import type {
@@ -112,6 +113,16 @@ export interface AgentConfig {
    */
   toolRegistry?: Pick<ToolRegistry, "execute" | "getOpenAIDefs" | "isDestructive" | "listForAgent">;
   /**
+   * JSON Schema contract for this agent's expected output. When present, the
+   * runner validates the tick result against it and attaches pass/fail.
+   */
+  outputContract?: Record<string, unknown>;
+  /**
+   * Recent validation results (e.g. "pass", "fail: missing severity on bug #2")
+   * injected into the tick prompt so the agent can self-correct.
+   */
+  recentValidations?: string;
+  /**
    * Resume a previously suspended tick. When present, the runner reconstructs
    * the conversation, applies the decisions to the pending calls, then
    * continues the loop instead of starting fresh.
@@ -125,6 +136,8 @@ export interface AgentRunResult {
   payload: Record<string, unknown>;
   /** Present iff the tick suspended for human approval. */
   suspension?: AgentSuspension;
+  /** Present when the agent has an output contract. */
+  validation?: ValidationResult;
 }
 
 /** Minimal OpenAI-compatible chat client interface */
@@ -287,7 +300,13 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
     if (choice.finish_reason === "stop") break;
   }
 
-  return summarize(config.name, actions);
+  const result = summarize(config.name, actions);
+
+  if (config.outputContract) {
+    result.validation = validateContract(result.payload, config.outputContract);
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -463,6 +482,16 @@ function buildTickPrompt(config: AgentConfig): string {
 
   if (config.recentHistory) {
     prompt += `\n\n## Your recent actions (for continuity, don't repeat work already done):\n${config.recentHistory}`;
+  }
+
+  if (config.recentValidations) {
+    prompt += `\n\n## Recent output validation results:\n${config.recentValidations}`;
+    prompt += "\nFix any failing validations. Your output must match the expected contract.";
+  }
+
+  if (config.outputContract) {
+    prompt += `\n\n## Output contract (your deliverable must match this structure):\n${JSON.stringify(config.outputContract, null, 2)}`;
+    prompt += "\nUse report_action with a payload matching this schema.";
   }
 
   if (config.a2axContext) {

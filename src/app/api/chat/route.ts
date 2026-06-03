@@ -25,6 +25,7 @@ async function applyModifyAgent(result: ModifyAgentResult): Promise<{ ok: boolea
   if (u.schedule_seconds !== undefined) set.scheduleSeconds = u.schedule_seconds;
   if (u.role !== undefined) set.role = u.role;
   if (u.status !== undefined) set.status = u.status;
+  if (u.output_contract !== undefined) set.outputContract = u.output_contract;
 
   if (Object.keys(set).length === 0) return { ok: false, error: "No updates provided" };
 

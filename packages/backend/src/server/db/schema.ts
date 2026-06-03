@@ -81,6 +81,7 @@ export const agents = pgTable("agents", {
   tools: jsonb("tools").$type<string[]>().notNull().default([]),
   scheduleSeconds: integer("schedule_seconds").notNull(),
   initialPrompt: text("initial_prompt").notNull(),
+  outputContract: jsonb("output_contract").$type<Record<string, unknown>>(),
   status: agentStatus("status").notNull().default("running"),
   nextRunAt: timestamp("next_run_at", { withTimezone: true }),
   inFlight: boolean("in_flight").notNull().default(false),
