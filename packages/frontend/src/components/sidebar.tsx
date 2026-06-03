@@ -71,35 +71,25 @@ function SidebarInner() {
       .catch(() => {});
   }, []);
 
-  // Load agents for the active team and its ancestor chain (so parent teams
-  // show Harmon/user and children show their agents in the sidebar).
+  // Load agents for all teams so any node can expand without a fetch.
+  // At expected scale (<20 teams) this is a few small requests on mount.
   useEffect(() => {
-    if (!activeTeamId) return;
-
-    // Find the ancestor chain: activeTeamId and all parents up to root
-    const toLoad = new Set<string>();
-    toLoad.add(activeTeamId);
-    let current = teams.find((t) => t.id === activeTeamId);
-    while (current?.parentTeamId) {
-      toLoad.add(current.parentTeamId);
-      current = teams.find((t) => t.id === current!.parentTeamId);
-    }
-
-    for (const id of toLoad) {
-      if (teamAgents[id]) continue;
-      fetch(`/api/team/${id}`)
+    if (teams.length === 0) return;
+    for (const t of teams) {
+      if (teamAgents[t.id]) continue;
+      fetch(`/api/team/${t.id}`)
         .then((res) => res.json())
         .then((data) => {
           if (data.agents) {
-            setTeamAgents((prev) => ({ ...prev, [id]: data.agents }));
+            setTeamAgents((prev) => ({ ...prev, [t.id]: data.agents }));
           }
           if (data.team?.cofounderName) {
-            setTeamCofounderNames((prev) => ({ ...prev, [id]: data.team.cofounderName }));
+            setTeamCofounderNames((prev) => ({ ...prev, [t.id]: data.team.cofounderName }));
           }
         })
         .catch(() => {});
     }
-  }, [activeTeamId, teams, teamAgents]);
+  }, [teams, teamAgents]);
 
   if (collapsed) {
     return (
@@ -294,25 +284,56 @@ function TeamTreeNode({
 }) {
   const isActive = activeTeamId === node.id && !activeAgentId;
   const isInActivePath = activeTeamId ? isInSubTree(node, activeTeamId) : false;
-  const showAgents = activeTeamId === node.id;
-  const agents = showAgents ? (teamAgents[node.id] ?? []) : [];
+  const agents = teamAgents[node.id] ?? [];
   const hasChildren = node.children.length > 0;
+  const hasContent = agents.length > 0 || hasChildren;
 
-  const showExpanded = activeTeamId === node.id || (hasChildren && (depth === 0 || isInActivePath));
+  // Auto-expand if active or in the active path; user can toggle
+  const [expanded, setExpanded] = useState(isActive || isInActivePath);
+
+  // Sync expansion when navigation changes
+  useEffect(() => {
+    if (isActive || isInActivePath) setExpanded(true);
+  }, [isActive, isInActivePath]);
+
+  const chevron = hasContent ? (
+    <button
+      type="button"
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpanded((v) => !v); }}
+      className="w-4 h-4 flex items-center justify-center shrink-0 text-fg-faint hover:text-fg-muted transition-colors cursor-pointer"
+    >
+      <svg
+        width="10"
+        height="10"
+        viewBox="0 0 10 10"
+        fill="none"
+        className={`transition-transform ${expanded ? "rotate-90" : ""}`}
+      >
+        <path d="M3 1.5L7 5L3 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  ) : (
+    <span className="w-4 h-4 shrink-0" />
+  );
 
   return (
-    <div style={{ paddingLeft: depth > 0 ? 8 : 0 }}>
-      <SidebarLink
-        href={`/f/${node.id}`}
-        active={isActive}
-        label={node.name}
-        indicator={
-          <span className={`w-1.5 h-1.5 rounded-full inline-block shrink-0 ${node.paused ? "bg-paused" : "bg-running"}`} />
-        }
-      />
-      {showExpanded && (
-        <div className="ml-[11px] border-l border-border pl-2 my-0.5">
-          {/* People (only when this team is active) */}
+    <div style={{ paddingLeft: depth > 0 ? 4 : 0 }}>
+      <div className="flex items-center gap-0.5">
+        {chevron}
+        <div className="flex-1 min-w-0">
+          <SidebarLink
+            href={`/f/${node.id}`}
+            active={isActive}
+            label={node.name}
+            indicator={
+              <span className={`w-1.5 h-1.5 rounded-full inline-block shrink-0 ${node.paused ? "bg-paused" : "bg-running"}`} />
+            }
+          />
+        </div>
+      </div>
+      {expanded && (
+        <div className="ml-[9px] border-l border-border pl-2 my-0.5">
+          {/* People */}
           {activeTeamId === node.id && (
             <>
               <SidebarLink
@@ -339,8 +360,8 @@ function TeamTreeNode({
               />
             </>
           )}
-          {/* Agents (only when this team is active and has direct agents) */}
-          {activeTeamId === node.id && agents.length > 0 && (
+          {/* Agents */}
+          {agents.length > 0 && (
             <>
               <div className="px-2 mt-1 mb-0.5">
                 <span className="text-[8px] text-fg-faint font-mono uppercase tracking-[1px]">Agents</span>
@@ -366,7 +387,7 @@ function TeamTreeNode({
           {/* Sub-teams */}
           {hasChildren && (
             <>
-              {activeTeamId === node.id && (
+              {agents.length > 0 && (
                 <div className="px-2 mt-1 mb-0.5">
                   <span className="text-[8px] text-fg-faint font-mono uppercase tracking-[1px]">Sub-teams</span>
                 </div>
