@@ -317,8 +317,8 @@ function TeamTreeNode({
   );
 
   return (
-    <div style={{ paddingLeft: depth > 0 ? 4 : 0 }}>
-      <div className="flex items-center gap-0.5">
+    <div style={{ paddingLeft: depth > 0 ? 4 : 0 }} className={depth > 0 ? "mt-0.5" : ""}>
+      <div className={`flex items-center gap-0.5 ${depth > 0 ? "rounded bg-bg-elev/60" : ""}`}>
         {chevron}
         <div className="flex-1 min-w-0">
           <SidebarLink
@@ -332,7 +332,7 @@ function TeamTreeNode({
         </div>
       </div>
       {expanded && (
-        <div className="ml-[9px] border-l border-border pl-2 my-0.5">
+        <div className="ml-[9px] border-l border-border pl-2">
           {/* People */}
           {activeTeamId === node.id && (
             <>
@@ -423,7 +423,7 @@ function SidebarLink({
     <Link
       href={href}
       className={`flex items-center gap-2 px-2 rounded-none transition-colors ${
-        small ? "py-1 text-[12px]" : "py-1.5 text-[13px]"
+        small ? "py-[5px] text-[12px]" : "py-[7px] text-[13px]"
       } ${
         active
           ? "border-l-2 border-brand bg-brand-soft/30 text-fg font-medium"
