@@ -17,7 +17,7 @@ function TeamViewInner({ teamId }: TeamViewProps) {
   const searchParams = useSearchParams();
   const agentParam = searchParams.get("agent");
 
-  const { team, agents, narration, loading, togglePause, updateAgent, updateTeam } =
+  const { team, agents, childTeams, childAgents, narration, loading, togglePause, updateAgent, updateTeam } =
     useTeam(teamId);
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -194,6 +194,21 @@ function TeamViewInner({ teamId }: TeamViewProps) {
                 status: a.status,
                 inFlight: a.inFlight,
                 scheduleSeconds: a.scheduleSeconds,
+              }))}
+              childTeams={childTeams.map((t) => ({
+                id: t.id,
+                name: t.name,
+                parentTeamId: t.parentTeamId,
+                paused: t.paused,
+              }))}
+              childAgents={childAgents.map((a) => ({
+                id: a.id,
+                name: a.name,
+                role: a.role,
+                status: a.status,
+                inFlight: a.inFlight,
+                scheduleSeconds: a.scheduleSeconds,
+                teamId: a.teamId,
               }))}
               narration={narration}
               tickCount={team.tickCount}

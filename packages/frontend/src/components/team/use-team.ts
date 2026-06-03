@@ -14,6 +14,7 @@ interface TeamAgent {
   archetype: string;
   tools: string[];
   initialPrompt: string;
+  teamId: string;
 }
 
 interface TeamData {
@@ -25,9 +26,18 @@ interface TeamData {
   cofounderName: string | null;
 }
 
+interface ChildTeam {
+  id: string;
+  name: string;
+  parentTeamId: string | null;
+  paused: boolean;
+}
+
 interface UseTeamReturn {
   team: TeamData | null;
   agents: TeamAgent[];
+  childTeams: ChildTeam[];
+  childAgents: TeamAgent[];
   narration: NarrationEntry[];
   loading: boolean;
   togglePause: () => Promise<void>;
@@ -38,6 +48,8 @@ interface UseTeamReturn {
 export function useTeam(teamId: string): UseTeamReturn {
   const [team, setTeam] = useState<TeamData | null>(null);
   const [agents, setAgents] = useState<TeamAgent[]>([]);
+  const [childTeams, setChildTeams] = useState<ChildTeam[]>([]);
+  const [childAgents, setChildAgents] = useState<TeamAgent[]>([]);
   const [narration, setNarration] = useState<NarrationEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const agentsRef = useRef<TeamAgent[]>([]);
@@ -48,6 +60,8 @@ export function useTeam(teamId: string): UseTeamReturn {
       .then((data) => {
         setTeam(data.team);
         setAgents(data.agents);
+        setChildTeams(data.childTeams ?? []);
+        setChildAgents(data.childAgents ?? []);
         agentsRef.current = data.agents;
         setLoading(false);
       })
@@ -193,5 +207,5 @@ export function useTeam(teamId: string): UseTeamReturn {
     ]);
   }, [team, teamId]);
 
-  return { team, agents, narration, loading, togglePause, updateAgent, updateTeam };
+  return { team, agents, childTeams, childAgents, narration, loading, togglePause, updateAgent, updateTeam };
 }

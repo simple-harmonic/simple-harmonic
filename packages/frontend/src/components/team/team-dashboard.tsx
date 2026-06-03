@@ -1,7 +1,7 @@
 "use client";
 
+import Link from "next/link";
 import type { NarrationEntry } from "./narration-sidebar";
-import { describeAction } from "./narration-sidebar";
 
 interface Agent {
   id: string;
@@ -12,9 +12,22 @@ interface Agent {
   scheduleSeconds: number;
 }
 
+interface ChildAgent extends Agent {
+  teamId: string;
+}
+
+interface ChildTeam {
+  id: string;
+  name: string;
+  parentTeamId: string | null;
+  paused: boolean;
+}
+
 interface TeamDashboardProps {
   teamId: string;
   agents: Agent[];
+  childTeams?: ChildTeam[];
+  childAgents?: ChildAgent[];
   narration: NarrationEntry[];
   tickCount: number;
   paused: boolean;
@@ -49,20 +62,32 @@ const STATUS_STYLE: Record<string, { dot: string; label: string }> = {
   awaiting_approval: { dot: "bg-brand", label: "awaiting approval" },
 };
 
-export function TeamDashboard({ teamId, agents, narration, tickCount, paused, onAgentClick }: TeamDashboardProps) {
-  const running = agents.filter((a) => a.status === "running").length;
-  const errored = agents.filter((a) => a.status === "errored").length;
-  const awaiting = agents.filter((a) => a.status === "awaiting_approval").length;
+export function TeamDashboard({
+  teamId,
+  agents,
+  childTeams = [],
+  childAgents = [],
+  narration,
+  tickCount,
+  paused,
+  onAgentClick,
+}: TeamDashboardProps) {
+  const allAgents = [...agents, ...childAgents];
+  const running = allAgents.filter((a) => a.status === "running").length;
+  const errored = allAgents.filter((a) => a.status === "errored").length;
+  const awaiting = allAgents.filter((a) => a.status === "awaiting_approval").length;
   const tokensUp = tickCount * 400;
   const tokensDown = tickCount * 1200;
   const cost = (tokensUp * 3 + tokensDown * 15) / 1_000_000;
+
+  const hasSubTeams = childTeams.length > 0;
 
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-[960px] mx-auto px-6 py-6">
         {/* Stats row */}
         <div className="grid grid-cols-5 gap-3 mb-8">
-          <StatCard label="Agents" value={String(agents.length)} sub={`${running} running`} />
+          <StatCard label="Agents" value={String(allAgents.length)} sub={`${running} running`} />
           <StatCard label="Ticks" value={String(tickCount)} />
           <StatCard label="Tokens In" value={fmt(tokensUp)} />
           <StatCard label="Tokens Out" value={fmt(tokensDown)} />
@@ -75,36 +100,56 @@ export function TeamDashboard({ teamId, agents, narration, tickCount, paused, on
             <h2 className="text-[11px] text-brand font-semibold tracking-[0.06em] uppercase font-mono mb-3">
               Agents
             </h2>
-            <div className="flex flex-col gap-2">
-              {agents.map((agent) => {
-                const style = STATUS_STYLE[agent.status] ?? STATUS_STYLE.running;
-                return (
-                  <button
-                    key={agent.id}
-                    type="button"
-                    onClick={() => onAgentClick(agent.id)}
-                    className="flex items-center gap-4 border border-border bg-bg-elev rounded-[10px] px-5 py-4 hover:border-border-strong transition-colors cursor-pointer text-left group"
-                  >
-                    <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${style.dot} ${agent.inFlight ? "animate-pulse" : ""}`} />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-medium text-fg group-hover:text-brand transition-colors">{agent.name}</div>
-                      <div className="text-[11px] text-fg-muted font-mono truncate">{agent.role}</div>
+
+            {/* Direct agents */}
+            {agents.length > 0 && (
+              <div className="flex flex-col gap-2 mb-4">
+                {agents.map((agent) => (
+                  <AgentCard key={agent.id} agent={agent} onClick={() => onAgentClick(agent.id)} />
+                ))}
+              </div>
+            )}
+
+            {/* Sub-team agents */}
+            {hasSubTeams && (
+              <div className="flex flex-col gap-4">
+                {childTeams.map((ct) => {
+                  const teamChildAgents = childAgents.filter((a) => a.teamId === ct.id);
+                  if (teamChildAgents.length === 0) return null;
+                  return (
+                    <div key={ct.id}>
+                      <Link
+                        href={`/f/${ct.id}`}
+                        className="flex items-center gap-2 mb-2 group"
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${ct.paused ? "bg-paused" : "bg-running"}`} />
+                        <span className="text-[11px] font-semibold text-fg-muted font-mono uppercase tracking-[0.06em] group-hover:text-brand transition-colors">
+                          {ct.name}
+                        </span>
+                        <span className="text-[10px] text-fg-faint font-mono">
+                          {teamChildAgents.length} agent{teamChildAgents.length !== 1 ? "s" : ""}
+                        </span>
+                      </Link>
+                      <div className="flex flex-col gap-2 ml-3 border-l border-border/50 pl-3">
+                        {teamChildAgents.map((agent) => (
+                          <AgentCard
+                            key={agent.id}
+                            agent={agent}
+                            onClick={() => {
+                              window.location.href = `/f/${ct.id}?agent=${agent.id}`;
+                            }}
+                          />
+                        ))}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-[10px] text-fg-faint font-mono">
-                        every {formatSchedule(agent.scheduleSeconds)}
-                      </span>
-                      <span className={`text-[10px] font-mono font-medium ${agent.inFlight ? "text-brand" : "text-fg-faint"}`}>
-                        {agent.inFlight ? "thinking..." : style.label}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-              {agents.length === 0 && (
-                <div className="text-[12px] text-fg-faint font-mono py-4 text-center">No agents in this team</div>
-              )}
-            </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {agents.length === 0 && !hasSubTeams && (
+              <div className="text-[12px] text-fg-faint font-mono py-4 text-center">No agents in this team</div>
+            )}
 
             {/* Summary row */}
             {(errored > 0 || awaiting > 0) && (
@@ -165,6 +210,31 @@ export function TeamDashboard({ teamId, agents, narration, tickCount, paused, on
         </div>
       </div>
     </div>
+  );
+}
+
+function AgentCard({ agent, onClick }: { agent: Agent; onClick: () => void }) {
+  const style = STATUS_STYLE[agent.status] ?? STATUS_STYLE.running;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-4 border border-border bg-bg-elev rounded-[10px] px-5 py-4 hover:border-border-strong transition-colors cursor-pointer text-left group"
+    >
+      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${style.dot} ${agent.inFlight ? "animate-pulse" : ""}`} />
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px] font-medium text-fg group-hover:text-brand transition-colors">{agent.name}</div>
+        <div className="text-[11px] text-fg-muted font-mono truncate">{agent.role}</div>
+      </div>
+      <div className="flex items-center gap-3 shrink-0">
+        <span className="text-[10px] text-fg-faint font-mono">
+          every {formatSchedule(agent.scheduleSeconds)}
+        </span>
+        <span className={`text-[10px] font-mono font-medium ${agent.inFlight ? "text-brand" : "text-fg-faint"}`}>
+          {agent.inFlight ? "thinking..." : style.label}
+        </span>
+      </div>
+    </button>
   );
 }
 
