@@ -82,6 +82,53 @@ const SPAWN_TOOL_DEF = {
   },
 };
 
+const MODIFY_AGENT_TOOL_DEF = {
+  name: "modify_agent",
+  description:
+    "Modify an existing agent's configuration. Use this to add/remove tools, update the system prompt, change the schedule, or pause/resume an agent.",
+  parameters: {
+    type: "object" as const,
+    properties: {
+      agent_name: {
+        type: "string" as const,
+        description: "Name of the agent to modify (e.g. 'bug-hunter', 'content-scheduler').",
+      },
+      team_name: {
+        type: "string" as const,
+        description: "Team the agent belongs to. Required to disambiguate if the same agent name exists in multiple teams.",
+      },
+      updates: {
+        type: "object" as const,
+        properties: {
+          tools: {
+            type: "array" as const,
+            items: { type: "string" as const },
+            description: "Replace the agent's full tool list. Include all tools the agent should have, not just the new ones.",
+          },
+          initial_prompt: {
+            type: "string" as const,
+            description: "Replace the agent's system prompt.",
+          },
+          schedule_seconds: {
+            type: "number" as const,
+            description: "Change how often the agent runs, in seconds.",
+          },
+          status: {
+            type: "string" as const,
+            enum: ["running", "paused"],
+            description: "Pause or resume the agent.",
+          },
+          role: {
+            type: "string" as const,
+            description: "Update the agent's role description.",
+          },
+        },
+      },
+    },
+    required: ["agent_name", "team_name", "updates"],
+  },
+};
+
 // Re-export for backward compatibility
 export { DEFAULT_META_AGENT_PROMPT } from "./default-prompt";
 
@@ -105,9 +152,24 @@ export interface SpawnTeamResult {
   agents: SpawnTeamAgent[];
 }
 
-type PlannerResult =
+export interface ModifyAgentUpdates {
+  tools?: string[];
+  initial_prompt?: string;
+  schedule_seconds?: number;
+  status?: "running" | "paused";
+  role?: string;
+}
+
+export interface ModifyAgentResult {
+  agent_name: string;
+  team_name: string;
+  updates: ModifyAgentUpdates;
+}
+
+export type PlannerResult =
   | { type: "message"; content: string }
-  | { type: "spawn"; content: string; result: SpawnTeamResult };
+  | { type: "spawn"; content: string; result: SpawnTeamResult }
+  | { type: "modify_agent"; content: string; result: ModifyAgentResult };
 
 // ---------------------------------------------------------------------------
 // Public entry point: picks the right backend
@@ -139,7 +201,10 @@ async function openaiChatStream(
       { role: "system", content: DEFAULT_META_AGENT_PROMPT },
       ...messages.map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
     ],
-    tools: [{ type: "function", function: SPAWN_TOOL_DEF }],
+    tools: [
+      { type: "function", function: SPAWN_TOOL_DEF },
+      { type: "function", function: MODIFY_AGENT_TOOL_DEF },
+    ],
   });
 
   let fullText = "";
@@ -207,6 +272,12 @@ async function codexResponsesStream(
         name: SPAWN_TOOL_DEF.name,
         description: SPAWN_TOOL_DEF.description,
         parameters: SPAWN_TOOL_DEF.parameters,
+      },
+      {
+        type: "function",
+        name: MODIFY_AGENT_TOOL_DEF.name,
+        description: MODIFY_AGENT_TOOL_DEF.description,
+        parameters: MODIFY_AGENT_TOOL_DEF.parameters,
       },
     ],
     store: false,
@@ -297,6 +368,15 @@ function finalize(fullText: string, toolCallName: string, toolCallArgs: string):
     try {
       const parsed = JSON.parse(toolCallArgs) as SpawnTeamResult;
       return { type: "spawn", content: fullText, result: parsed };
+    } catch {
+      // malformed tool call, treat as message
+    }
+  }
+
+  if (toolCallName === "modify_agent" && toolCallArgs) {
+    try {
+      const parsed = JSON.parse(toolCallArgs) as ModifyAgentResult;
+      return { type: "modify_agent", content: fullText, result: parsed };
     } catch {
       // malformed tool call, treat as message
     }

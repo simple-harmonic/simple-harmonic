@@ -1,4 +1,4 @@
-export type { PlannerMessage, SpawnTeamAgent, SpawnTeamResult } from "./planner";
+export type { PlannerMessage, PlannerResult, SpawnTeamAgent, SpawnTeamResult, ModifyAgentResult, ModifyAgentUpdates } from "./planner";
 export { DEFAULT_META_AGENT_PROMPT, plannerStream } from "./planner";
 export { runAgent } from "./runner";
 export type { AgentConfig, AgentRunResult, LLMClient } from "./runner";

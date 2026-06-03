@@ -1,10 +1,12 @@
 // ---------------------------------------------------------------------------
 // App-side tool assembly.
 //
-// createAppRegistry() returns a ToolRegistry loaded with BOTH the internal
-// message-passing tools (from the library's default registry) AND the
-// app-specific filesystem/shell/network tools defined here. This is the
-// registry the tick loop / runner should use once T1 is wired into runtime.
+// createAppRegistry() returns a ToolRegistry loaded with the internal
+// message-passing tools + app-specific filesystem/shell/network tools.
+//
+// createAppRegistryWithCustomTools() additionally loads custom API tools
+// from .simple-harmonic/skills/*.json files and registers them. Use this
+// in the tick loop where the project directory is available.
 //
 // Library boundary (D8): the registry class and internal tools live in
 // packages/backend/src/lib/meta-agent (NPM-extractable, no I/O). The impls
@@ -13,8 +15,11 @@
 
 import { createDefaultRegistry } from "../../lib/meta-agent/default-tools";
 import type { ToolRegistry } from "../../lib/meta-agent/registry";
+import { listCustomToolFiles } from "../custom-tools";
+import { buildApiToolDef, buildApiToolImpl } from "./api-tool-runtime";
 import { readFileDef, readFileImpl, writeFileDef, writeFileImpl } from "./filesystem";
 import { runCommandDef, runCommandImpl } from "./shell";
+import { codingTaskDef, codingTaskImpl } from "./coding";
 import {
   httpFetchDef,
   httpFetchImpl,
@@ -23,9 +28,7 @@ import {
 } from "./network";
 
 /**
- * Build the full tool registry: internal tools + filesystem/shell/network.
- * Each call returns a fresh registry (registration is cheap and the impls are
- * stateless), so callers don't share mutable registry state.
+ * Build the built-in tool registry. Does NOT include custom tools from files.
  */
 export function createAppRegistry(): ToolRegistry {
   const registry = createDefaultRegistry();
@@ -33,8 +36,31 @@ export function createAppRegistry(): ToolRegistry {
   registry.register(readFileDef, readFileImpl);
   registry.register(writeFileDef, writeFileImpl);
   registry.register(runCommandDef, runCommandImpl);
+  registry.register(codingTaskDef, codingTaskImpl);
   registry.register(httpFetchDef, httpFetchImpl);
   registry.register(githubApiDef, githubApiImpl);
+
+  return registry;
+}
+
+/**
+ * Build the full registry including custom API tools from
+ * .simple-harmonic/skills/*.json. Synchronous (file reads).
+ */
+export function createAppRegistryWithCustomTools(): ToolRegistry {
+  const registry = createAppRegistry();
+
+  try {
+    const customs = listCustomToolFiles();
+    for (const tool of customs) {
+      if (registry.has(tool.name)) continue;
+      const def = buildApiToolDef(tool.name, tool.description, tool.config);
+      const impl = buildApiToolImpl(tool.name, tool.config);
+      registry.register(def, impl);
+    }
+  } catch {
+    // files unavailable: custom tools silently absent
+  }
 
   return registry;
 }
@@ -46,6 +72,7 @@ export {
   writeFileImpl,
 } from "./filesystem";
 export { runCommandDef, runCommandImpl } from "./shell";
+export { codingTaskDef, codingTaskImpl } from "./coding";
 export {
   httpFetchDef,
   httpFetchImpl,

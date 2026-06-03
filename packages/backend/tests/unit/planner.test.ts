@@ -165,6 +165,58 @@ describe("plannerStream", () => {
     expect(result.content).toBe("Text response.");
   });
 
+  it("detects modify_agent tool use and returns modify result", async () => {
+    const modifyInput = {
+      agent_name: "bug-hunter",
+      team_name: "Acme Studio",
+      updates: {
+        tools: ["read_file", "run_command", "coding_task", "slack_api"],
+        schedule_seconds: 300,
+      },
+    };
+
+    chunks.length = 0;
+    chunks.push(
+      textChunk("Adding Slack to the bug-hunter."),
+      toolChunk("call_1", "modify_agent", JSON.stringify(modifyInput)),
+    );
+
+    const { plannerStream } = await import("@/lib/meta-agent/planner");
+
+    const tokens: string[] = [];
+    const messages: PlannerMessage[] = [
+      { role: "user", content: "Add slack_api to the bug-hunter" },
+    ];
+
+    const result = await plannerStream(messages, (token) => tokens.push(token));
+
+    expect(result.type).toBe("modify_agent");
+    if (result.type === "modify_agent") {
+      expect(result.result.agent_name).toBe("bug-hunter");
+      expect(result.result.team_name).toBe("Acme Studio");
+      expect(result.result.updates.tools).toContain("slack_api");
+      expect(result.result.updates.schedule_seconds).toBe(300);
+    }
+  });
+
+  it("handles malformed modify_agent JSON as message", async () => {
+    chunks.length = 0;
+    chunks.push(
+      textChunk("Updating."),
+      toolChunk("call_1", "modify_agent", "broken json{{{"),
+    );
+
+    const { plannerStream } = await import("@/lib/meta-agent/planner");
+
+    const result = await plannerStream(
+      [{ role: "user", content: "Modify something" }],
+      () => {},
+    );
+
+    expect(result.type).toBe("message");
+    expect(result.content).toBe("Updating.");
+  });
+
   it("handles chunk with no choices", async () => {
     chunks.length = 0;
     chunks.push(
