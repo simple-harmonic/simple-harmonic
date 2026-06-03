@@ -146,6 +146,8 @@ describe("GET /api/team/[id]", () => {
     const { GET } = await import("@/app/api/team/[id]/route");
     mockDb.query.teams.findFirst.mockResolvedValueOnce(sampleTeam);
     mockDb.query.agents.findMany.mockResolvedValueOnce([sampleAgent]);
+    // allTeams query for sub-tree (no children)
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
 
     const res = await GET(new Request("http://localhost"), makeParams(TEAM_ID));
     const body = await res.json();
@@ -154,12 +156,15 @@ describe("GET /api/team/[id]", () => {
     expect(body.team.id).toBe(TEAM_ID);
     expect(body.agents).toHaveLength(1);
     expect(body.agents[0].id).toBe("agent-1");
+    expect(body.childTeams).toEqual([]);
+    expect(body.childAgents).toEqual([]);
   });
 
   it("returns team with empty agents array", async () => {
     const { GET } = await import("@/app/api/team/[id]/route");
     mockDb.query.teams.findFirst.mockResolvedValueOnce(sampleTeam);
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
 
     const res = await GET(new Request("http://localhost"), makeParams(TEAM_ID));
     const body = await res.json();
@@ -167,6 +172,7 @@ describe("GET /api/team/[id]", () => {
     expect(res.status).toBe(200);
     expect(body.team.id).toBe(TEAM_ID);
     expect(body.agents).toEqual([]);
+    expect(body.childTeams).toEqual([]);
   });
 
   it("returns 404 when team not found", async () => {

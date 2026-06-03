@@ -437,12 +437,10 @@ function summarize(agentName: string, actions: ToolResult[]): AgentRunResult {
 // Prompt builders
 // ---------------------------------------------------------------------------
 
-const ENGINEERING_ARCHETYPES = new Set([
-  "code-reviewer",
-  "test-runner",
-  "bug-hunter",
-  "docs-writer",
-  "devops-monitor",
+// Agents with any of these tools get the engineering context injected.
+// No hardcoded archetype list: if you have code tools, you get code guidance.
+const ENGINEERING_TOOLS = new Set([
+  "read_file", "write_file", "run_command", "coding_task",
 ]);
 
 const ENGINEERING_CONTEXT = `
@@ -462,7 +460,7 @@ function buildSystemPrompt(config: AgentConfig, tools: Array<{ name: string; des
     .map((t) => `- ${t.name}: ${t.description}`)
     .join("\n");
 
-  const isEngineering = ENGINEERING_ARCHETYPES.has(config.archetype);
+  const isEngineering = config.tools.some((t) => ENGINEERING_TOOLS.has(t));
 
   return `${config.initialPrompt}
 

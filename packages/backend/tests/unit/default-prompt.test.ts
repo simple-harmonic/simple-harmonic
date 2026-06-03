@@ -21,17 +21,33 @@ describe("DEFAULT_META_AGENT_PROMPT", () => {
     expect(DEFAULT_META_AGENT_PROMPT).toContain("spawn_team");
   });
 
-  it("lists all agent archetypes", () => {
-    const archetypes = [
-      "support-responder",
-      "content-scheduler",
-      "sales-followup",
-      "ops-monitor",
-      "research-summarizer",
-    ];
-    for (const archetype of archetypes) {
-      expect(DEFAULT_META_AGENT_PROMPT).toContain(archetype);
+  it("references the modify_agent tool", () => {
+    expect(DEFAULT_META_AGENT_PROMPT).toContain("modify_agent");
+  });
+
+  it("does not hardcode archetype enums", () => {
+    expect(DEFAULT_META_AGENT_PROMPT).not.toContain("Available agent archetypes:");
+    expect(DEFAULT_META_AGENT_PROMPT).toContain("not limited to a preset list");
+  });
+
+  it("lists available tools", () => {
+    for (const tool of ["read_file", "write_file", "run_command", "coding_task", "github_api", "http_fetch"]) {
+      expect(DEFAULT_META_AGENT_PROMPT).toContain(tool);
     }
+  });
+
+  it("documents custom tools and connectors", () => {
+    expect(DEFAULT_META_AGENT_PROMPT).toContain(".simple-harmonic/connectors/");
+    expect(DEFAULT_META_AGENT_PROMPT).toContain(".simple-harmonic/skills/");
+  });
+
+  it("documents output contracts", () => {
+    expect(DEFAULT_META_AGENT_PROMPT).toContain("output_contract");
+  });
+
+  it("documents team hierarchy and leadership", () => {
+    expect(DEFAULT_META_AGENT_PROMPT).toContain("spawn_sub_team");
+    expect(DEFAULT_META_AGENT_PROMPT).toContain("Leadership is fluid");
   });
 
   it("includes schedule guidance", () => {

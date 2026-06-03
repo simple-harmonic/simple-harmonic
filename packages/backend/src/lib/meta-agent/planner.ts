@@ -52,18 +52,7 @@ const SPAWN_TOOL_DEF = {
             role: { type: "string" as const, description: "One-line role description" },
             archetype: {
               type: "string" as const,
-              enum: [
-                "support-responder",
-                "content-scheduler",
-                "sales-followup",
-                "ops-monitor",
-                "research-summarizer",
-                "code-reviewer",
-                "test-runner",
-                "bug-hunter",
-                "docs-writer",
-                "devops-monitor",
-              ],
+              description: "Free-form archetype describing the agent's function (e.g. 'bug-hunter', 'content-scheduler', 'deploy-monitor', 'sales-analyst'). Not limited to a preset list.",
             },
             tools: {
               type: "array" as const,
