@@ -363,9 +363,6 @@ function TeamTreeNode({
           {/* Agents */}
           {agents.length > 0 && (
             <>
-              <div className="px-2 mt-1 mb-0.5">
-                <span className="text-[8px] text-fg-faint font-mono uppercase tracking-[1px]">Agents</span>
-              </div>
               {agents.map((agent) => (
                 <SidebarLink
                   key={agent.id}
@@ -387,11 +384,6 @@ function TeamTreeNode({
           {/* Sub-teams */}
           {hasChildren && (
             <>
-              {agents.length > 0 && (
-                <div className="px-2 mt-1 mb-0.5">
-                  <span className="text-[8px] text-fg-faint font-mono uppercase tracking-[1px]">Sub-teams</span>
-                </div>
-              )}
               {node.children.map((child) => (
                 <TeamTreeNode
                   key={child.id}
