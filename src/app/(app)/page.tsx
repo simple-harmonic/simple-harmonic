@@ -9,6 +9,29 @@ interface Team {
   paused: boolean;
   tickCount: number;
   createdAt: string;
+  parentTeamId: string | null;
+}
+
+interface TeamNode {
+  team: Team;
+  children: TeamNode[];
+}
+
+function buildTeamTree(teams: Team[]): TeamNode[] {
+  const byParent = new Map<string | null, Team[]>();
+  for (const t of teams) {
+    const key = t.parentTeamId ?? null;
+    const list = byParent.get(key) ?? [];
+    list.push(t);
+    byParent.set(key, list);
+  }
+  function build(parentId: string | null): TeamNode[] {
+    return (byParent.get(parentId) ?? []).map((t) => ({
+      team: t,
+      children: build(t.id),
+    }));
+  }
+  return build(null);
 }
 
 export default function OverviewPage() {
@@ -70,30 +93,45 @@ export default function OverviewPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {teams.map((t) => (
-              <Link
-                key={t.id}
-                href={`/f/${t.id}`}
-                className="flex items-center justify-between border border-border rounded px-4 py-3 hover:border-border-strong transition-colors group"
-              >
-                <div className="flex items-center gap-3">
-                  <span className={`w-2 h-2 rounded-full ${t.paused ? "bg-paused" : "bg-running"}`} />
-                  <span className="text-[13px] font-medium group-hover:text-fg transition-colors">
-                    {t.name}
-                  </span>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-[11px] text-fg-faint font-mono">{t.tickCount} ticks</span>
-                  <span className={`text-[11px] font-mono ${t.paused ? "text-fg-faint" : "text-running"}`}>
-                    {t.paused ? "paused" : "running"}
-                  </span>
-                </div>
-              </Link>
+            {buildTeamTree(teams).map((node) => (
+              <OverviewTeamNode key={node.team.id} node={node} depth={0} />
             ))}
           </div>
         )}
       </div>
     </div>
+  );
+}
+
+function OverviewTeamNode({ node, depth }: { node: TeamNode; depth: number }) {
+  const t = node.team;
+  return (
+    <>
+      <Link
+        href={`/f/${t.id}`}
+        className="flex items-center justify-between border border-border rounded px-4 py-3 hover:border-border-strong transition-colors group"
+        style={{ marginLeft: depth * 24 }}
+      >
+        <div className="flex items-center gap-3">
+          <span className={`w-2 h-2 rounded-full ${t.paused ? "bg-paused" : "bg-running"}`} />
+          <span className="text-[13px] font-medium group-hover:text-fg transition-colors">
+            {t.name}
+          </span>
+          {depth > 0 && (
+            <span className="text-[10px] text-fg-faint font-mono">sub-team</span>
+          )}
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-[11px] text-fg-faint font-mono">{t.tickCount} ticks</span>
+          <span className={`text-[11px] font-mono ${t.paused ? "text-fg-faint" : "text-running"}`}>
+            {t.paused ? "paused" : "running"}
+          </span>
+        </div>
+      </Link>
+      {node.children.map((child) => (
+        <OverviewTeamNode key={child.team.id} node={child} depth={depth + 1} />
+      ))}
+    </>
   );
 }
 

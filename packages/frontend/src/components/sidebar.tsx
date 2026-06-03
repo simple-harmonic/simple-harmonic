@@ -8,6 +8,7 @@ interface Team {
   id: string;
   name: string;
   paused: boolean;
+  parentTeamId: string | null;
 }
 
 interface Agent {
@@ -144,51 +145,17 @@ function SidebarInner() {
         {teams.length === 0 ? (
           <div className="px-2 py-1.5 text-[12px] text-fg-faint">No teams yet</div>
         ) : (
-          teams.map((team) => (
-            <div key={team.id}>
-              <SidebarLink
-                href={`/f/${team.id}`}
-                active={activeTeamId === team.id && !activeAgentId}
-                label={team.name}
-                indicator={
-                  <span className={`w-1.5 h-1.5 rounded-full inline-block shrink-0 ${team.paused ? "bg-paused" : "bg-running"}`} />
-                }
-              />
-              {activeTeamId === team.id && agents.length > 0 && (
-                <div className="ml-3 border-l border-border pl-1.5 my-0.5">
-                  <SidebarLink
-                    href={`/f/${team.id}?agent=user`}
-                    active={activeAgentId === "user"}
-                    label={displayName}
-                    small
-                    indicator={<span className="w-1.5 h-1.5 rounded-full inline-block shrink-0 bg-user" />}
-                  />
-                  <SidebarLink
-                    href={`/f/${team.id}?agent=meta`}
-                    active={activeAgentId === "meta"}
-                    label={teamCofounderNames[team.id] || "Harmon"}
-                    small
-                    indicator={<span className="w-1.5 h-1.5 rounded-full inline-block shrink-0 bg-meta" />}
-                  />
-                  {agents.map((agent) => (
-                    <SidebarLink
-                      key={agent.id}
-                      href={`/f/${team.id}?agent=${agent.id}`}
-                      active={activeAgentId === agent.id}
-                      label={agent.name}
-                      small
-                      indicator={
-                        <span className={`w-1 h-1 rounded-full inline-block shrink-0 ${
-                          agent.status === "running" ? "bg-running" :
-                          agent.status === "errored" ? "bg-error" :
-                          agent.status === "awaiting_approval" ? "bg-brand" : "bg-paused"
-                        }`} />
-                      }
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
+          buildTeamTree(teams).map((node) => (
+            <TeamTreeNode
+              key={node.id}
+              node={node}
+              depth={0}
+              activeTeamId={activeTeamId}
+              activeAgentId={activeAgentId}
+              teamAgents={teamAgents}
+              teamCofounderNames={teamCofounderNames}
+              displayName={displayName}
+            />
           ))
         )}
       </nav>
@@ -259,6 +226,117 @@ export function Sidebar() {
     <Suspense>
       <SidebarInner />
     </Suspense>
+  );
+}
+
+interface TeamNode {
+  id: string;
+  name: string;
+  paused: boolean;
+  children: TeamNode[];
+}
+
+function buildTeamTree(teams: Team[]): TeamNode[] {
+  const byParent = new Map<string | null, Team[]>();
+  for (const t of teams) {
+    const key = t.parentTeamId ?? null;
+    const list = byParent.get(key) ?? [];
+    list.push(t);
+    byParent.set(key, list);
+  }
+  function build(parentId: string | null): TeamNode[] {
+    return (byParent.get(parentId) ?? []).map((t) => ({
+      id: t.id,
+      name: t.name,
+      paused: t.paused,
+      children: build(t.id),
+    }));
+  }
+  return build(null);
+}
+
+function TeamTreeNode({
+  node,
+  depth,
+  activeTeamId,
+  activeAgentId,
+  teamAgents,
+  teamCofounderNames,
+  displayName,
+}: {
+  node: TeamNode;
+  depth: number;
+  activeTeamId: string | null;
+  activeAgentId: string | null;
+  teamAgents: Record<string, Agent[]>;
+  teamCofounderNames: Record<string, string>;
+  displayName: string;
+}) {
+  const isActive = activeTeamId === node.id && !activeAgentId;
+  const agents = activeTeamId === node.id ? (teamAgents[node.id] ?? []) : [];
+  const hasChildren = node.children.length > 0;
+
+  return (
+    <div style={{ paddingLeft: depth > 0 ? 8 : 0 }}>
+      <SidebarLink
+        href={`/f/${node.id}`}
+        active={isActive}
+        label={node.name}
+        indicator={
+          <span className={`w-1.5 h-1.5 rounded-full inline-block shrink-0 ${node.paused ? "bg-paused" : "bg-running"}`} />
+        }
+      />
+      {activeTeamId === node.id && agents.length > 0 && (
+        <div className="ml-3 border-l border-border pl-1.5 my-0.5">
+          <SidebarLink
+            href={`/f/${node.id}?agent=user`}
+            active={activeAgentId === "user"}
+            label={displayName}
+            small
+            indicator={<span className="w-1.5 h-1.5 rounded-full inline-block shrink-0 bg-user" />}
+          />
+          <SidebarLink
+            href={`/f/${node.id}?agent=meta`}
+            active={activeAgentId === "meta"}
+            label={teamCofounderNames[node.id] || "Harmon"}
+            small
+            indicator={<span className="w-1.5 h-1.5 rounded-full inline-block shrink-0 bg-meta" />}
+          />
+          {agents.map((agent) => (
+            <SidebarLink
+              key={agent.id}
+              href={`/f/${node.id}?agent=${agent.id}`}
+              active={activeAgentId === agent.id}
+              label={agent.name}
+              small
+              indicator={
+                <span className={`w-1 h-1 rounded-full inline-block shrink-0 ${
+                  agent.status === "running" ? "bg-running" :
+                  agent.status === "errored" ? "bg-error" :
+                  agent.status === "awaiting_approval" ? "bg-brand" : "bg-paused"
+                }`} />
+              }
+            />
+          ))}
+        </div>
+      )}
+      {hasChildren && (
+        <div className={depth === 0 ? "ml-2 border-l border-border/50 pl-0.5" : "ml-2 border-l border-border/30 pl-0.5"}>
+          {node.children.map((child) => (
+            <TeamTreeNode
+              key={child.id}
+              node={child}
+              depth={depth + 1}
+              activeTeamId={activeTeamId}
+              activeAgentId={activeAgentId}
+              teamAgents={teamAgents}
+              teamCofounderNames={teamCofounderNames}
+              displayName={displayName}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
