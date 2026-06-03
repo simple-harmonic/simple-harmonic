@@ -14,6 +14,7 @@
 import { z } from "zod";
 import { isIP } from "node:net";
 import type { ToolDefinition, ToolImpl } from "../../lib/meta-agent/registry";
+import { resolveConnector } from "../connectors";
 import { proxyFetch } from "../proxy-fetch";
 import { toolsEnabled } from "./sandbox";
 
@@ -110,12 +111,12 @@ export const githubApiImpl: ToolImpl<typeof githubApiSchema> = async (args) => {
     };
   }
 
-  const token = process.env.GITHUB_TOKEN;
+  const token = resolveConnector("GITHUB_TOKEN");
   if (isWrite && !token) {
     return {
       toolName: "github_api",
       success: false,
-      result: "GITHUB_TOKEN is not set; cannot make mutating GitHub API calls.",
+      result: "GITHUB_TOKEN is not configured. Set it in .simple-harmonic/secrets.json or as an env var.",
     };
   }
 

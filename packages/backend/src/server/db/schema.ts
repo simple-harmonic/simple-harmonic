@@ -224,6 +224,21 @@ export const a2axTokens = pgTable("a2ax_tokens", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ---------------------------------------------------------------------------
+// ApiToolConfig: shape of .simple-harmonic/skills/<name>.json config field.
+// Kept here as a shared type; no longer backed by a DB table.
+// ---------------------------------------------------------------------------
+
+export interface ApiToolConfig {
+  baseUrl: string;
+  connectorKey: string;
+  authHeader?: string;
+  authPrefix?: string;
+  allowedMethods: string[];
+  defaultHeaders?: Record<string, string>;
+  pathPrefix?: string;
+}
+
 export const actionLog = pgTable("action_log", {
   id: uuid("id").defaultRandom().primaryKey(),
   agentId: uuid("agent_id")

@@ -112,6 +112,16 @@ describe("read_file", () => {
     expect(res.result).not.toContain("sk-secret");
   });
 
+  it("refuses to read .simple-harmonic/secrets.json", async () => {
+    const shDir = join(jail, ".simple-harmonic");
+    mkdirSync(shDir, { recursive: true });
+    writeFileSync(join(shDir, "secrets.json"), '{"SLACK_TOKEN":"xoxb-secret"}');
+    const res = await readFileImpl({ path: ".simple-harmonic/secrets.json" }, ctx());
+    expect(res.success).toBe(false);
+    expect(res.result).toContain("sensitive");
+    expect(res.result).not.toContain("xoxb-secret");
+  });
+
   it("returns an error for a missing file", async () => {
     const res = await readFileImpl({ path: "nope.txt" }, ctx());
     expect(res.success).toBe(false);
@@ -345,11 +355,12 @@ describe("github_api", () => {
 // ---------------------------------------------------------------------------
 
 describe("createAppRegistry", () => {
-  it("registers all 8 tools (3 internal + 5 app)", () => {
+  it("registers all 9 tools (3 internal + 6 app)", () => {
     const r = createAppRegistry();
     const names = r.listForAgent().map((d) => d.name).sort();
     expect(names).toEqual([
       "broadcast",
+      "coding_task",
       "github_api",
       "http_fetch",
       "read_file",
@@ -367,12 +378,12 @@ describe("createAppRegistry", () => {
       .filter((d) => d.risk === "destructive")
       .map((d) => d.name)
       .sort();
-    expect(destructive).toEqual(["github_api", "run_command", "write_file"]);
+    expect(destructive).toEqual(["coding_task", "github_api", "run_command", "write_file"]);
   });
 
   it("getOpenAIDefs emits a valid function def per tool", () => {
     const defs = createAppRegistry().getOpenAIDefs();
-    expect(defs).toHaveLength(8);
+    expect(defs).toHaveLength(9);
     for (const d of defs) {
       expect(d.type).toBe("function");
       expect(typeof d.function.name).toBe("string");

@@ -10,6 +10,7 @@ interface SafeConfig {
   hasOpenaiKey: boolean;
   hasDatabase: boolean;
   apiKeySource: "config" | "env" | "codex" | "none";
+  codingBackend: "codex" | "claude-code" | "opencode";
 }
 
 export default function SettingsPage() {
@@ -68,6 +69,12 @@ export default function SettingsPage() {
             Agent Tooling
           </h2>
           <div className="flex flex-col gap-3">
+            <SettingsCard
+              href="/settings/coding"
+              title="Coding Agent"
+              subtitle={`${config.codingBackend} · autonomous coding, testing, and research`}
+              status="ok"
+            />
             <SettingsCard
               href="/settings/connectors"
               title="Connectors"

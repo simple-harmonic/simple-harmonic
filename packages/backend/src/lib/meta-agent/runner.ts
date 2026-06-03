@@ -430,10 +430,12 @@ const ENGINEERING_CONTEXT = `
 You have access to a project codebase via your tools. Guidelines:
 - Use read_file to understand code before modifying it.
 - Use run_command with git status/diff/log to understand repo state.
-- When writing files, always write the complete file content.
-- Destructive actions (write_file, git commit/push, etc.) require human approval. You will be paused and the human will approve or reject.
+- For complex, multi-step work (implement a feature, investigate a bug, run and fix tests), use coding_task to delegate to the Codex agent. Write a clear, specific task prompt.
+- For simple, single-file changes, use write_file directly.
+- Destructive actions (write_file, coding_task, git commit/push, etc.) require human approval. You will be paused and the human will approve or reject.
 - Be surgical: small, focused changes. Don't rewrite files unnecessarily.
-- Report your findings and actions clearly so the team can follow your work.`;
+- Report your findings and actions clearly so the team can follow your work.
+- Browse .simple-harmonic/skills/ for custom API tools and .simple-harmonic/connectors/ for configured credentials.`;
 
 function buildSystemPrompt(config: AgentConfig, tools: Array<{ name: string; description: string }>): string {
   const peerList = config.peers.map((p) => `- ${p.name} (${p.role})`).join("\n");

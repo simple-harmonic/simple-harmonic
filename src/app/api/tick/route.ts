@@ -16,7 +16,7 @@ import {
   pendingApprovals,
   teams,
 } from "@simple-harmonic/backend/server/db/schema";
-import { createAppRegistry } from "@simple-harmonic/backend/server/tools";
+import { createAppRegistryWithCustomTools } from "@simple-harmonic/backend/server/tools";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
@@ -36,9 +36,7 @@ function agentTimeoutMs(): number {
   return Number.isFinite(v) && v > 0 ? v : 120_000;
 }
 
-// The tool registry decides which tools are destructive (need approval). One
-// instance is fine — registration is stateless and the impls read per-call ctx.
-const registry = createAppRegistry();
+// Registry rebuilt per-team tick with custom tools from .simple-harmonic/skills/.
 
 // How many recent actions to feed back as working memory per tick.
 const HISTORY_LIMIT = 10;
@@ -132,6 +130,8 @@ export async function POST() {
   const timeoutMs = agentTimeoutMs();
 
   for (const team of activeTeams) {
+    const registry = createAppRegistryWithCustomTools();
+
     // Get all agents in team for peer context
     const allAgents = await d.query.agents.findMany({
       where: eq(agents.teamId, team.id),
@@ -160,7 +160,7 @@ export async function POST() {
     const parked = allAgents.filter((a) => a.status === "awaiting_approval");
     const resumeOutcomes = await Promise.allSettled(
       parked.map((agent) =>
-        tryResumeAgent({ d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs }),
+        tryResumeAgent({ d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs, registry }),
       ),
     );
     totalRan += countRan(resumeOutcomes);
@@ -170,7 +170,7 @@ export async function POST() {
     const dueAgents = allAgents.filter((a) => approveAgentTick(team, a, now).allowed);
     const freshOutcomes = await Promise.allSettled(
       dueAgents.map((agent) =>
-        runFreshAgent({ d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs }),
+        runFreshAgent({ d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs, registry }),
       ),
     );
     totalRan += countRan(freshOutcomes);
@@ -258,6 +258,7 @@ interface RunArgs {
   modelOverride: string | undefined;
   now: Date;
   timeoutMs: number;
+  registry: ReturnType<typeof createAppRegistry>;
 }
 
 /**
@@ -266,7 +267,7 @@ interface RunArgs {
  * timeout) error the agent and advance nextRunAt so the tick can't tight-loop.
  */
 async function runFreshAgent(args: RunArgs): Promise<boolean> {
-  const { d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs } = args;
+  const { d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs, registry } = args;
 
   const claimed = await claimAgent(d, agent, "running");
   if (!claimed) return false;
@@ -315,7 +316,7 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
  * still waiting on at least one decision (or failed). Time-bounded.
  */
 async function tryResumeAgent(args: RunArgs): Promise<boolean> {
-  const { d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs } = args;
+  const { d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs, registry } = args;
 
   const suspension = agent.conversationState as AgentSuspension | null;
   if (!suspension) {

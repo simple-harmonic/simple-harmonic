@@ -38,6 +38,7 @@ yarn-error.log*
 
 # app config (may contain API keys)
 simple-harmonic.config.json
+.simple-harmonic/secrets.json
 
 # vercel
 .vercel

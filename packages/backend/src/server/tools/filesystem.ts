@@ -4,6 +4,9 @@
 // Both are jailed via resolveInJailReal, which is symlink-aware (T3): a symlink
 // inside the jail that points outside is rejected, not followed. write_file
 // additionally requires the destructive-tools kill switch (toolsEnabled).
+//
+// Skills and connectors live in .simple-harmonic/ as plain JSON files.
+// Agents discover them with read_file like any other file.
 // ---------------------------------------------------------------------------
 
 import { readFile, writeFile, mkdir, stat } from "node:fs/promises";
@@ -12,17 +15,17 @@ import { z } from "zod";
 import type { ToolDefinition, ToolImpl } from "../../lib/meta-agent/registry";
 import { resolveInJailReal, toolsRoot, toolsEnabled, JailEscapeError } from "./sandbox";
 
-// Cap reads so a giant file can't blow the LLM context or the tick budget.
 const MAX_READ_BYTES = 256 * 1024;
-
-// Cap the UI-facing output snippet stored in action_log (T8). Much smaller than
-// the LLM-facing result so the narration feed and DB stay lean.
 const UI_SNIPPET_BYTES = 2_000;
 
 const readFileSchema = z.object({
   path: z
     .string()
-    .describe("Path to read, relative to the project working directory"),
+    .describe(
+      "Path to read, relative to the project working directory. " +
+        "Use .simple-harmonic/skills/ to browse custom tools, " +
+        ".simple-harmonic/connectors/ to see configured credentials.",
+    ),
 });
 
 const writeFileSchema = z.object({
@@ -35,7 +38,9 @@ const writeFileSchema = z.object({
 export const readFileDef: ToolDefinition<typeof readFileSchema> = {
   name: "read_file",
   description:
-    "Read a UTF-8 text file from the project working directory. Returns the file contents. Paths are relative to the project root; paths escaping it are rejected.",
+    "Read a UTF-8 text file from the project working directory. Returns the file contents. " +
+    "Paths are relative to the project root; paths escaping it are rejected. " +
+    "Browse .simple-harmonic/skills/ for custom API tools and .simple-harmonic/connectors/ for credentials.",
   category: "filesystem",
   risk: "safe",
   schema: readFileSchema,
@@ -77,9 +82,6 @@ export const readFileImpl: ToolImpl<typeof readFileSchema> = async (args) => {
         payload: {
           path: relative(toolsRoot(), abs),
           bytes: info.size,
-          // UI snippet (T8/D19): the action log shows tool output inline. The
-          // LLM still gets the full content via `result`; this is capped so
-          // action_log rows don't bloat.
           output: content.slice(0, UI_SNIPPET_BYTES),
         },
       },
@@ -148,6 +150,8 @@ function errToMessage(tool: string, path: string, err: unknown): string {
 function isSensitivePath(path: string): boolean {
   const normalized = path.replaceAll("\\", "/").toLowerCase();
   const base = basename(normalized);
+  // Allow reading connector metadata but block the secrets file
+  if (normalized.includes(".simple-harmonic/secrets.json")) return true;
   if (base.startsWith(".env") && !/\.(example|sample|template)$/.test(base)) return true;
   if ([".npmrc", ".pypirc", ".netrc"].includes(base)) return true;
   if (["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"].includes(base)) return true;

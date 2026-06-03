@@ -55,6 +55,7 @@ vi.mock("@/server/db/schema", () => ({
 // T2: the tick route builds a tool registry to classify destructive tools.
 vi.mock("@/server/tools", () => ({
   createAppRegistry: () => ({ isDestructive: () => false }),
+  createAppRegistryWithCustomTools: () => Promise.resolve({ isDestructive: () => false }),
 }));
 
 vi.mock("drizzle-orm", () => ({
