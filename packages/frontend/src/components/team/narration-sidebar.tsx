@@ -23,12 +23,12 @@ export function extractDetail(payload: Record<string, unknown>): string | undefi
 }
 
 function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-US", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  const d = new Date(iso);
+  const now = new Date();
+  const time = d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  if (d.toDateString() === now.toDateString()) return time;
+  const date = d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  return `${date} ${time}`;
 }
 
 // Map an action type to its narration text. The runner emits a fixed set of

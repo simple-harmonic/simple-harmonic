@@ -17,7 +17,7 @@ import {
   teams,
 } from "@simple-harmonic/backend/server/db/schema";
 import { createAppRegistry } from "@simple-harmonic/backend/server/tools";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 
@@ -39,6 +39,40 @@ function agentTimeoutMs(): number {
 // The tool registry decides which tools are destructive (need approval). One
 // instance is fine — registration is stateless and the impls read per-call ctx.
 const registry = createAppRegistry();
+
+// How many recent actions to feed back as working memory per tick.
+const HISTORY_LIMIT = 10;
+
+async function fetchRecentHistory(d: ReturnType<typeof db>, agentId: string): Promise<string | undefined> {
+  const rows = await d.query.actionLog.findMany({
+    where: eq(actionLog.agentId, agentId),
+    orderBy: [desc(actionLog.executedAt)],
+    limit: HISTORY_LIMIT,
+  });
+  if (rows.length === 0) return undefined;
+  const lines = rows.reverse().map((r) => {
+    const ts = r.executedAt.toISOString().slice(11, 19);
+    const summary = summarizePayload(r.actionType, r.payload);
+    return `[${ts}] ${r.actionType}: ${summary}`;
+  });
+  return lines.join("\n");
+}
+
+function summarizePayload(actionType: string, payload: Record<string, unknown>): string {
+  if (actionType === "awaiting_approval") {
+    const tool = payload.toolName ?? payload.tool ?? "unknown";
+    return `requested approval for ${tool}`;
+  }
+  if (payload.tool && payload.args) {
+    const args = typeof payload.args === "object" ? JSON.stringify(payload.args) : String(payload.args);
+    const truncated = args.length > 120 ? args.slice(0, 117) + "..." : args;
+    return `${payload.tool}(${truncated})`;
+  }
+  if (payload.summary) return String(payload.summary).slice(0, 150);
+  if (payload.message) return String(payload.message).slice(0, 150);
+  const json = JSON.stringify(payload);
+  return json.length > 150 ? json.slice(0, 147) + "..." : json;
+}
 
 type AgentRow = typeof agents.$inferSelect;
 
@@ -238,7 +272,10 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
   if (!claimed) return false;
 
   try {
-    const ctx = await a2ax.getAgentContext(team.id, agent.id);
+    const [ctx, recentHistory] = await Promise.all([
+      a2ax.getAgentContext(team.id, agent.id),
+      fetchRecentHistory(d, agent.id),
+    ]);
 
     const result = await withTimeout(
       (signal) =>
@@ -248,6 +285,7 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
           tools: agent.tools as string[],
           initialPrompt: agent.initialPrompt,
           a2axContext: ctx.formatted || undefined,
+          recentHistory,
           teamId: team.id,
           agentId: agent.id,
           peers: buildPeers(allAgents, agent.id),
@@ -317,6 +355,7 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
   if (!claimed) return false;
 
   try {
+    const recentHistory = await fetchRecentHistory(d, agent.id);
     const result = await withTimeout(
       (signal) =>
         runAgent({
@@ -324,6 +363,7 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
           archetype: agent.archetype,
           tools: agent.tools as string[],
           initialPrompt: agent.initialPrompt,
+          recentHistory,
           teamId: team.id,
           agentId: agent.id,
           peers: buildPeers(allAgents, agent.id),

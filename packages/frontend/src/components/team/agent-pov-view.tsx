@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { USER_AGENT_ID } from "@simple-harmonic/backend/lib/meta-agent/identity";
+import { AgentMessagesView } from "./agent-messages-view";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,7 +67,8 @@ interface A2AXMessage {
 interface AgentPovViewProps {
   teamId: string;
   agent: AgentDetail;
-  teamAgents: { id: string; name: string }[];
+  teamAgents: { id: string; name: string; role?: string; status?: string }[];
+  cofounderName?: string | null;
   onUpdated: (agent: AgentDetail) => void;
 }
 
@@ -97,12 +99,12 @@ const STATUS_STYLE: Record<string, { dot: string; text: string; label: string }>
 // ---------------------------------------------------------------------------
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-US", {
-    hour12: false,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  const d = new Date(iso);
+  const now = new Date();
+  const time = d.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  if (d.toDateString() === now.toDateString()) return time;
+  const date = d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  return `${date} ${time}`;
 }
 
 function formatSchedule(seconds: number): string {
@@ -198,7 +200,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 // Main Component
 // ---------------------------------------------------------------------------
 
-export function AgentPovView({ teamId, agent, teamAgents, onUpdated }: AgentPovViewProps) {
+export function AgentPovView({ teamId, agent, teamAgents, cofounderName, onUpdated }: AgentPovViewProps) {
   const [tab, setTab] = useState<ActiveTab>("dashboard");
   const [viewMode, setViewMode] = useState<ViewMode>("normal");
 
@@ -256,7 +258,18 @@ export function AgentPovView({ teamId, agent, teamAgents, onUpdated }: AgentPovV
           <HistoryTab teamId={teamId} agentId={agent.id} viewMode={viewMode} />
         )}
         {tab === "messages" && (
-          <MessagesTab teamId={teamId} agent={agent} teamAgents={teamAgents} />
+          <AgentMessagesView
+            teamId={teamId}
+            cofounderName={cofounderName ?? null}
+            agents={teamAgents.map((a) => ({
+              id: a.id,
+              name: a.name,
+              role: a.role ?? "",
+              status: (a.status as "running" | "paused" | "errored" | "awaiting_approval") ?? "running",
+            }))}
+            initialPovId={agent.id}
+            onClose={() => setTab("dashboard")}
+          />
         )}
         {tab === "config" && (
           <ConfigTab agent={agent} onUpdated={onUpdated} />
