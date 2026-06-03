@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Claude Code CLI backend: `claude -p --output-format stream-json`
+// Claude Code CLI backend: `claude -p --output-format stream-json --verbose`
 // ---------------------------------------------------------------------------
 
 import { spawn } from "node:child_process";
@@ -8,20 +8,6 @@ import type { CodingBackend, CodingResult, CodingRunOpts } from "./types";
 const DEFAULT_TIMEOUT_MS = 5 * 60_000;
 const MAX_OUTPUT_BYTES = 256 * 1024;
 
-interface ClaudeStreamEvent {
-  type: string;
-  subtype?: string;
-  // assistant message
-  content_block?: { type: string; text?: string };
-  // tool use
-  tool_name?: string;
-  tool_input?: { command?: string; description?: string };
-  // result
-  content?: string;
-  result?: string;
-  message?: string;
-}
-
 function parseEvents(jsonl: string): CodingResult {
   const messages: string[] = [];
   const commands: CodingResult["commands"] = [];
@@ -29,36 +15,45 @@ function parseEvents(jsonl: string): CodingResult {
 
   for (const line of jsonl.split("\n")) {
     if (!line.trim()) continue;
-    let event: ClaudeStreamEvent;
+    let event: Record<string, unknown>;
     try {
       event = JSON.parse(line);
     } catch {
       continue;
     }
 
-    if (event.type === "assistant" && event.subtype === "message") {
-      const text = event.message || event.content || "";
-      if (text) messages.push(text);
-    }
-
-    if (event.type === "result") {
-      const text = event.result || event.content || "";
-      if (text) messages.push(text);
-    }
-
-    if (event.type === "tool_use" || event.subtype === "tool_use") {
-      const cmd = event.tool_input?.command || event.tool_name || "";
-      if (cmd) {
-        commands.push({
-          command: cmd,
-          output: event.tool_input?.description || "",
-          exitCode: 0,
-        });
+    // Assistant message: { type: "assistant", message: { content: [{ type: "text", text: "..." }] } }
+    if (event.type === "assistant") {
+      const msg = event.message as Record<string, unknown> | undefined;
+      if (msg?.content && Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block.type === "text" && block.text) {
+            messages.push(block.text as string);
+          }
+          if (block.type === "tool_use") {
+            const input = block.input as Record<string, unknown> | undefined;
+            const name = (block.name as string) || "";
+            const cmd = (input?.command as string) || name;
+            if (cmd) {
+              commands.push({
+                command: cmd,
+                output: (input?.description as string) || "",
+                exitCode: 0,
+              });
+            }
+          }
+        }
       }
     }
 
+    // Result: { type: "result", result: "..." }
+    if (event.type === "result") {
+      const text = (event.result as string) || "";
+      if (text && !messages.includes(text)) messages.push(text);
+    }
+
     if (event.type === "error") {
-      errors.push(event.message || "Unknown error");
+      errors.push((event.message as string) || "Unknown error");
     }
   }
 
@@ -75,6 +70,7 @@ export function createClaudeCodeBackend(): CodingBackend {
         const args = [
           "-p",
           "--output-format", "stream-json",
+          "--verbose",
           "--dangerously-skip-permissions",
           "--no-session-persistence",
         ];
