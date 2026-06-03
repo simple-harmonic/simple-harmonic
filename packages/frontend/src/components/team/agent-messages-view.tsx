@@ -62,6 +62,7 @@ interface AgentMessagesViewProps {
   teamId: string;
   cofounderName: string | null;
   agents: AgentInfo[];
+  initialPovId?: string;
   onClose: () => void;
 }
 
@@ -185,10 +186,10 @@ function getPovInitial(povId: string, agents: AgentInfo[], cofounderDisplay: str
 // Component
 // ---------------------------------------------------------------------------
 
-export function AgentMessagesView({ teamId, cofounderName, agents, onClose }: AgentMessagesViewProps) {
+export function AgentMessagesView({ teamId, cofounderName, agents, initialPovId, onClose }: AgentMessagesViewProps) {
   const cofounderDisplay = resolveCofounderName(cofounderName);
   const humans = getTeamHumans(teamId);
-  const [povId, setPovId] = useState(POV_USER);
+  const [povId, setPovId] = useState(initialPovId ?? POV_USER);
   const [activeTab, setActiveTab] = useState<ActiveTab>("messages");
   const [threads, setThreads] = useState<Thread[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -261,7 +262,7 @@ export function AgentMessagesView({ teamId, cofounderName, agents, onClose }: Ag
   }, [activeThread?.messages.length, selectedThread]);
 
   const handleSend = async () => {
-    if (!composeContent.trim() || !activeThread || isSpecialPov) return;
+    if (!composeContent.trim() || !activeThread || !canCompose) return;
     setSending(true);
     try {
       const body: Record<string, string> = {
@@ -364,6 +365,26 @@ export function AgentMessagesView({ teamId, cofounderName, agents, onClose }: Ag
     }
   };
 
+  const handleNewBroadcast = () => {
+    const existing = threads.find((t) => t.channelType === "broadcast");
+    if (existing) {
+      setSelectedThread(existing.channelId);
+    } else {
+      const channelId = `broadcast:${teamId}`;
+      setThreads((prev) => [
+        {
+          channelId,
+          channelType: "broadcast",
+          peerAgentId: null,
+          peerAgentName: "Team Broadcast",
+          messages: [],
+        },
+        ...prev,
+      ]);
+      setSelectedThread(channelId);
+    }
+  };
+
   const handlePovChange = (newPov: string) => {
     setPovId(newPov);
     setSelectedThread(null);
@@ -405,66 +426,15 @@ export function AgentMessagesView({ teamId, cofounderName, agents, onClose }: Ag
     ["submitted", "accepted", "working", "input_required"].includes(t.state),
   ).length;
 
+  const canCompose = povId === POV_USER;
+
   return (
     <div className="flex flex-col h-full min-h-0">
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-border bg-bg-elev shrink-0">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-fg-faint hover:text-fg text-sm cursor-pointer"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M19 12H5" />
-              <path d="M12 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <span className="text-[11px] text-fg-faint font-mono uppercase tracking-wider">Messages</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] text-fg-faint font-mono">POV</span>
-          <select
-            value={povId}
-            onChange={(e) => handlePovChange(e.target.value)}
-            className="bg-bg border border-border rounded px-2 py-1 text-xs text-fg font-mono focus:outline-none focus:border-brand"
-          >
-            <optgroup label="Overview">
-              <option value={POV_TEAM}>Team Overview</option>
-            </optgroup>
-            <optgroup label="Humans">
-              {humans.map((h) => (
-                <option key={h.id} value={POV_USER}>{h.name}</option>
-              ))}
-            </optgroup>
-            <optgroup label="Agents">
-              <option value={POV_COFOUNDER}>{cofounderDisplay}</option>
-              {agents.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
-            </optgroup>
-          </select>
-        </div>
-      </div>
-
       {/* Main area: sidebar + content */}
       <div className="flex-1 flex min-h-0">
         {/* Thread/Task list sidebar */}
         <div className="w-[260px] border-r border-border bg-bg flex flex-col min-h-0 shrink-0">
-          {/* POV identity */}
-          <div className="px-4 py-3 border-b border-border">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-brand/20 text-brand">
-                {getPovInitial(povId, agents, cofounderDisplay)}
-              </div>
-              <div>
-                <div className="text-sm font-medium text-fg">{getPovLabel(povId, agents, cofounderDisplay)}</div>
-                <div className="text-[10px] text-fg-faint font-mono">
-                  {getPovRole(povId, agents)}
-                </div>
-              </div>
-            </div>
-          </div>
+
 
           {/* Tabs: Messages / Tasks */}
           <div className="flex border-b border-border shrink-0">
@@ -557,38 +527,11 @@ export function AgentMessagesView({ teamId, cofounderName, agents, onClose }: Ag
                       );
                     })}
 
-                    {/* New conversation buttons (only for agent POVs) */}
-                    {!isSpecialPov && threads.length === 0 && !loading ? (
-                      <div className="px-4 py-6">
-                        <p className="text-xs text-fg-faint font-mono mb-1">No conversations yet</p>
-                        <p className="text-[11px] text-fg-faint mb-4">
-                          Agents will start messaging each other during ticks, or start a conversation below.
-                        </p>
-                        {peers.length > 0 && (
-                          <>
-                            <span className="text-[10px] text-fg-faint font-mono uppercase tracking-wider">
-                              New message
-                            </span>
-                            <div className="flex flex-col gap-0.5 mt-2">
-                              {peers.map((a) => (
-                                <button
-                                  key={a.id}
-                                  type="button"
-                                  onClick={() => handleNewDM(a.id)}
-                                  className="flex items-center gap-2 px-2 py-1.5 rounded text-left hover:bg-bg-elev cursor-pointer transition-colors"
-                                >
-                                  {statusDot(a.status)}
-                                  <span className="text-xs text-fg-muted">{a.name}</span>
-                                </button>
-                              ))}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    ) : !isSpecialPov && threadsWithoutPeers.length > 0 ? (
-                      <div className="px-4 py-3">
+                    {/* New conversation (human user only) */}
+                    {canCompose && threadsWithoutPeers.length > 0 && (
+                      <div className="px-4 py-3 border-t border-border">
                         <span className="text-[10px] text-fg-faint font-mono uppercase tracking-wider">
-                          New message
+                          Direct message
                         </span>
                         <div className="flex flex-col gap-0.5 mt-2">
                           {threadsWithoutPeers.map((a) => (
@@ -603,19 +546,42 @@ export function AgentMessagesView({ teamId, cofounderName, agents, onClose }: Ag
                             </button>
                           ))}
                         </div>
+                        <div className="mt-3 flex flex-col gap-0.5">
+                          <span className="text-[10px] text-fg-faint font-mono uppercase tracking-wider mb-1">
+                            Team
+                          </span>
+                          {!threads.some((t) => t.channelType === "broadcast") && (
+                            <button
+                              type="button"
+                              onClick={() => handleNewBroadcast()}
+                              className="flex items-center gap-2 px-2 py-1.5 rounded text-left hover:bg-bg-elev cursor-pointer transition-colors"
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-fg-faint">
+                                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                                <line x1="4" y1="22" x2="4" y2="15" />
+                              </svg>
+                              <span className="text-xs text-fg-muted">Broadcast to all</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    ) : threads.length === 0 && !loading ? (
+                    )}
+                    {canCompose && threads.length === 0 && threadsWithoutPeers.length === 0 && !loading && (
+                      <div className="px-4 py-6">
+                        <p className="text-xs text-fg-faint font-mono">No conversations yet</p>
+                        <p className="text-[11px] text-fg-faint mt-1">
+                          Start a conversation with an agent below.
+                        </p>
+                      </div>
+                    )}
+                    {!canCompose && threads.length === 0 && !loading && (
                       <div className="px-4 py-6">
                         <p className="text-xs text-fg-faint font-mono">No messages yet</p>
                         <p className="text-[11px] text-fg-faint mt-1">
-                          {povId === POV_TEAM
-                            ? "All agent conversations will appear here."
-                            : povId === POV_COFOUNDER
-                              ? "Your conversations with agents will appear here."
-                              : "Agents will start messaging during ticks."}
+                          Messages will appear here as agents communicate.
                         </p>
                       </div>
-                    ) : null}
+                    )}
                   </>
                 )}
               </>
@@ -799,8 +765,8 @@ export function AgentMessagesView({ teamId, cofounderName, agents, onClose }: Ag
                 )}
               </div>
 
-              {/* Compose (only for agent POVs) */}
-              {!isSpecialPov && (
+              {/* Compose (only for human user) */}
+              {canCompose && (
                 <div className="px-4 py-3 border-t border-border shrink-0 bg-bg-elev">
                   <div className="flex items-end gap-2">
                     <textarea

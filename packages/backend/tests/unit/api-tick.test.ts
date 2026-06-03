@@ -26,6 +26,9 @@ const mockDb = {
     pendingApprovals: {
       findMany: vi.fn().mockResolvedValue([]),
     },
+    actionLog: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   },
   update: mockUpdate,
   insert: mockInsert,
@@ -57,6 +60,7 @@ vi.mock("@/server/tools", () => ({
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ _eq: val })),
   and: vi.fn((...clauses: unknown[]) => ({ _and: clauses })),
+  desc: vi.fn((col: unknown) => ({ _desc: col })),
   // The tick route builds an atomic increment via sql`${tickCount} + 1`.
   // Mock the tagged-template so the route code runs without a real driver.
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
@@ -194,11 +198,13 @@ beforeEach(() => {
   mockDb.query.teams.findMany.mockReset();
   mockDb.query.agents.findMany.mockReset();
   mockDb.query.pendingApprovals.findMany.mockReset();
+  mockDb.query.actionLog.findMany.mockReset();
   mockDb.transaction.mockReset();
   mockDb.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(mockDb));
   mockDb.query.teams.findMany.mockResolvedValue([]);
   mockDb.query.agents.findMany.mockResolvedValue([]);
   mockDb.query.pendingApprovals.findMany.mockResolvedValue([]);
+  mockDb.query.actionLog.findMany.mockResolvedValue([]);
   mockGetConfig.mockReturnValue({
     openaiApiKey: "",
     openaiBaseUrl: "https://api.openai.com/v1",

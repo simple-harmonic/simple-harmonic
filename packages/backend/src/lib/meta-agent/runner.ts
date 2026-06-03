@@ -86,6 +86,8 @@ export interface AgentConfig {
   initialPrompt: string;
   /** Formatted a2ax context block (messages since last tick) */
   a2axContext?: string;
+  /** Recent action history (last N ticks) so the agent has working memory. */
+  recentHistory?: string;
   /** Team + identity context for tool execution */
   teamId: string;
   agentId: string;
@@ -456,6 +458,10 @@ Coordinate with your peers when it makes sense. Share relevant findings, ask for
 
 function buildTickPrompt(config: AgentConfig): string {
   let prompt = "A new tick has fired. Do your job based on your role and system prompt.";
+
+  if (config.recentHistory) {
+    prompt += `\n\n## Your recent actions (for continuity, don't repeat work already done):\n${config.recentHistory}`;
+  }
 
   if (config.a2axContext) {
     prompt += `\n\n${config.a2axContext}`;

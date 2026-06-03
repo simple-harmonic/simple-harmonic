@@ -1,13 +1,11 @@
 "use client";
 
 import { resolveCofounderName } from "@simple-harmonic/backend/lib/meta-agent/identity";
-import { AgentGraph } from "@simple-harmonic/frontend/components/team/agent-graph";
+import { AgentMessagesView } from "@simple-harmonic/frontend/components/team/agent-messages-view";
 import { AgentPovView } from "@simple-harmonic/frontend/components/team/agent-pov-view";
 import { ApprovalQueue } from "@simple-harmonic/frontend/components/team/approval-queue";
-import { MetaAgentPanel } from "@simple-harmonic/frontend/components/team/meta-agent-panel";
-import { NarrationSidebar } from "@simple-harmonic/frontend/components/team/narration-sidebar";
+import { TeamDashboard } from "@simple-harmonic/frontend/components/team/team-dashboard";
 import { useTeam } from "@simple-harmonic/frontend/components/team/use-team";
-import { UserPovView } from "@simple-harmonic/frontend/components/team/user-pov-view";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 
@@ -21,7 +19,6 @@ function TeamViewInner({ teamId }: TeamViewProps) {
 
   const { team, agents, narration, loading, togglePause, updateAgent, updateTeam } =
     useTeam(teamId);
-  const [metaPanelOpen, setMetaPanelOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -73,13 +70,6 @@ function TeamViewInner({ teamId }: TeamViewProps) {
       updateAgent(updated);
     },
     [updateAgent],
-  );
-
-  const handleMetaUpdated = useCallback(
-    (updates: { name: string; metaAgentPrompt: string | null; cofounderName: string | null }) => {
-      updateTeam(updates);
-    },
-    [updateTeam],
   );
 
   if (loading || !team) {
@@ -174,66 +164,45 @@ function TeamViewInner({ teamId }: TeamViewProps) {
         </div>
       </div>
 
-      {povId === "meta" ? (
-        /* Meta-agent panel inline */
+      {povId === "meta" || povId === "user" ? (
         <div className="flex-1 min-h-0">
-          <MetaAgentPanel
+          <AgentMessagesView
             teamId={teamId}
-            teamName={team.name}
-            metaAgentPrompt={team.metaAgentPrompt}
             cofounderName={team.cofounderName}
-            onClose={() => {}}
-            onUpdated={handleMetaUpdated}
-            inline
-          />
-        </div>
-      ) : povId === "user" ? (
-        /* User POV view */
-        <div className="flex-1 min-h-0">
-          <UserPovView
-            teamId={teamId}
-            userName={userName}
-            teamAgents={agents.map((a) => ({ id: a.id, name: a.name }))}
-            cofounderName={resolveCofounderName(team.cofounderName)}
+            agents={agents.map((a) => ({ id: a.id, name: a.name, role: a.role, status: a.status }))}
+            initialPovId={povId === "meta" ? "cofounder" : "user"}
+            onClose={() => {
+              window.history.pushState(null, "", `/f/${teamId}`);
+              window.dispatchEvent(new PopStateEvent("popstate"));
+            }}
           />
         </div>
       ) : povId === "team" ? (
-        /* Team dashboard: approval queue + graph + narration */
+        /* Team dashboard */
         <div className="flex-1 flex flex-col min-h-0">
-          {/* Pending destructive-tool approvals (T2). Renders nothing when empty. */}
           <ApprovalQueue
             teamId={teamId}
             agentNames={Object.fromEntries(agents.map((a) => [a.id, a.name]))}
           />
-          {/* Graph + Narration */}
-          <div className="flex-1 grid grid-cols-[1fr_340px] min-h-0">
-            <main className="relative">
-              <AgentGraph
-                agents={agents.map((a) => ({
-                  id: a.id,
-                  name: a.name,
-                  role: a.role,
-                  status: a.status,
-                  inFlight: a.inFlight,
-                  scheduleSeconds: a.scheduleSeconds,
-                }))}
-                cofounderName={resolveCofounderName(team.cofounderName)}
-                userName={userName}
-                onAgentClick={(id) => {
-                  window.history.pushState(null, "", `/f/${teamId}?agent=${id}`);
-                  window.dispatchEvent(new PopStateEvent("popstate"));
-                }}
-                onMetaAgentClick={() => {
-                  window.history.pushState(null, "", `/f/${teamId}?agent=meta`);
-                  window.dispatchEvent(new PopStateEvent("popstate"));
-                }}
-                onUserClick={() => {
-                  window.history.pushState(null, "", `/f/${teamId}?agent=user`);
-                  window.dispatchEvent(new PopStateEvent("popstate"));
-                }}
-              />
-            </main>
-            <NarrationSidebar entries={narration} isLive={!team.paused} />
+          <div className="flex-1 min-h-0">
+            <TeamDashboard
+              teamId={teamId}
+              agents={agents.map((a) => ({
+                id: a.id,
+                name: a.name,
+                role: a.role,
+                status: a.status,
+                inFlight: a.inFlight,
+                scheduleSeconds: a.scheduleSeconds,
+              }))}
+              narration={narration}
+              tickCount={team.tickCount}
+              paused={team.paused}
+              onAgentClick={(id) => {
+                window.history.pushState(null, "", `/f/${teamId}?agent=${id}`);
+                window.dispatchEvent(new PopStateEvent("popstate"));
+              }}
+            />
           </div>
         </div>
       ) : selectedAgent ? (
@@ -252,7 +221,8 @@ function TeamViewInner({ teamId }: TeamViewProps) {
               status: selectedAgent.status,
               inFlight: selectedAgent.inFlight,
             }}
-            teamAgents={agents.map((a) => ({ id: a.id, name: a.name }))}
+            teamAgents={agents.map((a) => ({ id: a.id, name: a.name, role: a.role, status: a.status }))}
+            cofounderName={team.cofounderName}
             onUpdated={handleAgentUpdated}
           />
         </div>
@@ -262,16 +232,6 @@ function TeamViewInner({ teamId }: TeamViewProps) {
         </div>
       )}
 
-      {metaPanelOpen && (
-        <MetaAgentPanel
-          teamId={teamId}
-          teamName={team.name}
-          metaAgentPrompt={team.metaAgentPrompt}
-          cofounderName={team.cofounderName}
-          onClose={() => setMetaPanelOpen(false)}
-          onUpdated={handleMetaUpdated}
-        />
-      )}
     </div>
   );
 }
