@@ -54,9 +54,9 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Run the migrations:
+Create the database tables (schema is in `packages/backend/src/server/db/schema.ts`):
 ```bash
-npx drizzle-kit push
+npx tsx scripts/setup-db.ts
 ```
 
 Seed a demo team:

@@ -44,6 +44,6 @@
     }
   },
   "files": {
-    "includes": ["src/**/*.ts", "src/**/*.tsx", "drizzle.config.ts"]
+    "includes": ["src/**/*.ts", "src/**/*.tsx"]
   }
 }

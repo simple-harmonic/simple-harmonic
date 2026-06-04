@@ -4,11 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // Mocks
 // ---------------------------------------------------------------------------
 
-const mockExecSync = vi.fn();
-vi.mock("node:child_process", () => ({
-  execSync: mockExecSync,
-}));
-
 const mockGetConfig = vi.fn();
 const mockSetConfig = vi.fn();
 vi.mock("@/server/config", () => ({
@@ -69,7 +64,6 @@ describe("POST /api/settings/setup-db", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetConfig.mockReturnValue({ databaseUrl: "" });
-    mockExecSync.mockReturnValue("");
   });
 
   it("returns error when no database URL is available", async () => {
@@ -135,7 +129,6 @@ describe("POST /api/settings/setup-db", () => {
     const body = await res.json();
 
     expect(body.ok).toBe(true);
-    // Should have called CREATE DATABASE
     const createDbCall = mockClientQuery.mock.calls.find(
       (call) => typeof call[0] === "string" && call[0].includes("CREATE DATABASE"),
     );
@@ -158,7 +151,7 @@ describe("POST /api/settings/setup-db", () => {
     expect(body.steps).toContainEqual(expect.stringContaining("already exists"));
   });
 
-  it("runs drizzle-kit push after db creation", async () => {
+  it("applies schema SQL after db creation", async () => {
     makeMockClient({ pgDatabase: { rowCount: 1 } });
 
     const { POST } = await import("@/app/api/settings/setup-db/route");
@@ -166,14 +159,12 @@ describe("POST /api/settings/setup-db", () => {
     const body = await res.json();
 
     expect(body.ok).toBe(true);
-    expect(mockExecSync).toHaveBeenCalledWith(
-      "npx drizzle-kit push --force",
-      expect.objectContaining({
-        env: expect.objectContaining({ DATABASE_URL: "postgresql://localhost:5432/test_db" }),
-        timeout: 30000,
-      }),
+    // The schema SQL creates tables via the second pool connection
+    const schemaCall = mockClientQuery.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].includes("CREATE TABLE"),
     );
-    expect(body.steps).toContain("Schema pushed successfully");
+    expect(schemaCall).toBeTruthy();
+    expect(body.steps).toContain("Schema applied successfully");
   });
 
   it("returns error when pg connection fails", async () => {
@@ -187,12 +178,23 @@ describe("POST /api/settings/setup-db", () => {
     expect(body.error).toContain("Connection refused");
   });
 
-  it("returns error when drizzle-kit push fails", async () => {
-    makeMockClient({ pgDatabase: { rowCount: 1 } });
-    mockExecSync.mockImplementation(() => {
-      const err = new Error("push failed") as Error & { stderr?: string };
-      err.stderr = "Migration error: table conflict";
-      throw err;
+  it("returns error when schema SQL fails", async () => {
+    let poolCount = 0;
+    mockPoolConnect.mockImplementation(async () => {
+      poolCount++;
+      if (poolCount === 1) {
+        // Admin pool succeeds
+        return { query: mockClientQuery, release: mockClientRelease };
+      }
+      // App pool: schema SQL fails
+      return {
+        query: vi.fn().mockRejectedValue(new Error("relation already exists")),
+        release: mockClientRelease,
+      };
+    });
+    mockClientQuery.mockImplementation(async (sql: string) => {
+      if (sql.includes("pg_database")) return { rowCount: 1 };
+      return { rows: [], rowCount: 0 };
     });
 
     const { POST } = await import("@/app/api/settings/setup-db/route");
@@ -200,14 +202,10 @@ describe("POST /api/settings/setup-db", () => {
     const body = await res.json();
 
     expect(body.ok).toBe(false);
-    expect(body.error).toContain("Schema push failed");
-    expect(body.error).toContain("Migration error");
+    expect(body.error).toContain("Schema setup failed");
   });
 
-  it("verifies connection and lists tables after push", async () => {
-    // Admin pool for create-db step
-    // Verify pool for the final check
-    // Both use the same mock, so we set up the client to handle both phases
+  it("verifies connection and lists tables after schema apply", async () => {
     makeMockClient({
       pgDatabase: { rowCount: 1 },
       pgTables: { rows: [{ tablename: "teams" }, { tablename: "agents" }, { tablename: "tasks" }] },
@@ -250,25 +248,17 @@ describe("POST /api/settings/setup-db", () => {
     makeMockClient({ pgDatabase: { rowCount: 1 } });
 
     const { POST } = await import("@/app/api/settings/setup-db/route");
-
-    // Request without databaseUrl in body: should NOT save
     await POST(makeRequest({}));
     expect(mockSetConfig).not.toHaveBeenCalled();
   });
 
   it("handles verify step failure gracefully", async () => {
-    // First pool (admin) succeeds, second pool (verify) fails
     let poolCallCount = 0;
     mockPoolConnect.mockImplementation(async () => {
       poolCallCount++;
-      if (poolCallCount <= 1) {
-        // Admin pool: success
-        return {
-          query: mockClientQuery,
-          release: mockClientRelease,
-        };
+      if (poolCallCount <= 2) {
+        return { query: mockClientQuery, release: mockClientRelease };
       }
-      // Verify pool: fail
       throw new Error("verify connection failed");
     });
     mockClientQuery.mockImplementation(async (sql: string) => {
@@ -280,7 +270,6 @@ describe("POST /api/settings/setup-db", () => {
     const res = await POST(makeRequest({ databaseUrl: "postgresql://localhost:5432/test_db" }));
     const body = await res.json();
 
-    // Should still return ok=true because verify failure is just a warning
     expect(body.ok).toBe(true);
     expect(body.steps).toContainEqual(expect.stringContaining("Warning"));
   });
