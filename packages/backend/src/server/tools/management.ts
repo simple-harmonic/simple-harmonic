@@ -335,6 +335,16 @@ export const modifyAgentImpl: ToolImpl<typeof modifyAgentSchema> = async (args, 
       return { toolName: "modify_agent", success: false, result: `Agent "${args.agent_name}" not found in "${args.team_name || "your team"}".` };
     }
 
+    // --- Self-modification guard ---
+    if (agent.id === ctx.agentId) {
+      if (actionType === "delete") {
+        return { toolName: "modify_agent", success: false, result: "Cannot delete yourself." };
+      }
+      if (actionType === "update" && args.updates?.initial_prompt !== undefined) {
+        return { toolName: "modify_agent", success: false, result: "Cannot modify your own prompt. Ask the founder to change it via chat." };
+      }
+    }
+
     // --- Delete ---
     if (actionType === "delete") {
       await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
