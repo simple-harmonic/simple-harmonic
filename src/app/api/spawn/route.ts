@@ -111,9 +111,9 @@ export async function POST(request: Request) {
       role: "AI cofounder and team lead. Reviews agent performance, adjusts team structure, sets goals.",
       archetype: "meta-agent",
       tools: HARMON_TOOLS,
-      scheduleSeconds: 600,
+      scheduleSeconds: 3600,
       initialPrompt: HARMON_PROMPT,
-      nextRunAt: new Date(now.getTime() + 600_000 + agentList.length * 2000),
+      nextRunAt: new Date(now.getTime() + 3600_000 + agentList.length * 2000),
     });
   }
 
