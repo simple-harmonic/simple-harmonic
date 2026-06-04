@@ -60,6 +60,7 @@ export const teams = pgTable("teams", {
   id: uuid("id").defaultRandom().primaryKey(),
   parentTeamId: uuid("parent_team_id"),
   name: text("name").notNull(),
+  goal: text("goal"),
   paused: boolean("paused").notNull().default(false),
   tickCount: integer("tick_count").notNull().default(0),
   metaAgentPrompt: text("meta_agent_prompt"),

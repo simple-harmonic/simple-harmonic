@@ -17,6 +17,64 @@ import { agents, teams, chatSessions } from "../db/schema";
 import { getSubTreeIds } from "../team-tree";
 
 // ---------------------------------------------------------------------------
+// set_team_goal
+// ---------------------------------------------------------------------------
+
+const setTeamGoalSchema = z.object({
+  team_name: z.string().optional().describe("Team name. Defaults to your own team."),
+  goal: z.string().describe("The team's objective. Clear, measurable, time-bound when possible."),
+});
+
+export const setTeamGoalDef: ToolDefinition<typeof setTeamGoalSchema> = {
+  name: "set_team_goal",
+  description:
+    "Set or update the goal for a team. The goal is injected into every agent's tick prompt " +
+    "so they work toward it. Scoped to your team and its sub-teams.",
+  category: "internal",
+  risk: "destructive",
+  schema: setTeamGoalSchema,
+};
+
+export const setTeamGoalImpl: ToolImpl<typeof setTeamGoalSchema> = async (args, ctx) => {
+  try {
+    const d = db();
+    let teamId = ctx.teamId;
+
+    if (args.team_name) {
+      const target = await d.query.teams.findFirst({
+        where: eq(teams.name, args.team_name),
+      });
+      if (!target) {
+        return { toolName: "set_team_goal", success: false, result: `Team "${args.team_name}" not found.` };
+      }
+      const subTree = await getSubTreeIds(ctx.teamId);
+      if (!subTree.has(target.id)) {
+        return { toolName: "set_team_goal", success: false, result: `"${args.team_name}" is outside your scope.` };
+      }
+      teamId = target.id;
+    }
+
+    await d.update(teams).set({ goal: args.goal }).where(eq(teams.id, teamId));
+
+    return {
+      toolName: "set_team_goal",
+      success: true,
+      result: `Goal set: "${args.goal}"`,
+      action: {
+        actionType: "team_goal_set",
+        payload: { teamId, goal: args.goal },
+      },
+    };
+  } catch (err) {
+    return {
+      toolName: "set_team_goal",
+      success: false,
+      result: `set_team_goal failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+};
+
+// ---------------------------------------------------------------------------
 // spawn_sub_team
 // ---------------------------------------------------------------------------
 

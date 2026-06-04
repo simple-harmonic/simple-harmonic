@@ -279,10 +279,12 @@ describe("POST /api/spawn", () => {
     );
 
     const agentRows = mockValues.mock.calls[2][0];
-    expect(agentRows).toHaveLength(3);
+    // 3 user agents + 1 auto-spawned Harmon
+    expect(agentRows).toHaveLength(4);
     expect(agentRows[0].name).toBe("Alpha");
     expect(agentRows[1].name).toBe("Beta");
     expect(agentRows[2].name).toBe("Gamma");
+    expect(agentRows[3].archetype).toBe("meta-agent");
   });
 
   it("passes cofounderName to team insert", async () => {
@@ -300,7 +302,7 @@ describe("POST /api/spawn", () => {
     expect(teamValues.cofounderName).toBe("Atlas");
   });
 
-  it("sets cofounderName to null when not provided", async () => {
+  it("defaults cofounderName to Harmon when not provided", async () => {
     const { POST } = await import("@/app/api/spawn/route");
 
     await POST(
@@ -311,7 +313,7 @@ describe("POST /api/spawn", () => {
     );
 
     const teamValues = mockValues.mock.calls[0][0];
-    expect(teamValues.cofounderName).toBeNull();
+    expect(teamValues.cofounderName).toBe("Harmon");
   });
 
   it("trims cofounderName whitespace", async () => {

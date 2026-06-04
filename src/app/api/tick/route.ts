@@ -314,6 +314,7 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
           initialPrompt: agent.initialPrompt,
           a2axContext: ctx.formatted || undefined,
           recentHistory,
+          teamGoal: team.goal ?? undefined,
           outputContract: contract ?? undefined,
           recentValidations,
           teamId: team.id,

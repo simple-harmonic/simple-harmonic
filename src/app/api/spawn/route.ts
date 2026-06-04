@@ -3,6 +3,31 @@ import { eq } from "drizzle-orm";
 import { db } from "@simple-harmonic/backend/server/db";
 import { agents, chatSessions, teams } from "@simple-harmonic/backend/server/db/schema";
 
+const HARMON_TOOLS = [
+  "read_file",
+  "write_file",
+  "action_history",
+  "set_team_goal",
+  "spawn_sub_team",
+  "modify_agent",
+  "send_message",
+  "broadcast",
+  "report_action",
+];
+
+const HARMON_PROMPT = `You are Harmon, the AI cofounder and team lead. You run on a tick like every other agent, but your job is management, not execution.
+
+Each tick, you:
+1. Review the team's recent action history (use action_history with scope 'team').
+2. Check validation results: which agents are passing their output contracts and which are failing.
+3. Identify problems: agents stuck in loops, persistent validation failures, idle agents, missing capabilities.
+4. Take action: use modify_agent to adjust prompts, tools, schedules, or output contracts. Use spawn_sub_team to create new sub-teams when the workload needs organizing. Use set_team_goal to update objectives.
+5. Report a summary of what you observed and what you changed via report_action.
+
+Be surgical. Don't change things that are working. Focus on what's broken or underperforming. If everything looks healthy, report that and move on.
+
+You can also broadcast to the team when coordination is needed, or send_message to specific agents with guidance.`;
+
 interface SpawnAgent {
   name: string;
   role: string;
@@ -18,10 +43,12 @@ interface SpawnPayload {
   parentTeam?: string;
   parentTeamId?: string;
   cofounderName?: string | null;
+  goal?: string;
+  noHarmon?: boolean;
 }
 
 export async function POST(request: Request) {
-  const { agents: agentList, teamName, parentTeam, parentTeamId, cofounderName } =
+  const { agents: agentList, teamName, parentTeam, parentTeamId, cofounderName, goal, noHarmon } =
     (await request.json()) as SpawnPayload;
 
   if (!agentList || !Array.isArray(agentList) || agentList.length === 0) {
@@ -49,30 +76,48 @@ export async function POST(request: Request) {
     teamName?.trim() ||
     agentList.map((a) => a.archetype).join("-").slice(0, 50);
 
+  const isRootTeam = !resolvedParentId;
+  const resolvedCofounderName = cofounderName?.trim() || "Harmon";
+
   const [team] = await d
     .insert(teams)
     .values({
       name: resolvedTeamName,
       parentTeamId: resolvedParentId,
-      cofounderName: cofounderName?.trim() || null,
+      cofounderName: resolvedCofounderName,
+      goal: goal?.trim() || null,
     })
     .returning({ id: teams.id });
 
   await d.insert(chatSessions).values({ teamId: team.id });
 
   const now = new Date();
-  await d.insert(agents).values(
-    agentList.map((a, i) => ({
+  const agentRows = agentList.map((a, i) => ({
+    teamId: team.id,
+    name: a.name,
+    role: a.role,
+    archetype: a.archetype,
+    tools: a.tools,
+    scheduleSeconds: a.schedule_seconds,
+    initialPrompt: a.initial_prompt,
+    nextRunAt: new Date(now.getTime() + a.schedule_seconds * 1000 + i * 2000),
+  }));
+
+  // Auto-spawn Harmon as a tick-based agent on root teams
+  if (isRootTeam && !noHarmon) {
+    agentRows.push({
       teamId: team.id,
-      name: a.name,
-      role: a.role,
-      archetype: a.archetype,
-      tools: a.tools,
-      scheduleSeconds: a.schedule_seconds,
-      initialPrompt: a.initial_prompt,
-      nextRunAt: new Date(now.getTime() + a.schedule_seconds * 1000 + i * 2000),
-    })),
-  );
+      name: resolvedCofounderName.toLowerCase().replace(/\s+/g, "-"),
+      role: "AI cofounder and team lead. Reviews agent performance, adjusts team structure, sets goals.",
+      archetype: "meta-agent",
+      tools: HARMON_TOOLS,
+      scheduleSeconds: 600,
+      initialPrompt: HARMON_PROMPT,
+      nextRunAt: new Date(now.getTime() + 600_000 + agentList.length * 2000),
+    });
+  }
+
+  await d.insert(agents).values(agentRows);
 
   return NextResponse.json({ teamId: team.id, parentTeamId: resolvedParentId });
 }

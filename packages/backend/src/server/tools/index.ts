@@ -27,11 +27,14 @@ import {
   githubApiImpl,
 } from "./network";
 import {
+  setTeamGoalDef,
+  setTeamGoalImpl,
   spawnSubTeamDef,
   spawnSubTeamImpl,
   modifyAgentDef,
   modifyAgentImpl,
 } from "./management";
+import { actionHistoryDef, actionHistoryImpl } from "./action-history";
 
 /**
  * Build the built-in tool registry. Does NOT include custom tools from files.
@@ -45,8 +48,10 @@ export function createAppRegistry(): ToolRegistry {
   registry.register(codingTaskDef, codingTaskImpl);
   registry.register(httpFetchDef, httpFetchImpl);
   registry.register(githubApiDef, githubApiImpl);
+  registry.register(setTeamGoalDef, setTeamGoalImpl);
   registry.register(spawnSubTeamDef, spawnSubTeamImpl);
   registry.register(modifyAgentDef, modifyAgentImpl);
+  registry.register(actionHistoryDef, actionHistoryImpl);
 
   return registry;
 }
@@ -87,6 +92,7 @@ export {
   githubApiDef,
   githubApiImpl,
 } from "./network";
+export { actionHistoryDef, actionHistoryImpl } from "./action-history";
 export {
   spawnSubTeamDef,
   spawnSubTeamImpl,

@@ -256,10 +256,10 @@ describe("POST /api/spawn", () => {
     expect(teamsValues.cofounderName).toBe("Aria");
   });
 
-  it("sets cofounderName to null when not provided", async () => {
+  it("defaults cofounderName to Harmon when not provided", async () => {
     await POST(makeRequest({ agents: [validAgent] }));
 
     const teamsValues = mockInsertValues.mock.calls[0][0];
-    expect(teamsValues.cofounderName).toBeNull();
+    expect(teamsValues.cofounderName).toBe("Harmon");
   });
 });

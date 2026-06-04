@@ -112,6 +112,8 @@ export interface AgentConfig {
    * registry.
    */
   toolRegistry?: Pick<ToolRegistry, "execute" | "getOpenAIDefs" | "isDestructive" | "listForAgent">;
+  /** Team goal injected into the tick prompt. All agents work toward it. */
+  teamGoal?: string;
   /**
    * JSON Schema contract for this agent's expected output. When present, the
    * runner validates the tick result against it and attaches pass/fail.
@@ -477,6 +479,10 @@ Coordinate with your peers when it makes sense. Share relevant findings, ask for
 
 function buildTickPrompt(config: AgentConfig): string {
   let prompt = "A new tick has fired. Do your job based on your role and system prompt.";
+
+  if (config.teamGoal) {
+    prompt += `\n\n## Team goal:\n${config.teamGoal}\nAlign your work toward this objective.`;
+  }
 
   if (config.recentHistory) {
     prompt += `\n\n## Your recent actions (for continuity, don't repeat work already done):\n${config.recentHistory}`;
