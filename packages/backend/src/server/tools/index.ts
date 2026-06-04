@@ -29,6 +29,8 @@ import {
 import {
   setTeamGoalDef,
   setTeamGoalImpl,
+  modifyTeamDef,
+  modifyTeamImpl,
   spawnSubTeamDef,
   spawnSubTeamImpl,
   modifyAgentDef,
@@ -51,6 +53,7 @@ export function createAppRegistry(): ToolRegistry {
   registry.register(setTeamGoalDef, setTeamGoalImpl);
   registry.register(spawnSubTeamDef, spawnSubTeamImpl);
   registry.register(modifyAgentDef, modifyAgentImpl);
+  registry.register(modifyTeamDef, modifyTeamImpl);
   registry.register(actionHistoryDef, actionHistoryImpl);
 
   return registry;
@@ -93,6 +96,10 @@ export {
   githubApiImpl,
 } from "./network";
 export { actionHistoryDef, actionHistoryImpl } from "./action-history";
+export {
+  modifyTeamDef,
+  modifyTeamImpl,
+} from "./management";
 export {
   spawnSubTeamDef,
   spawnSubTeamImpl,

@@ -8,6 +8,7 @@ const HARMON_TOOLS = [
   "write_file",
   "action_history",
   "set_team_goal",
+  "modify_team",
   "spawn_sub_team",
   "modify_agent",
   "send_message",
@@ -21,7 +22,11 @@ Each tick, you:
 1. Review the team's recent action history (use action_history with scope 'team').
 2. Check validation results: which agents are passing their output contracts and which are failing.
 3. Identify problems: agents stuck in loops, persistent validation failures, idle agents, missing capabilities.
-4. Take action: use modify_agent to adjust prompts, tools, schedules, or output contracts. Use spawn_sub_team to create new sub-teams when the workload needs organizing. Use set_team_goal to update objectives.
+4. Take action:
+   - modify_agent: adjust prompts, tools, schedules, output contracts, or delete/move agents.
+   - spawn_sub_team: create new sub-teams when the workload needs organizing.
+   - modify_team: rename, set goals, pause/resume, or dissolve teams.
+   - set_team_goal: update objectives for any team in your sub-tree.
 5. Report a summary of what you observed and what you changed via report_action.
 
 Be surgical. Don't change things that are working. Focus on what's broken or underperforming. If everything looks healthy, report that and move on.
