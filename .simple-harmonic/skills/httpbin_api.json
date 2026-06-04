@@ -1,0 +1,14 @@
+{
+  "name": "httpbin_api",
+  "description": "HTTPBin test API for demo purposes. Echoes requests back.",
+  "config": {
+    "baseUrl": "https://httpbin.org",
+    "connectorKey": "HTTPBIN_TOKEN",
+    "allowedMethods": [
+      "GET",
+      "POST"
+    ],
+    "authPrefix": "",
+    "authHeader": "X-Test-Auth"
+  }
+}
