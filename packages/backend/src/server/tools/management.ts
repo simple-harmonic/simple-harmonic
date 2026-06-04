@@ -308,10 +308,10 @@ export const modifyAgentDef: ToolDefinition<typeof modifyAgentSchema> = {
   description:
     "Update, delete, or move an agent. Update changes tools, prompt, schedule, status, role, " +
     "or output contract. Delete removes the agent and its history. Move reassigns the agent " +
-    "to a different team. Scoped to your team's sub-tree.",
+    "to a different team. Scoped to your team's sub-tree. " +
+    "Self-prompt modification always requires human approval.",
   category: "internal",
   risk: "destructive",
-  isDestructive: (args) => args.action !== undefined || (args.updates !== undefined),
   schema: modifyAgentSchema,
 };
 
@@ -335,14 +335,9 @@ export const modifyAgentImpl: ToolImpl<typeof modifyAgentSchema> = async (args, 
       return { toolName: "modify_agent", success: false, result: `Agent "${args.agent_name}" not found in "${args.team_name || "your team"}".` };
     }
 
-    // --- Self-modification guard ---
-    if (agent.id === ctx.agentId) {
-      if (actionType === "delete") {
-        return { toolName: "modify_agent", success: false, result: "Cannot delete yourself." };
-      }
-      if (actionType === "update" && args.updates?.initial_prompt !== undefined) {
-        return { toolName: "modify_agent", success: false, result: "Cannot modify your own prompt. Ask the founder to change it via chat." };
-      }
+    // --- Self-deletion guard (always blocked) ---
+    if (agent.id === ctx.agentId && actionType === "delete") {
+      return { toolName: "modify_agent", success: false, result: "Cannot delete yourself." };
     }
 
     // --- Delete ---
