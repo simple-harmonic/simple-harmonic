@@ -124,6 +124,8 @@ export interface AgentConfig {
    * injected into the tick prompt so the agent can self-correct.
    */
   recentValidations?: string;
+  /** Recent app events (errors, warnings) for this team. Injected so the agent is aware of system health. */
+  appHealthContext?: string;
   /**
    * Resume a previously suspended tick. When present, the runner reconstructs
    * the conversation, applies the decisions to the pending calls, then
@@ -503,6 +505,11 @@ function buildTickPrompt(config: AgentConfig): string {
     prompt += "\n\nRespond to any messages that need a reply, then do your regular work.";
   } else {
     prompt += "\n\nNo new messages from other agents.";
+  }
+
+  if (config.appHealthContext) {
+    prompt += `\n\n## Recent app events (errors and warnings in this system):\n${config.appHealthContext}`;
+    prompt += "\nIf any of these errors are in your area of responsibility, investigate and address them.";
   }
 
   return prompt;

@@ -244,6 +244,30 @@ export interface ApiToolConfig {
   pathPrefix?: string;
 }
 
+// ---------------------------------------------------------------------------
+// App events (feedback loop for dogfooding)
+// ---------------------------------------------------------------------------
+
+export const appEventSeverity = pgEnum("app_event_severity", [
+  "info",
+  "warning",
+  "error",
+]);
+
+export const appEvents = pgTable("app_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  teamId: uuid("team_id"),  // nullable: some events are system-wide
+  agentId: uuid("agent_id"), // nullable: not all events come from agents
+  severity: appEventSeverity("severity").notNull().default("info"),
+  source: text("source").notNull(), // e.g. "tick", "tool", "api", "test", "deploy"
+  message: text("message").notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("app_events_created_idx").on(t.createdAt),
+  index("app_events_team_idx").on(t.teamId, t.createdAt),
+]);
+
 export const actionLog = pgTable("action_log", {
   id: uuid("id").defaultRandom().primaryKey(),
   agentId: uuid("agent_id")

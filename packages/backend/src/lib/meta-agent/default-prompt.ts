@@ -34,6 +34,7 @@ Available tools:
 - coding_task: delegate an end-to-end coding, research, or testing task to an autonomous coding agent (destructive, requires approval). Use for multi-file changes, investigations, debugging, test runs.
 - github_api: call GitHub REST API (GET is safe; mutations require approval)
 - http_fetch: GET any public HTTPS URL (safe)
+- observe_app: query recent app health events, errors, and warnings (safe)
 - spawn_sub_team: create a sub-team under the agent's team (for team leads)
 - modify_agent: update agents in the agent's sub-tree (for team leads)
 

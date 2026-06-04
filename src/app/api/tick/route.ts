@@ -17,6 +17,7 @@ import {
   teams,
 } from "@simple-harmonic/backend/server/db/schema";
 import { createAppRegistryWithCustomTools } from "@simple-harmonic/backend/server/tools";
+import { emitAppEvent, queryAppEvents, formatEventsForPrompt } from "@simple-harmonic/backend/server/app-events";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
@@ -299,10 +300,11 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
 
   try {
     const contract = agent.outputContract as Record<string, unknown> | null;
-    const [ctx, recentHistory, recentValidations] = await Promise.all([
+    const [ctx, recentHistory, recentValidations, recentEvents] = await Promise.all([
       a2ax.getAgentContext(team.id, agent.id),
       fetchRecentHistory(d, agent.id),
       contract ? fetchRecentValidations(d, agent.id) : Promise.resolve(undefined),
+      queryAppEvents({ teamId: team.id, since: new Date(now.getTime() - 3600000), limit: 10 }),
     ]);
 
     const result = await withTimeout(
@@ -317,6 +319,7 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
           teamGoal: team.goal ?? undefined,
           outputContract: contract ?? undefined,
           recentValidations,
+          appHealthContext: formatEventsForPrompt(recentEvents),
           teamId: team.id,
           agentId: agent.id,
           peers: buildPeers(allAgents, agent.id),
@@ -335,7 +338,7 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
     await handleRunResult({ d, agent, result, now });
     return true;
   } catch (err) {
-    await failAgent({ d, agent, now, err, phase: "tick" });
+    await failAgent({ d, agent, now, err, phase: "tick", a2ax, teamId: team.id });
     return false;
   }
 }
@@ -416,7 +419,7 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
     return true;
   } catch (err) {
     await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
-    await failAgent({ d, agent, now, err, phase: "resume" });
+    await failAgent({ d, agent, now, err, phase: "resume", a2ax, teamId: team.id });
     return false;
   }
 }
@@ -434,17 +437,39 @@ async function claimAgent(
   return claimed.length > 0;
 }
 
-/** Common failure handling: log, error the agent, advance nextRunAt, clear state. */
+/** Common failure handling: log, error the agent, advance nextRunAt, clear state.
+ *  Double-writes: persists to app_events AND broadcasts via a2ax so peers
+ *  see the failure immediately on their next tick. */
 async function failAgent(args: {
   d: ReturnType<typeof db>;
   agent: AgentRow;
   now: Date;
   err: unknown;
   phase: "tick" | "resume";
+  a2ax: ReturnType<typeof getA2AX>;
+  teamId: string;
 }): Promise<void> {
-  const { d, agent, now, err, phase } = args;
+  const { d, agent, now, err, phase, a2ax, teamId } = args;
   const msg = err instanceof Error ? err.message : String(err);
   console.error(`[tick] ${phase} of ${agent.name} failed:`, msg);
+
+  // Persistent record (queryable via observe_app tool)
+  emitAppEvent({
+    severity: "error",
+    source: phase === "resume" ? "tick-resume" : "tick",
+    message: `Agent ${agent.name} failed: ${msg}`,
+    teamId: agent.teamId,
+    agentId: agent.id,
+    metadata: { phase, errorMessage: msg },
+  });
+
+  // Real-time alert: broadcast to the team so peers see it on their next tick.
+  // Fire-and-forget; a failed broadcast should never block error recovery.
+  a2ax.broadcast(teamId, agent.id, `[SYSTEM] Agent ${agent.name} errored during ${phase}: ${msg}`, {
+    kind: "text",
+    payload: { systemAlert: true, severity: "error", source: phase },
+  }).catch(() => {});
+
   await d
     .update(agents)
     .set({

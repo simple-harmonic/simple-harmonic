@@ -3,6 +3,7 @@ import type { PlannerMessage, ModifyAgentResult } from "@simple-harmonic/backend
 import { plannerStream } from "@simple-harmonic/backend/lib/meta-agent";
 import { db } from "@simple-harmonic/backend/server/db";
 import { agents, teams } from "@simple-harmonic/backend/server/db/schema";
+import { emitAppEvent } from "@simple-harmonic/backend/server/app-events";
 import { and, eq } from "drizzle-orm";
 
 async function applyModifyAgent(result: ModifyAgentResult): Promise<{ ok: boolean; error?: string }> {
@@ -99,6 +100,11 @@ export async function POST(request: Request) {
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
+        emitAppEvent({
+          severity: "error",
+          source: "api",
+          message: `Chat API error: ${message}`,
+        });
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({ type: "error", message })}\n\n`),
         );

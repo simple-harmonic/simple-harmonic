@@ -29,6 +29,9 @@ const mockDb = {
     actionLog: {
       findMany: vi.fn().mockResolvedValue([]),
     },
+    appEvents: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   },
   update: mockUpdate,
   insert: mockInsert,
@@ -50,6 +53,7 @@ vi.mock("@/server/db/schema", () => ({
   },
   actionLog: {},
   pendingApprovals: { agentId: "pending_approvals.agentId", status: "pending_approvals.status" },
+  appEvents: {},
 }));
 
 // T2: the tick route builds a tool registry to classify destructive tools.
@@ -62,6 +66,7 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ _eq: val })),
   and: vi.fn((...clauses: unknown[]) => ({ _and: clauses })),
   desc: vi.fn((col: unknown) => ({ _desc: col })),
+  gte: vi.fn((_col: unknown, val: unknown) => ({ _gte: val })),
   // The tick route builds an atomic increment via sql`${tickCount} + 1`.
   // Mock the tagged-template so the route code runs without a real driver.
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
@@ -109,11 +114,13 @@ vi.mock("openai", () => {
 
 const mockGetAgentContext = vi.fn().mockResolvedValue({ formatted: "", messageIds: [] });
 const mockMarkContextRead = vi.fn().mockResolvedValue(undefined);
+const mockBroadcast = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@/server/a2ax", () => ({
   getA2AX: () => ({
     getAgentContext: mockGetAgentContext,
     markContextRead: mockMarkContextRead,
+    broadcast: mockBroadcast,
   }),
 }));
 

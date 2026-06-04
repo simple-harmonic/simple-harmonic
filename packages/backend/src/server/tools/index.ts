@@ -37,6 +37,7 @@ import {
   modifyAgentImpl,
 } from "./management";
 import { actionHistoryDef, actionHistoryImpl } from "./action-history";
+import { observeAppDef, observeAppImpl } from "./observe";
 
 /**
  * Build the built-in tool registry. Does NOT include custom tools from files.
@@ -55,6 +56,7 @@ export function createAppRegistry(): ToolRegistry {
   registry.register(modifyAgentDef, modifyAgentImpl);
   registry.register(modifyTeamDef, modifyTeamImpl);
   registry.register(actionHistoryDef, actionHistoryImpl);
+  registry.register(observeAppDef, observeAppImpl);
 
   return registry;
 }
@@ -106,6 +108,7 @@ export {
   modifyAgentDef,
   modifyAgentImpl,
 } from "./management";
+export { observeAppDef, observeAppImpl } from "./observe";
 export {
   toolsRoot,
   toolsEnabled,

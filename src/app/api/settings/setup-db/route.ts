@@ -191,6 +191,24 @@ CREATE TABLE IF NOT EXISTS "action_log" (
 );
 CREATE INDEX IF NOT EXISTS "action_log_agent_executed_idx" ON "action_log" ("agent_id", "executed_at");
 
+-- App events (feedback loop for dogfooding)
+DO $$ BEGIN
+  CREATE TYPE "app_event_severity" AS ENUM ('info', 'warning', 'error');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+CREATE TABLE IF NOT EXISTS "app_events" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "team_id" uuid,
+  "agent_id" uuid,
+  "severity" "app_event_severity" NOT NULL DEFAULT 'info',
+  "source" text NOT NULL,
+  "message" text NOT NULL,
+  "metadata" jsonb,
+  "created_at" timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "app_events_created_idx" ON "app_events" ("created_at");
+CREATE INDEX IF NOT EXISTS "app_events_team_idx" ON "app_events" ("team_id", "created_at");
+
 -- Add columns that may be missing on older databases
 ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "parent_team_id" uuid REFERENCES "teams"("id");
 ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "goal" text;
