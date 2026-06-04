@@ -84,8 +84,10 @@ export default function OverviewPage() {
       .catch(() => setLoading(false));
   }, []);
 
+  const rootTeams = teams.filter((t) => !t.parentTeamId);
+  const subTeamCount = teams.length - rootTeams.length;
+  const runningRoots = rootTeams.filter((t) => !t.paused).length;
   const totalTicks = teams.reduce((sum, t) => sum + t.tickCount, 0);
-  const runningTeams = teams.filter((t) => !t.paused).length;
   const tokensUp = totalTicks * 400;
   const tokensDown = totalTicks * 1200;
   const apiCost = (tokensUp * 3 + tokensDown * 15) / 1_000_000;
@@ -104,7 +106,11 @@ export default function OverviewPage() {
         <h1 className="text-[14px] font-semibold font-mono uppercase tracking-[1px] mb-6">Overview</h1>
 
         <div className="grid grid-cols-4 gap-3 mb-4">
-          <StatCard label="Teams" value={String(teams.length)} sub={`${runningTeams} running`} />
+          <StatCard
+            label="Teams"
+            value={String(rootTeams.length)}
+            sub={subTeamCount > 0 ? `${runningRoots} running, ${subTeamCount} sub-team${subTeamCount !== 1 ? "s" : ""}` : `${runningRoots} running`}
+          />
           <StatCard label="Total Ticks" value={fmt(totalTicks)} />
           <StatCard label="Tokens In" value={fmt(tokensUp)} sub="estimated" />
           <StatCard label="Tokens Out" value={fmt(tokensDown)} sub="estimated" />
