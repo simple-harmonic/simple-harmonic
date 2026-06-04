@@ -130,6 +130,35 @@ const MODIFY_AGENT_TOOL_DEF = {
   },
 };
 
+const REQUEST_CREDENTIAL_TOOL_DEF = {
+  name: "request_credential",
+  description:
+    "Request a credential (API key, token, secret) from the founder. Use this when you identify that the team needs a specific credential to operate. The credential is encrypted and stored in Apollo (the secrets manager). It is never stored in the database or any file agents can access.",
+  parameters: {
+    type: "object" as const,
+    properties: {
+      key: {
+        type: "string" as const,
+        description:
+          "Environment variable name (e.g. 'GITHUB_TOKEN', 'ANTHROPIC_API_KEY'). Uppercase with underscores.",
+      },
+      label: {
+        type: "string" as const,
+        description: "Human-friendly name (e.g. 'GitHub Personal Access Token').",
+      },
+      reason: {
+        type: "string" as const,
+        description: "One sentence explaining why this credential is needed.",
+      },
+      help_url: {
+        type: "string" as const,
+        description: "Optional URL where the user can create/find this credential.",
+      },
+    },
+    required: ["key", "label", "reason"],
+  },
+};
+
 // Re-export for backward compatibility
 export { DEFAULT_META_AGENT_PROMPT } from "./default-prompt";
 
@@ -169,10 +198,18 @@ export interface ModifyAgentResult {
   updates: ModifyAgentUpdates;
 }
 
+export interface CredentialRequest {
+  key: string;
+  label: string;
+  reason: string;
+  help_url?: string;
+}
+
 export type PlannerResult =
   | { type: "message"; content: string }
   | { type: "spawn"; content: string; result: SpawnTeamResult }
-  | { type: "modify_agent"; content: string; result: ModifyAgentResult };
+  | { type: "modify_agent"; content: string; result: ModifyAgentResult }
+  | { type: "request_credential"; content: string; result: CredentialRequest };
 
 // ---------------------------------------------------------------------------
 // Public entry point: picks the right backend
@@ -207,6 +244,7 @@ async function openaiChatStream(
     tools: [
       { type: "function", function: SPAWN_TOOL_DEF },
       { type: "function", function: MODIFY_AGENT_TOOL_DEF },
+      { type: "function", function: REQUEST_CREDENTIAL_TOOL_DEF },
     ],
   });
 
@@ -281,6 +319,12 @@ async function codexResponsesStream(
         name: MODIFY_AGENT_TOOL_DEF.name,
         description: MODIFY_AGENT_TOOL_DEF.description,
         parameters: MODIFY_AGENT_TOOL_DEF.parameters,
+      },
+      {
+        type: "function",
+        name: REQUEST_CREDENTIAL_TOOL_DEF.name,
+        description: REQUEST_CREDENTIAL_TOOL_DEF.description,
+        parameters: REQUEST_CREDENTIAL_TOOL_DEF.parameters,
       },
     ],
     store: false,
@@ -380,6 +424,15 @@ function finalize(fullText: string, toolCallName: string, toolCallArgs: string):
     try {
       const parsed = JSON.parse(toolCallArgs) as ModifyAgentResult;
       return { type: "modify_agent", content: fullText, result: parsed };
+    } catch {
+      // malformed tool call, treat as message
+    }
+  }
+
+  if (toolCallName === "request_credential" && toolCallArgs) {
+    try {
+      const parsed = JSON.parse(toolCallArgs) as CredentialRequest;
+      return { type: "request_credential", content: fullText, result: parsed };
     } catch {
       // malformed tool call, treat as message
     }

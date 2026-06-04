@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ApprovalCard } from "@simple-harmonic/frontend/components/chat/approval-card";
+import { CredentialRequestCard } from "@simple-harmonic/frontend/components/chat/credential-request-card";
 import { ChatInputBar } from "@simple-harmonic/frontend/components/chat/input-bar";
 import {
   AssistantMessage,
@@ -31,11 +32,11 @@ function SpawningScreen({ agentCount }: { agentCount: number }) {
 
 export default function NewTeamPage() {
   const router = useRouter();
-  const { messages, status, spawnProposal, sendMessage, retry, clearSpawnProposal } = useChat();
+  const { messages, status, spawnProposal, credentialRequest, sendMessage, retry, clearSpawnProposal, clearCredentialRequest } = useChat();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [spawning, setSpawning] = useState<{ count: number } | null>(null);
 
-  const scrollKey = messages.length + (spawnProposal ? 1 : 0);
+  const scrollKey = messages.length + (spawnProposal ? 1 : 0) + (credentialRequest ? 1 : 0);
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on message count change
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -122,6 +123,16 @@ export default function NewTeamPage() {
               onSpawn={handleSpawn}
               onKeepDiscussing={clearSpawnProposal}
               isSpawning={!!spawning}
+            />
+          )}
+
+          {credentialRequest && (
+            <CredentialRequestCard
+              credentialKey={credentialRequest.key}
+              label={credentialRequest.label}
+              reason={credentialRequest.reason}
+              helpUrl={credentialRequest.helpUrl}
+              onSubmit={() => clearCredentialRequest()}
             />
           )}
         </div>

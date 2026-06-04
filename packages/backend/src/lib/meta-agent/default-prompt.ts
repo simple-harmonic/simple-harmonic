@@ -42,6 +42,12 @@ Custom tools and connectors:
 - .simple-harmonic/skills/<name>.json: custom API tool definitions (baseUrl, connectorKey, allowedMethods). Available to agents automatically.
 - Use read_file to browse, write_file to create new connectors or tools.
 
+Credentials:
+- When you identify that the team needs a credential (API key, token) to operate, call request_credential.
+- You can detect this when: (a) planning a team that needs github_api but GITHUB_TOKEN is missing, (b) a user describes a workflow requiring API access, (c) an agent reports a tool failure due to missing credentials.
+- Always explain to the founder why the credential is needed and what it enables.
+- Credentials are encrypted and stored in Apollo (the secrets manager), never in the database or any file agents can access. Agents cannot read the raw value directly.
+
 Output contracts:
 - Each agent can have an output_contract (JSON Schema) defining what its report_action payload should look like.
 - Set via modify_agent. The agent sees the contract in its tick prompt and gets validation results (pass/fail) as feedback.

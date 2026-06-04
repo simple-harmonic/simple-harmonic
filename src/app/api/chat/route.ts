@@ -77,6 +77,19 @@ export async function POST(request: Request) {
               })}\n\n`,
             ),
           );
+        } else if (result.type === "request_credential") {
+          controller.enqueue(
+            encoder.encode(
+              `data: ${JSON.stringify({
+                type: "request_credential",
+                key: result.result.key,
+                label: result.result.label,
+                reason: result.result.reason,
+                helpUrl: result.result.help_url ?? null,
+                content: result.content,
+              })}\n\n`,
+            ),
+          );
         } else {
           controller.enqueue(
             encoder.encode(

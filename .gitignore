@@ -39,6 +39,7 @@ yarn-error.log*
 # app config (may contain API keys)
 simple-harmonic.config.json
 .simple-harmonic/secrets.json
+.apollo/
 
 # vercel
 .vercel
@@ -46,3 +47,4 @@ simple-harmonic.config.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.gstack/

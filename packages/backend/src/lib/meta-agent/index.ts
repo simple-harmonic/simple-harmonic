@@ -1,4 +1,4 @@
-export type { PlannerMessage, PlannerResult, SpawnTeamAgent, SpawnTeamResult, ModifyAgentResult, ModifyAgentUpdates } from "./planner";
+export type { PlannerMessage, PlannerResult, SpawnTeamAgent, SpawnTeamResult, ModifyAgentResult, ModifyAgentUpdates, CredentialRequest } from "./planner";
 export { validateContract } from "./contract";
 export type { ContractIssue, ValidationResult } from "./contract";
 export { DEFAULT_META_AGENT_PROMPT, plannerStream } from "./planner";

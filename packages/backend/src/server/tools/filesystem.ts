@@ -150,8 +150,9 @@ function errToMessage(tool: string, path: string, err: unknown): string {
 function isSensitivePath(path: string): boolean {
   const normalized = path.replaceAll("\\", "/").toLowerCase();
   const base = basename(normalized);
-  // Allow reading connector metadata but block the secrets file
+  // Allow reading connector metadata but block the secrets file and Apollo vault
   if (normalized.includes(".simple-harmonic/secrets.json")) return true;
+  if (normalized.startsWith(".apollo/") || normalized === ".apollo") return true;
   if (base.startsWith(".env") && !/\.(example|sample|template)$/.test(base)) return true;
   if ([".npmrc", ".pypirc", ".netrc"].includes(base)) return true;
   if (["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"].includes(base)) return true;

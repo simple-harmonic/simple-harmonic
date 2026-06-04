@@ -12,13 +12,22 @@ export interface SpawnProposal {
   agents: SpawnTeamAgent[];
 }
 
+export interface CredentialRequestData {
+  key: string;
+  label: string;
+  reason: string;
+  helpUrl: string | null;
+}
+
 interface UseChatReturn {
   messages: ChatMessageData[];
   status: ChatStatus;
   spawnProposal: SpawnProposal | null;
+  credentialRequest: CredentialRequestData | null;
   sendMessage: (text: string) => void;
   retry: () => void;
   clearSpawnProposal: () => void;
+  clearCredentialRequest: () => void;
 }
 
 const INITIAL_MESSAGE: ChatMessageData = {
@@ -33,6 +42,7 @@ export function useChat(): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessageData[]>([INITIAL_MESSAGE]);
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [spawnProposal, setSpawnProposal] = useState<SpawnProposal | null>(null);
+  const [credentialRequest, setCredentialRequest] = useState<CredentialRequestData | null>(null);
   const streamingIdRef = useRef<string | null>(null);
 
   const sendMessage = useCallback(
@@ -106,6 +116,19 @@ export function useChat(): UseChatReturn {
                   agents: data.agents,
                 });
                 setStatus("idle");
+              } else if (data.type === "request_credential") {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId ? { ...m, content: data.content || m.content } : m,
+                  ),
+                );
+                setCredentialRequest({
+                  key: data.key,
+                  label: data.label,
+                  reason: data.reason,
+                  helpUrl: data.helpUrl ?? null,
+                });
+                setStatus("idle");
               } else if (data.type === "done") {
                 setStatus("idle");
               } else if (data.type === "error") {
@@ -153,5 +176,9 @@ export function useChat(): UseChatReturn {
     setSpawnProposal(null);
   }, []);
 
-  return { messages, status, spawnProposal, sendMessage, retry, clearSpawnProposal };
+  const clearCredentialRequest = useCallback(() => {
+    setCredentialRequest(null);
+  }, []);
+
+  return { messages, status, spawnProposal, credentialRequest, sendMessage, retry, clearSpawnProposal, clearCredentialRequest };
 }
