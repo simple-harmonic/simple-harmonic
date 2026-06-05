@@ -16,7 +16,13 @@
     "test:watch": "vitest",
     "test:backend": "cd packages/backend && npx vitest run",
     "test:frontend": "cd packages/frontend && npx vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck:app": "tsc --noEmit",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs,json,jsonc,css}": "biome check --write --no-errors-on-unmatched"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
@@ -53,6 +59,8 @@
     "@vitest/coverage-v8": "^4.1.7",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.7",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.6"

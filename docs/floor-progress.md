@@ -13,9 +13,9 @@ Verify a phase is fully green (tests + typecheck + stated acceptance) before sta
 
 | # | Item | Phase | Status | Commit | Verified |
 |---|------|-------|--------|--------|----------|
-| 1 | Green `tsc` | 1 | ⬜ todo | — | — |
-| 2 | a2ax suite in runner + fix E2Es | 1 | ⬜ todo | — | — |
-| 3 | CI pipeline | 1 | ⬜ todo | — | — |
+| 1 | Green `tsc` | 1 | ✅ done | `b481fb7` | tsc 0/exit0; backend 594/594; excluded test still runs in vitest |
+| 2 | a2ax suite in runner + fix E2Es | 1 | ✅ done | `52dc304` | root 622/622; a2ax 15/15 standalone; e2e honest + parses |
+| 3 | CI pipeline | 1 | ✅ done | (this commit) | typecheck 0 across all 3 pkgs; CI YAML valid; husky+lint-staged live |
 | 4 | Connector-key + Apollo salt | 2 | ⬜ todo | — | — |
 | 5 | Auth gate + cron-secret + spend cap | 2 | ⬜ todo | — | — |
 | 6 | Sandbox coding_task + adapter de-dup | 3 | ⬜ todo | — | — |
