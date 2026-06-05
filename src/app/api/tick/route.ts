@@ -353,7 +353,7 @@ interface RunArgs {
   modelOverride: string | undefined;
   now: Date;
   timeoutMs: number;
-  registry: ReturnType<typeof createAppRegistry>;
+  registry: ReturnType<typeof createAppRegistryWithCustomTools>;
 }
 
 /**
