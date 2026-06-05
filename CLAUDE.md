@@ -25,9 +25,11 @@ The canonical single-file design doc is preserved at `~/.gstack/projects/simple-
 
 ## Critical pre-commit items (commit #1 stuff)
 
+*Update (2026-06-06): the cost/connection items below are now IMPLEMENTED by the floor pass — pool `max:1` (`db/index.ts`), the `$50/day` cap is enforced in code (`server/spend.ts` + the tick gate, not just the console), and hibernate-on-idle (`last_user_active_at`) is live. They remain here as the rationale. Set `OPERATOR_PASSWORD`, `CRON_SECRET`, and `SH_DAILY_SPEND_CAP_CENTS` before any public deploy (`.env.example`).*
+
 - **Neon pooled connection string**: use `pooler.neon.tech` not direct. Drizzle pool config `max: 1` for serverless. Without this, the 10s tick exhausts the connection pool within hours and agents silently stop.
 - **Domain check**: verify `simpleharmonic.dev` (product) and `simpleharmonic.com` (company) availability + trademark before the Friday Assignment post. Fallbacks: simpleharmonic.app, simpleharmonic.ai, harmonic.dev.
-- **Anthropic API key**: with $50/day cap. Add to `.env.local`.
+- **Anthropic API key**: with $50/day cap. Add to `.env.local`. (Cap now also enforced in-app via `SH_DAILY_SPEND_CAP_CENTS`.)
 - **Hibernate-on-idle**: needed to keep public deploy under v0.0 cost budget. Add `last_user_active_at` column on teams; skip ticks if older than 5 min.
 
 ## Stack (locked)
@@ -37,14 +39,26 @@ The canonical single-file design doc is preserved at `~/.gstack/projects/simple-
 - Drizzle ORM + Postgres via Neon (POOLED connection)
 - Anthropic Claude Sonnet via `@anthropic-ai/sdk` direct (NOT LangGraph, NOT Anthropic Agents SDK)
 - Inngest (or Vercel cron + DB-driven; deferred decision per `decisions.md` D2)
-- React Flow for the agent graph
+- ~~React Flow for the agent graph~~ — removed in the floor pass (the graph component was unused; the team view renders an inline activity feed)
 - SSE for live narration
 - Vitest unit tests + Playwright E2E + Biome lint/format
 - Vercel for hosting (free tier through v0.0)
 
 ## Library boundary
 
-`src/lib/meta-agent/` is the framework-shaped library. Contains: planner (LLM call), agent runner (single-action executor), tool dispatcher. **NOT** approval/pause/action_log/narration — those live in `src/server/`. The library extracts cleanly to NPM at v0.2; don't pollute it with app-specific state.
+`packages/backend/src/lib/meta-agent/` is the framework-shaped library. Contains: planner (LLM call), agent runner (single-action executor), tool dispatcher. **NOT** approval/pause/action_log/narration — those live in `packages/backend/src/server/`. It is dependency-injected and has **zero `server/` imports** (the planner takes `PlannerDeps`; see `server/planner-deps.ts`). The library extracts cleanly to NPM at v0.2; keep it server-free.
+
+## Floor checklist (keep the floor raised)
+
+The repo went through a "raise the floor" remediation pass (`docs/floor-plan.md` + `docs/floor-progress.md`). These rules keep it raised — check the ones that apply before landing a change:
+
+- **New code-execution tool** (spawns a process): route it through `server/tools/coding/run-subprocess.ts` (scrubbed env via `codingEnv`, jailed cwd). Never spawn with `env: { ...process.env }`.
+- **New network tool** (outbound fetch): route through `server/tools/url-guard.ts` `assertPublicAndResolve` BEFORE attaching any secret, and pass the pinned IP to `proxyFetch`. Never fetch an agent/LLM-supplied URL unguarded.
+- **New API route**: it's gated by `src/middleware.ts` (operator auth) by default. If it must be public (like `/api/tick`), give it its own secret check and exclude it from the matcher. No unauthenticated mutating routes.
+- **New DB table/column**: define it in `packages/backend/src/server/db/schema.ts` (source of truth) AND add the matching `CREATE TABLE` to the `setup-db` SQL — `schema-sync.test.ts` fails on drift. Add FKs with `ON DELETE CASCADE`/`SET NULL`, EXCEPT agent-id columns that may hold cofounder/user sentinel UUIDs (`identity.ts`), which stay un-FK'd.
+- **Cost**: autonomous LLM spend is bounded by the `llm_spend` daily cap (`server/spend.ts`) + hibernate-on-idle. Don't add an LLM path that bypasses the per-agent `recordSpend`.
+- **a2ax**: the backend imports a2ax from its built `dist/`. Rebuild it (`cd packages/a2ax && npm run build`) after ANY change to `packages/a2ax/src/`.
+- **Testing/CI**: every change ships with a test that runs in CI (`.github/workflows/ci.yml`). Run the FULL `npm test` (not just the file you touched) before committing a change to a shared primitive. `npm run typecheck` must stay 0 across all packages.
 
 ## Brand voice rules (Simple Harmonic meta-agent)
 

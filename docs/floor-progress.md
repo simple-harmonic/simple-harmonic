@@ -2,6 +2,8 @@
 
 *Live tracker for `docs/floor-plan.md`. Updated as each item is completed AND verified. Ralph-loop reads this to resume.*
 
+**STATUS: ✅ ALL 6 PHASES CLEARED (2026-06-06)** — ready to review/land.
+
 **Branch:** `raise-the-floor` · **Started:** 2026-06-05
 **Baseline before work:** backend `tsc` = 278 errors · a2ax 15 tests green · backend 594 tests green · no CI
 **Pre-existing WIP checkpointed in:** `82f65cc` (a2ax fleetId→teamId rename + biome format — not authored this session)
@@ -23,7 +25,7 @@ Verify a phase is fully green (tests + typecheck + stated acceptance) before sta
 | 8 | a2ax per-recipient reads + fleet leak | 4 | ✅ done | `5b7189c` | broadcast/group fan-out fixed (per-recipient reads); fleet-scoped discovery; 678 tests; dist rebuilt |
 | 9 | FKs + one schema source | 5 | ✅ done | `c27fbb9` | FK cascades VERIFIED vs real PG18 (sentinel inserts ok, zero orphans); transactional deletes; schema drift-guard test; 680 tests |
 | 10 | Dead code + planner DI | 5 | ✅ done | 10a `958d8b3` · 10b `37147f4` | 8 dead components + @xyflow removed; planner DI restores lib boundary (zero server imports); 680 tests. Helper-hoist deferred (helpers diverged in behavior — see log) |
-| — | Standing guard (checklist in CLAUDE.md) | 6 | ⬜ todo | — | — |
+| — | Standing guard (checklist in CLAUDE.md) | 6 | ✅ done | (this commit) | Floor checklist added to CLAUDE.md; stale React Flow / lib-boundary / pre-commit lines corrected |
 
 Legend: ⬜ todo · 🟡 in progress · ✅ done+verified · ⛔ blocked
 
@@ -37,6 +39,7 @@ Legend: ⬜ todo · 🟡 in progress · ✅ done+verified · ⛔ blocked
 - 2026-06-05: **PHASE 4 CLEARED.** Item 8 done (`5b7189c`). Gate: typecheck 0; `npm test` 678/678; tree clean. The original-review broadcast bug is fixed + regression-tested. a2ax `dist` rebuilt (backend imports the built package — remember to rebuild dist after any a2ax src change). Beginning Phase 5.
 - 2026-06-05: Item 9 done (`c27fbb9`). 680/680. FK cascades + transactional deletes + schema drift-guard test. **Verified against a real throwaway Postgres 18** (initdb/pg_ctl available locally, set `LC_ALL=C` to avoid the PG18 macOS "multithreaded postmaster" start error): fresh+idempotent apply, sentinel-id inserts succeed (agent columns correctly NOT FK'd), root-team delete cascades child team + all a2ax rows to zero orphans. Phase 5 has one item left (item 10).
 - 2026-06-06: **PHASE 5 CLEARED.** Item 10 done: 10a (`958d8b3`) deleted 8 zero-importer components (~2400 LOC incl. the unused React Flow graph) + dropped @xyflow + moved live narration helpers to lib; 10b (`37147f4`) inverted the planner to DI so `lib/meta-agent` has ZERO server imports (the NPM-extractability boundary the original review flagged). Gate: typecheck 0; `npm test` 680/680; tree clean. **Helper-hoist sub-part deliberately DEFERRED**: on inspection the "duplicated" `formatTime`/etc. had DIVERGED in behavior across files (agent-messages-view = HH:MM only; message.tsx handles undefined; others show full date), so a naive hoist would change UI timestamp rendering — that's a product decision, not a safe refactor. Logged rather than forced. (Also: `git add -A` once accidentally tracked the ralph state file + test.mts/test.py scratch; amended out + gitignored. Use explicit paths.) Beginning Phase 6 (final).
+- 2026-06-06: **PHASE 6 CLEARED — FLOOR PLAN COMPLETE.** Added the "Floor checklist" to `CLAUDE.md` (the standing-guard rules: route code-runners through run-subprocess, fetches through url-guard, gate new routes via middleware, FK new tables + schema-sync, rebuild a2ax dist, run the full suite before shared-primitive changes) and corrected stale CLAUDE.md lines the floor work invalidated (React Flow removed; lib boundary now server-free; cost/hibernate items now implemented). Gate: `npm test` 680/680; typecheck 0; tree clean. All six phases done. Suggested next: open the PR from `raise-the-floor`, and in branch protection flip backend `typecheck` to a required CI check (now green). Deferred-but-documented: helper hoist (helpers diverged), existing-DB FK ALTER migration (fresh setup gets FKs), full SQL generator (schema-sync test covers drift), planner Anthropic provider path.
 
 ## NEXT: Phase 6 — standing guard (the final phase)
 Make the floor stay raised. Mostly a CLAUDE.md doc task + confirm the CI gates.
