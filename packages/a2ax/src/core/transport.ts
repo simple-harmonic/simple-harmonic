@@ -28,7 +28,8 @@ export interface Transport {
   // --- Messages ---
   insertMessage(input: CreateMessageInput): Promise<Message>;
   queryMessages(query: MessageQuery): Promise<Message[]>;
-  markRead(messageIds: string[]): Promise<void>;
+  /** Mark messages read FOR a specific agent (per-recipient, not global). */
+  markRead(agentId: string, messageIds: string[]): Promise<void>;
   markExpired(before: Date): Promise<number>;
 
   // --- Channels ---

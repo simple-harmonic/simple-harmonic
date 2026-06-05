@@ -430,7 +430,7 @@ describe("POST /api/tick", () => {
     await POST(tickReq());
 
     expect(mockGetAgentContext).toHaveBeenCalledWith(TEAM_ID, "agent-1");
-    expect(mockMarkContextRead).toHaveBeenCalledWith(["msg-1", "msg-2"]);
+    expect(mockMarkContextRead).toHaveBeenCalledWith("agent-1", ["msg-1", "msg-2"]);
     // a2axContext should be passed to runAgent
     expect(mockRunAgent).toHaveBeenCalledWith(
       expect.objectContaining({ a2axContext: "You have 2 messages" }),

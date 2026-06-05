@@ -141,6 +141,14 @@ CREATE TABLE IF NOT EXISTS "a2ax_messages" (
 );
 CREATE INDEX IF NOT EXISTS "a2ax_messages_team_created_idx" ON "a2ax_messages" ("team_id", "created_at");
 
+CREATE TABLE IF NOT EXISTS "a2ax_message_reads" (
+  "message_id" uuid NOT NULL REFERENCES "a2ax_messages"("id"),
+  "agent_id" uuid NOT NULL,
+  "read_at" timestamp with time zone NOT NULL DEFAULT now(),
+  PRIMARY KEY ("message_id", "agent_id")
+);
+CREATE INDEX IF NOT EXISTS "a2ax_message_reads_agent_idx" ON "a2ax_message_reads" ("agent_id");
+
 CREATE TABLE IF NOT EXISTS "a2ax_tasks" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "team_id" uuid NOT NULL,

@@ -37,7 +37,7 @@ describe("A2AX Protocol", () => {
       const ctx1 = await a2ax.getAgentContext(teamId, agentB);
       expect(ctx1.messages).toHaveLength(1);
 
-      await a2ax.markContextRead(ctx1.messageIds);
+      await a2ax.markContextRead(agentB, ctx1.messageIds);
 
       const ctx2 = await a2ax.getAgentContext(teamId, agentB);
       expect(ctx2.messages).toHaveLength(0);
@@ -54,6 +54,22 @@ describe("A2AX Protocol", () => {
       expect(ctxB.messages).toHaveLength(1);
       expect(ctxC.messages).toHaveLength(1);
       expect(ctxB.messages[0].content).toBe("announcement for everyone");
+    });
+
+    it("a broadcast read by one agent stays unread for the others (per-recipient)", async () => {
+      const agentD = "agent-d";
+      await a2ax.broadcast(teamId, agentA, "team announcement");
+
+      // agentB reads the broadcast.
+      const ctxB = await a2ax.getAgentContext(teamId, agentB);
+      expect(ctxB.messages).toHaveLength(1);
+      await a2ax.markContextRead(agentB, ctxB.messageIds);
+
+      // B has now read it; C and D must STILL see it (the original bug hid it
+      // from everyone the moment one agent read it).
+      expect((await a2ax.getAgentContext(teamId, agentB)).messages).toHaveLength(0);
+      expect((await a2ax.getAgentContext(teamId, agentC)).messages).toHaveLength(1);
+      expect((await a2ax.getAgentContext(teamId, agentD)).messages).toHaveLength(1);
     });
 
     it("sender does not see own broadcast", async () => {
@@ -83,6 +99,25 @@ describe("A2AX Protocol", () => {
 
       // agentC is not a member, should not see it
       expect(ctxC.messages.filter((m) => m.kind === "text")).toHaveLength(0);
+    });
+
+    it("a group message read by one member stays unread for the others", async () => {
+      const { channelId } = await a2ax.createGroup(teamId, "trio", [
+        agentA,
+        agentB,
+        agentC,
+      ]);
+      await a2ax.sendToGroup(teamId, channelId, agentA, "group note");
+
+      const ctxB = await a2ax.getAgentContext(teamId, agentB);
+      expect(ctxB.messages.some((m) => m.content === "group note")).toBe(true);
+      await a2ax.markContextRead(agentB, ctxB.messageIds);
+
+      // B has read the note; C (another member) must still see it.
+      const ctxB2 = await a2ax.getAgentContext(teamId, agentB);
+      expect(ctxB2.messages.some((m) => m.content === "group note")).toBe(false);
+      const ctxC = await a2ax.getAgentContext(teamId, agentC);
+      expect(ctxC.messages.some((m) => m.content === "group note")).toBe(true);
     });
 
     it("allows joining and leaving groups", async () => {
@@ -181,6 +216,28 @@ describe("A2AX Protocol", () => {
       expect(retrieved!.name).toBe("Research Scout");
       expect(retrieved!.skills).toHaveLength(1);
       expect(retrieved!.capabilities.broadcast).toBe(true);
+    });
+
+    it("discoverAgents returns only same-team cards (no cross-team leak)", async () => {
+      await a2ax.registerCard(
+        createAgentCard({
+          id: "card-1",
+          name: "One",
+          endpoint: "/1",
+          metadata: { teamId: "team-1" },
+        }),
+      );
+      await a2ax.registerCard(
+        createAgentCard({
+          id: "card-2",
+          name: "Two",
+          endpoint: "/2",
+          metadata: { teamId: "team-2" },
+        }),
+      );
+
+      const team1 = await a2ax.discoverAgents("team-1");
+      expect(team1.map((c) => c.id)).toEqual(["card-1"]);
     });
   });
 

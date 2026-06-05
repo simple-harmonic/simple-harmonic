@@ -12,6 +12,10 @@ import type { MessageQuery, Transport } from "../core/transport.js";
 
 export class MemoryTransport implements Transport {
   private messages: Message[] = [];
+  // Per-recipient read tracking, keyed `${messageId}:${agentId}`. A broadcast or
+  // group message is a single row, so reads MUST be per-agent — otherwise one
+  // reader hides it from everyone else.
+  private reads: Set<string> = new Set();
   private channels: Map<string, Channel> = new Map();
   private members: ChannelMember[] = [];
   private tasks: Map<string, Task> = new Map();
@@ -48,7 +52,9 @@ export class MemoryTransport implements Transport {
 
     if (query.unreadOnly) {
       results = results.filter(
-        (m) => m.status === "pending" || m.status === "delivered",
+        (m) =>
+          m.status !== "expired" &&
+          !this.reads.has(`${m.id}:${query.agentId}`),
       );
     }
 
@@ -98,10 +104,9 @@ export class MemoryTransport implements Transport {
     return results;
   }
 
-  async markRead(messageIds: string[]): Promise<void> {
-    const idSet = new Set(messageIds);
-    for (const m of this.messages) {
-      if (idSet.has(m.id)) m.status = "read";
+  async markRead(agentId: string, messageIds: string[]): Promise<void> {
+    for (const id of messageIds) {
+      this.reads.add(`${id}:${agentId}`);
     }
   }
 
@@ -213,9 +218,10 @@ export class MemoryTransport implements Transport {
   }
 
   async listCards(teamId: string): Promise<AgentCard[]> {
-    // In memory transport, teamId is stored in metadata
+    // teamId is stored in metadata. Filter strictly so cards never leak across
+    // teams (the previous `|| true` returned every card regardless of team).
     return [...this.cards.values()].filter(
-      (c) => (c.metadata as Record<string, unknown>)?.teamId === teamId || true,
+      (c) => (c.metadata as Record<string, unknown>)?.teamId === teamId,
     );
   }
 

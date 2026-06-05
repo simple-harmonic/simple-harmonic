@@ -4,9 +4,11 @@
 
 import {
   boolean,
+  index,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uuid,
@@ -84,6 +86,26 @@ export const a2axMessages = pgTable("a2ax_messages", {
     .notNull()
     .defaultNow(),
 });
+
+// --- Message reads (per-recipient) ---
+// One row per (message, agent) that has read it. Broadcast/group messages are a
+// single message row, so read-state MUST be tracked per recipient here rather
+// than on the message's shared status.
+
+export const a2axMessageReads = pgTable(
+  "a2ax_message_reads",
+  {
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => a2axMessages.id),
+    agentId: uuid("agent_id").notNull(),
+    readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.messageId, t.agentId] }),
+    index("a2ax_message_reads_agent_idx").on(t.agentId),
+  ],
+);
 
 // --- Tasks ---
 

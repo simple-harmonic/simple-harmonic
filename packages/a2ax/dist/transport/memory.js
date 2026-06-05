@@ -4,6 +4,10 @@
 import { directChannelId } from "../types/channel.js";
 export class MemoryTransport {
     messages = [];
+    // Per-recipient read tracking, keyed `${messageId}:${agentId}`. A broadcast or
+    // group message is a single row, so reads MUST be per-agent — otherwise one
+    // reader hides it from everyone else.
+    reads = new Set();
     channels = new Map();
     members = [];
     tasks = new Map();
@@ -35,7 +39,8 @@ export class MemoryTransport {
     async queryMessages(query) {
         let results = this.messages.filter((m) => m.teamId === query.teamId);
         if (query.unreadOnly) {
-            results = results.filter((m) => m.status === "pending" || m.status === "delivered");
+            results = results.filter((m) => m.status !== "expired" &&
+                !this.reads.has(`${m.id}:${query.agentId}`));
         }
         if (query.channelType) {
             results = results.filter((m) => m.channelType === query.channelType);
@@ -57,7 +62,8 @@ export class MemoryTransport {
                     // Check if agent is involved in this task
                     for (const t of this.tasks.values()) {
                         if (m.channelId === `task:${t.id}` &&
-                            (t.assigneeId === query.agentId || t.requestorId === query.agentId)) {
+                            (t.assigneeId === query.agentId ||
+                                t.requestorId === query.agentId)) {
                             return true;
                         }
                     }
@@ -72,11 +78,9 @@ export class MemoryTransport {
         }
         return results;
     }
-    async markRead(messageIds) {
-        const idSet = new Set(messageIds);
-        for (const m of this.messages) {
-            if (idSet.has(m.id))
-                m.status = "read";
+    async markRead(agentId, messageIds) {
+        for (const id of messageIds) {
+            this.reads.add(`${id}:${agentId}`);
         }
     }
     async markExpired(before) {
@@ -168,8 +172,9 @@ export class MemoryTransport {
         return card;
     }
     async listCards(teamId) {
-        // In memory transport, teamId is stored in metadata
-        return [...this.cards.values()].filter((c) => c.metadata?.teamId === teamId || true);
+        // teamId is stored in metadata. Filter strictly so cards never leak across
+        // teams (the previous `|| true` returned every card regardless of team).
+        return [...this.cards.values()].filter((c) => c.metadata?.teamId === teamId);
     }
     // --- Auth ---
     async createToken(token) {

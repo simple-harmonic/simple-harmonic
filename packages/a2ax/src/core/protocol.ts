@@ -346,9 +346,9 @@ export class A2AX {
     return { messages: allMessages, formatted, messageIds };
   }
 
-  async markContextRead(messageIds: string[]): Promise<void> {
+  async markContextRead(agentId: string, messageIds: string[]): Promise<void> {
     if (messageIds.length > 0) {
-      await this.transport.markRead(messageIds);
+      await this.transport.markRead(agentId, messageIds);
     }
   }
 

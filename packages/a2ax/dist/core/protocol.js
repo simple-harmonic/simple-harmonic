@@ -142,7 +142,9 @@ export class A2AX {
         if (!isValidTransition(task.state, newState)) {
             throw new Error(`Invalid transition: ${task.state} -> ${newState}`);
         }
-        const updated = await this.transport.updateTask(taskId, { state: newState });
+        const updated = await this.transport.updateTask(taskId, {
+            state: newState,
+        });
         const channelId = taskChannelId(taskId);
         await this.transport.insertMessage({
             teamId: task.teamId,
@@ -159,7 +161,9 @@ export class A2AX {
         const task = await this.transport.getTask(taskId);
         if (!task)
             throw new Error(`Task ${taskId} not found`);
-        const updated = await this.transport.updateTask(taskId, { state: "completed" });
+        const updated = await this.transport.updateTask(taskId, {
+            state: "completed",
+        });
         const channelId = taskChannelId(taskId);
         await this.transport.insertMessage({
             teamId: task.teamId,
@@ -209,16 +213,21 @@ export class A2AX {
             channelType: "task",
             limit: this.maxContextMessages,
         });
-        const allMessages = [...directMsgs, ...broadcastMsgs, ...groupMsgs, ...taskMsgs]
+        const allMessages = [
+            ...directMsgs,
+            ...broadcastMsgs,
+            ...groupMsgs,
+            ...taskMsgs,
+        ]
             .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
             .slice(0, this.maxContextMessages);
         const messageIds = allMessages.map((m) => m.id);
         const formatted = this.formatContext(allMessages);
         return { messages: allMessages, formatted, messageIds };
     }
-    async markContextRead(messageIds) {
+    async markContextRead(agentId, messageIds) {
         if (messageIds.length > 0) {
-            await this.transport.markRead(messageIds);
+            await this.transport.markRead(agentId, messageIds);
         }
     }
     // -------------------------------------------------------------------------
@@ -284,7 +293,12 @@ export class A2AX {
     async ensureChannel(channelId, teamId, channelType, name) {
         const existing = await this.transport.getChannel(channelId);
         if (!existing) {
-            await this.transport.createChannel({ id: channelId, teamId, channelType, name });
+            await this.transport.createChannel({
+                id: channelId,
+                teamId,
+                channelType,
+                name,
+            });
         }
     }
     formatContext(messages) {

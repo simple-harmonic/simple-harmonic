@@ -2,7 +2,7 @@
 // Drizzle transport adapter for a2ax
 // ---------------------------------------------------------------------------
 
-import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
+import { and, eq, lt, ne, or, sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
 import type { AgentCard } from "../types/agent-card.js";
 import type { AgentToken } from "../types/auth.js";
@@ -25,6 +25,7 @@ import {
   a2axAgentCards,
   a2axChannelMembers,
   a2axChannels,
+  a2axMessageReads,
   a2axMessages,
   a2axTasks,
   a2axTokens,
@@ -64,11 +65,10 @@ export class DrizzleTransport implements Transport {
     const conditions = [eq(a2axMessages.teamId, query.teamId)];
 
     if (query.unreadOnly) {
+      conditions.push(ne(a2axMessages.status, "expired"));
+      // Per-recipient unread: exclude messages this agent has already read.
       conditions.push(
-        or(
-          eq(a2axMessages.status, "pending"),
-          eq(a2axMessages.status, "delivered"),
-        )!,
+        sql`NOT EXISTS (SELECT 1 FROM ${a2axMessageReads} r WHERE r.message_id = ${a2axMessages.id} AND r.agent_id = ${query.agentId})`,
       );
     }
 
@@ -125,12 +125,12 @@ export class DrizzleTransport implements Transport {
     return filtered.map((r) => this.toMessage(r));
   }
 
-  async markRead(messageIds: string[]): Promise<void> {
+  async markRead(agentId: string, messageIds: string[]): Promise<void> {
     if (messageIds.length === 0) return;
     await this.db
-      .update(a2axMessages)
-      .set({ status: "read" })
-      .where(inArray(a2axMessages.id, messageIds));
+      .insert(a2axMessageReads)
+      .values(messageIds.map((messageId) => ({ messageId, agentId })))
+      .onConflictDoNothing();
   }
 
   async markExpired(before: Date): Promise<number> {
@@ -336,13 +336,13 @@ export class DrizzleTransport implements Transport {
   }
 
   async listCards(teamId: string): Promise<AgentCard[]> {
-    // Cards don't have a direct teamId; filter by metadata if needed
+    // teamId is stored in card metadata; filter strictly so cards never leak
+    // across teams (the previous filter let through cards with no teamId).
     const rows = await this.db.select().from(a2axAgentCards);
     return rows
-      .filter((r) => {
-        const meta = r.metadata as Record<string, unknown> | null;
-        return !teamId || meta?.teamId === teamId || !meta?.teamId;
-      })
+      .filter(
+        (r) => (r.metadata as Record<string, unknown> | null)?.teamId === teamId,
+      )
       .map((r) => this.toAgentCard(r));
   }
 

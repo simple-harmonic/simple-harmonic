@@ -1,18 +1,18 @@
 import type { ChannelType } from "./message.js";
 /** A communication channel */
 export interface Channel {
-  id: string;
-  teamId: string;
-  channelType: ChannelType;
-  name?: string;
-  metadata?: Record<string, unknown>;
-  createdAt: Date;
+    id: string;
+    teamId: string;
+    channelType: ChannelType;
+    name?: string;
+    metadata?: Record<string, unknown>;
+    createdAt: Date;
 }
 /** Channel membership (for group channels) */
 export interface ChannelMember {
-  channelId: string;
-  agentId: string;
-  joinedAt: Date;
+    channelId: string;
+    agentId: string;
+    joinedAt: Date;
 }
 /** Generate a deterministic direct channel ID from two agent IDs */
 export declare function directChannelId(agentA: string, agentB: string): string;

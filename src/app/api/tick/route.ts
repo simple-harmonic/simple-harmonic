@@ -404,7 +404,7 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
       `agent ${agent.name}`,
     );
 
-    await a2ax.markContextRead(ctx.messageIds);
+    await a2ax.markContextRead(agent.id, ctx.messageIds);
     await handleRunResult({ d, agent, result, now });
     await recordSpend(d, now, {
       teamId: team.id,
