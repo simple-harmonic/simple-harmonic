@@ -15,7 +15,7 @@ Verify a phase is fully green (tests + typecheck + stated acceptance) before sta
 |---|------|-------|--------|--------|----------|
 | 1 | Green `tsc` | 1 | ✅ done | `b481fb7` | tsc 0/exit0; backend 594/594; excluded test still runs in vitest |
 | 2 | a2ax suite in runner + fix E2Es | 1 | ✅ done | `52dc304` | root 622/622; a2ax 15/15 standalone; e2e honest + parses |
-| 3 | CI pipeline | 1 | ✅ done | (this commit) | typecheck 0 across all 3 pkgs; CI YAML valid; husky+lint-staged live |
+| 3 | CI pipeline | 1 | ✅ done | `3ad5d4b` | typecheck 0 across all 3 pkgs; CI YAML valid; husky+lint-staged live |
 | 4 | Connector-key + Apollo salt | 2 | ⬜ todo | — | — |
 | 5 | Auth gate + cron-secret + spend cap | 2 | ⬜ todo | — | — |
 | 6 | Sandbox coding_task + adapter de-dup | 3 | ⬜ todo | — | — |
@@ -29,3 +29,4 @@ Legend: ⬜ todo · 🟡 in progress · ✅ done+verified · ⛔ blocked
 
 ## Log
 - 2026-06-05: Branched `raise-the-floor`, checkpointed pre-existing WIP (`82f65cc`). Beginning Phase 1.
+- 2026-06-05: **PHASE 1 CLEARED.** Items 1-3 done+committed. Gate: `npm run typecheck` exit 0 (all 3 pkgs, 0 errors); `npm test` 622/622; CI YAML valid; husky hook fires. Beginning Phase 2.
