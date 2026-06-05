@@ -20,7 +20,7 @@ Verify a phase is fully green (tests + typecheck + stated acceptance) before sta
 | 5 | Auth gate + cron-secret + spend cap | 2 | ✅ done | 5a `dcdeb10` · 5b `2d33523` | 656 tests; cron 401/x-vercel-cron 200; spend-cap skip; operator gate + real login |
 | 6 | Sandbox coding_task + adapter de-dup | 3 | ✅ done | `d47fbfd` | child env scrubbed (DATABASE_URL→ABSENT); jail re-asserted; adapters de-duped; 664 tests |
 | 7 | SSRF egress chokepoint | 3 | ✅ done | `1c36e79` | DNS resolve-then-pin; token never sent to internal host; 675 tests |
-| 8 | a2ax per-recipient reads + fleet leak | 4 | ⬜ todo | — | — |
+| 8 | a2ax per-recipient reads + fleet leak | 4 | ✅ done | `5b7189c` | broadcast/group fan-out fixed (per-recipient reads); fleet-scoped discovery; 678 tests; dist rebuilt |
 | 9 | FKs + one schema source | 5 | ⬜ todo | — | — |
 | 10 | Dead code + planner DI | 5 | ⬜ todo | — | — |
 | — | Standing guard (checklist in CLAUDE.md) | 6 | ⬜ todo | — | — |
@@ -33,19 +33,14 @@ Legend: ⬜ todo · 🟡 in progress · ✅ done+verified · ⛔ blocked
 - 2026-06-05: Item 4 done (`dbe9ba9`). Backend 633/633. Phase 2 has one item left (item 5).
 - 2026-06-05: **PHASE 2 CLEARED.** Items 4, 5a (`dcdeb10`), 5b (`2d33523`) done+committed. Gate: `npm run typecheck` exit 0; `npm test` 656/656; tree clean. One deliberate plan deviation: the spend cap **fails OPEN** on a ledger read error (not closed) so a missing `llm_spend` migration / DB hiccup can't silently halt every agent — documented in `spend.ts`. Beginning Phase 3.
 - 2026-06-05: Item 6 done (`d47fbfd`). 664/664. `coding_task` env scrubbed + 3 adapters de-duped into `run-subprocess.ts`. Phase 3 has one item left (item 7, SSRF).
-- 2026-06-05: **PHASE 3 CLEARED.** Items 6 (`d47fbfd`), 7 (`1c36e79`) done+committed. Gate: typecheck 0; `npm test` 675/675; tree clean. (Process note: item 7's SSRF change broke 8 existing http_fetch/api-tool tests that didn't mock DNS; caught by the full suite, fixed by adding a `node:dns/promises` mock + the pin arg, and the item-7 commit was amended green. Lesson: run the FULL suite, not just targeted files, before committing a change to a shared primitive.) Beginning Phase 4.
+- 2026-06-05: **PHASE 3 CLEARED.** Items 6 (`d47fbfd`), 7 (`1c36e79`) done+committed. Gate: typecheck 0; `npm test` 675/675; tree clean. (Process note: item 7's SSRF change broke 8 existing http_fetch/api-tool tests that didn't mock DNS; caught by the full suite, fixed + amended green. Lesson: run the FULL suite before committing a change to a shared primitive.) Beginning Phase 4.
+- 2026-06-05: **PHASE 4 CLEARED.** Item 8 done (`5b7189c`). Gate: typecheck 0; `npm test` 678/678; tree clean. The original-review broadcast bug is fixed + regression-tested. a2ax `dist` rebuilt (backend imports the built package — remember to rebuild dist after any a2ax src change). Beginning Phase 5.
 
-## NEXT: Phase 4 — item 8 (a2ax per-recipient reads + fleet leak)
-See `docs/floor-plan.md` Phase 4. NOTE: the checkpointed WIP already renamed `fleetId`→`teamId` across a2ax, so use `teamId` in new code. This is the bug a background-task chip was also spawned for; this is its precise spec.
-Steps:
-1. Add `a2ax_message_reads` table keyed `(message_id, agent_id)` (+ index on agent_id) to ALL THREE schema copies: `packages/a2ax/src/adapters/drizzle-schema.ts`, `packages/backend/src/server/db/schema.ts`, raw SQL in `src/app/api/settings/setup-db/route.ts`.
-2. `packages/a2ax/src/core/transport.ts`: change `markRead(messageIds)` → `markRead(agentId, messageIds)`. `protocol.ts`: `markContextRead(agentId, messageIds)` threads agentId through; grep all callers (tick route calls `a2ax.markContextRead` — thread agentId).
-3. memory transport: a `reads` Set keyed `${messageId}:${agentId}`; in queryMessages, for unreadOnly drop messages where `reads.has(${m.id}:${query.agentId})` instead of the shared-status test.
-4. drizzle transport: insert reads with `onConflictDoNothing`; queryMessages unread = `NOT EXISTS (SELECT 1 FROM a2ax_message_reads r WHERE r.message_id=... AND r.agent_id=query.agentId)`. Keep status for markExpired.
-5. Fix `listCards` fleet leak: memory.ts has `|| true` (remove, filter by teamId); drizzle.ts has no filter (add WHERE teamId). discoverAgents already passes the id.
-6. Tests in `packages/a2ax/tests/protocol.test.ts`: 3-recipient broadcast where one reader does NOT hide it from the other two; multi-member group same; discoverAgents returns only same-team cards.
-Watch: `markRead` is a breaking interface change — grep `.markRead(`/`.markContextRead(` for all callers. `npm test` green (a2ax + backend), typecheck 0.
-Then **PHASE 4 GATE**, then Phase 5 (items 9, 10), then Phase 6 (standing-guard checklist in CLAUDE.md).
+## NEXT: Phase 5 — items 9 (FKs + one schema source) + 10 (dead code + planner DI)
+See `docs/floor-plan.md` Phase 5 for full specs.
+- **Item 9 (L) — data integrity + single schema source:** add FKs w/ ON DELETE CASCADE (team_id→teams, channel_id→channels) / SET NULL (reply_to) / self-FK on teams.parentTeamId in `backend schema.ts`. **DO NOT FK** `from_agent_id`/`requestor_id`/`assignee_id`/token agent ids — they hold cofounder/user SENTINEL uuids (see identity.ts) with no agents row; FK-ing them breaks inserts (add a comment). Wrap `management.ts` modify_team/modify_agent cascade deletes in `db.transaction`. Single source of truth: add `packages/backend/scripts/gen-schema-sql.ts` generating `schema.generated.sql` from schema.ts; setup-db imports it; add `schema-sync.test.ts` that fails if a copy drifts. For existing prod tables, FKs need ALTER TABLE ADD CONSTRAINT after an orphan cleanup. (drizzle-kit was removed on purpose — keep raw SQL, generate it.)
+- **Item 10 (M) — dead code + planner DI:** delete the ~7 zero-importer components (agent-graph, meta-agent-panel, agent-detail-panel, agent-hub-view, user-pov-view, paused-banner, top-bar) + the NarrationSidebar component (move its LIVE helpers describeAction/extractDetail to a lib first, repoint use-team.ts + team-dashboard + narration.test). Drop `@xyflow/react` dep (grep-verify zero use first). Hoist duplicated helpers (channelBadge/timeAgo/formatTime/truncate/STATUS_STYLE) into `packages/frontend/src/lib/`. Invert `planner.ts` to DI (PlannerDeps param like runner.ts) so the lib barrel stops importing server/* ; resolve deps in `chat/route.ts` + `eval/run-eval.ts`. Verify: grep `@xyflow` empty, grep `from .*server/` in lib/meta-agent empty.
+Phase 5 gate: `npm run typecheck` 0 + FULL `npm test` green + schema-sync test. Then Phase 6 (standing-guard checklist in CLAUDE.md).
 
 ## (done) item 7 — one SSRF egress chokepoint
 See `docs/floor-plan.md` Phase 3 item 7 for the full spec. Read first: `tools/network.ts` (validatePublicHttpsUrl, isPrivateHost — note it returns false for any DNS name), `proxy-fetch.ts` (fetchViaHttps, the proxy CONNECT path, the hardcoded family:4), `tools/api-tool-runtime.ts` (:82-115 builds URL from baseUrl + LLM path, proxyFetches with the connector bearer, NO validation).
