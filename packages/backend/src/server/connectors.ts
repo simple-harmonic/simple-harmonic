@@ -14,6 +14,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { join, basename } from "node:path";
 import { toolsRoot } from "./tools/sandbox";
+import { assertValidConnectorKey } from "./validation";
 
 const DIR = ".simple-harmonic/connectors";
 const SECRETS_FILE = ".simple-harmonic/secrets.json";
@@ -87,6 +88,7 @@ export function saveConnector(
   meta: ConnectorMeta,
   secretValue?: string,
 ): void {
+  assertValidConnectorKey(meta.key);
   const dir = connectorsDir();
   mkdirSync(dir, { recursive: true });
   writeFileSync(
@@ -107,6 +109,7 @@ export function saveConnector(
  * Delete a connector metadata file and its secret.
  */
 export function deleteConnectorByKey(key: string): boolean {
+  assertValidConnectorKey(key);
   const file = join(connectorsDir(), `${key}.json`);
   let deleted = false;
   if (existsSync(file)) {

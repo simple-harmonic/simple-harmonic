@@ -1,5 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+  mkdirSync,
+  writeFileSync,
+} from "node:fs";
+import { scryptSync, createCipheriv, randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import * as apollo from "../../src/server/apollo";
@@ -137,5 +145,52 @@ describe("Apollo secrets manager", () => {
   it("load() returns count 0 when no vault exists", () => {
     const { count } = apollo.load();
     expect(count).toBe(0);
+  });
+
+  it("creates a per-install salt file on set()", () => {
+    apollo.set("TEST_SECRET_1", "value1");
+    expect(existsSync(join(tempDir, ".apollo", "salt"))).toBe(true);
+  });
+
+  it("two installs with the same master key generate different salts", () => {
+    process.env.APOLLO_MASTER_KEY = "shared-master-key";
+    const dirA = mkdtempSync(join(tmpdir(), "apollo-a-"));
+    const dirB = mkdtempSync(join(tmpdir(), "apollo-b-"));
+    apollo.init(dirA);
+    apollo.set("TEST_SECRET_1", "same-value");
+    apollo.init(dirB);
+    apollo.set("TEST_SECRET_1", "same-value");
+    const saltA = readFileSync(join(dirA, ".apollo", "salt"));
+    const saltB = readFileSync(join(dirB, ".apollo", "salt"));
+    expect(Buffer.compare(saltA, saltB)).not.toBe(0);
+    rmSync(dirA, { recursive: true, force: true });
+    rmSync(dirB, { recursive: true, force: true });
+  });
+
+  it("decrypts a legacy vault (no salt file) via the legacy fallback", () => {
+    process.env.APOLLO_MASTER_KEY = "legacy-master-key";
+    const dir = mkdtempSync(join(tmpdir(), "apollo-legacy-"));
+    // Hand-roll a pre-migration vault: AES-256-GCM keyed by
+    // scrypt(masterKey, LEGACY_SALT), layout [iv(12)][tag(16)][ciphertext],
+    // and crucially NO .apollo/salt file (simulates an old install).
+    const key = scryptSync("legacy-master-key", "simple-harmonic-apollo-v1", 32);
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", key, iv);
+    const ct = Buffer.concat([
+      cipher.update(JSON.stringify({ LEGACY_KEY: "legacy-val" }), "utf-8"),
+      cipher.final(),
+    ]);
+    const tag = cipher.getAuthTag();
+    mkdirSync(join(dir, ".apollo"), { recursive: true });
+    writeFileSync(join(dir, ".apollo", "vault.enc"), Buffer.concat([iv, tag, ct]));
+    expect(existsSync(join(dir, ".apollo", "salt"))).toBe(false);
+
+    apollo.init(dir);
+    const { count } = apollo.load();
+    expect(count).toBe(1);
+    expect(process.env.LEGACY_KEY).toBe("legacy-val");
+
+    delete process.env.LEGACY_KEY;
+    rmSync(dir, { recursive: true, force: true });
   });
 });

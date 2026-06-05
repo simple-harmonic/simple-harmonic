@@ -159,3 +159,49 @@ describe("createAppRegistryWithCustomTools", () => {
     expect(def?.description).not.toContain("Hijacked");
   });
 });
+
+describe("skill name validation (path traversal)", () => {
+  it("saveCustomToolFile rejects traversal and malformed names", async () => {
+    const { saveCustomToolFile } = await import("@/server/custom-tools");
+    for (const bad of ["../../x", "a/b", "", "has space", "dot.name"]) {
+      expect(() =>
+        saveCustomToolFile({
+          name: bad,
+          description: "",
+          config: { baseUrl: "https://x.com", connectorKey: "X", allowedMethods: ["GET"] },
+        }),
+      ).toThrow();
+    }
+  });
+
+  it("saveCustomToolFile never writes outside the skills dir for a traversal name", async () => {
+    const { saveCustomToolFile } = await import("@/server/custom-tools");
+    const escapeTarget = join(testDir, ".simple-harmonic", "pwned.json");
+    expect(() =>
+      saveCustomToolFile({
+        name: "../pwned",
+        description: "",
+        config: { baseUrl: "https://x.com", connectorKey: "X", allowedMethods: ["GET"] },
+      }),
+    ).toThrow();
+    expect(existsSync(escapeTarget)).toBe(false);
+  });
+
+  it("deleteCustomToolFile rejects traversal names", async () => {
+    const { deleteCustomToolFile } = await import("@/server/custom-tools");
+    for (const bad of ["../../x", "a/b", ""]) {
+      expect(() => deleteCustomToolFile(bad)).toThrow();
+    }
+  });
+
+  it("accepts a valid lowercase skill name and round-trips", async () => {
+    const { saveCustomToolFile, deleteCustomToolFile } = await import("@/server/custom-tools");
+    saveCustomToolFile({
+      name: "valid_skill",
+      description: "",
+      config: { baseUrl: "https://x.com", connectorKey: "X", allowedMethods: ["GET"] },
+    });
+    expect(existsSync(join(testDir, ".simple-harmonic", "skills", "valid_skill.json"))).toBe(true);
+    expect(deleteCustomToolFile("valid_skill")).toBe(true);
+  });
+});

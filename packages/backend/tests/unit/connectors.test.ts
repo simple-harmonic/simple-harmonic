@@ -129,3 +129,36 @@ describe("deleteConnectorByKey", () => {
     expect(deleteConnectorByKey("NOPE")).toBe(false);
   });
 });
+
+describe("connector key validation (path traversal)", () => {
+  it("saveConnector rejects traversal and malformed keys", async () => {
+    const { saveConnector } = await import("@/server/connectors");
+    for (const bad of ["../../x", "../escape", "a/b", "", "lower", "BAD.KEY"]) {
+      expect(() =>
+        saveConnector({ name: "X", description: "", type: "api_key", key: bad }, "v"),
+      ).toThrow();
+    }
+  });
+
+  it("saveConnector never writes outside the connectors dir for a traversal key", async () => {
+    const { saveConnector } = await import("@/server/connectors");
+    const escapeTarget = join(testDir, ".simple-harmonic", "pwned.json");
+    expect(() =>
+      saveConnector({ name: "X", description: "", type: "api_key", key: "../pwned" }, "v"),
+    ).toThrow();
+    expect(existsSync(escapeTarget)).toBe(false);
+  });
+
+  it("deleteConnectorByKey rejects traversal keys", async () => {
+    const { deleteConnectorByKey } = await import("@/server/connectors");
+    for (const bad of ["../../x", "a/b", ""]) {
+      expect(() => deleteConnectorByKey(bad)).toThrow();
+    }
+  });
+
+  it("accepts a valid uppercase key and round-trips", async () => {
+    const { saveConnector, resolveConnector } = await import("@/server/connectors");
+    saveConnector({ name: "OK", description: "", type: "api_key", key: "VALID_KEY" }, "v");
+    expect(resolveConnector("VALID_KEY")).toBe("v");
+  });
+});

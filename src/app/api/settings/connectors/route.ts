@@ -1,11 +1,15 @@
-import { NextResponse } from "next/server";
-import { toolsEnabled, toolsRoot } from "@simple-harmonic/backend/server/tools/sandbox";
 import {
+  deleteConnectorByKey,
   listConnectorMetas,
   resolveConnector,
   saveConnector,
-  deleteConnectorByKey,
 } from "@simple-harmonic/backend/server/connectors";
+import { toolsEnabled, toolsRoot } from "@simple-harmonic/backend/server/tools/sandbox";
+import { isValidConnectorKey } from "@simple-harmonic/backend/server/validation";
+import { NextResponse } from "next/server";
+
+const KEY_FORMAT_ERROR =
+  "key must be uppercase letters, digits, and underscores (e.g. GITHUB_TOKEN)";
 
 interface ConnectorStatus {
   id: string;
@@ -60,8 +64,7 @@ function getBuiltinConnectors(): ConnectorStatus[] {
     {
       id: "builtin-github",
       name: "GitHub",
-      description:
-        "GitHub personal access token for the github_api tool.",
+      description: "GitHub personal access token for the github_api tool.",
       configured: !!githubToken,
       maskedValue: githubToken ? maskSecret(githubToken) : undefined,
       envVar: "GITHUB_TOKEN",
@@ -110,10 +113,11 @@ export async function POST(req: Request) {
   const { name, key, value, description, type } = body;
 
   if (!name || !key) {
-    return NextResponse.json(
-      { error: "name and key are required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "name and key are required" }, { status: 400 });
+  }
+
+  if (!isValidConnectorKey(key)) {
+    return NextResponse.json({ error: KEY_FORMAT_ERROR }, { status: 400 });
   }
 
   saveConnector(
@@ -130,6 +134,10 @@ export async function DELETE(req: Request) {
 
   if (!key) {
     return NextResponse.json({ error: "key is required" }, { status: 400 });
+  }
+
+  if (!isValidConnectorKey(key)) {
+    return NextResponse.json({ error: KEY_FORMAT_ERROR }, { status: 400 });
   }
 
   const deleted = deleteConnectorByKey(key);

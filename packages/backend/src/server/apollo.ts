@@ -37,7 +37,12 @@ const APOLLO_DIR = ".apollo";
 const VAULT_FILE = "vault.enc";
 const MASTER_KEY_FILE = "master.key";
 const ALGO = "aes-256-gcm";
-const SALT = "simple-harmonic-apollo-v1"; // static salt; key uniqueness comes from the master key itself
+const SALT_FILE = "salt";
+// Legacy fixed salt used before per-install salts. Retained so vaults encrypted
+// before this change still decrypt: resolveSalt() falls back to it when no
+// .apollo/salt file is present.
+const LEGACY_SALT = "simple-harmonic-apollo-v1";
+const SALT_LEN = 16;
 const KEY_LEN = 32;
 const IV_LEN = 12;
 const TAG_LEN = 16;
@@ -185,15 +190,15 @@ export function mask(value: string): string {
 // Crypto
 // ---------------------------------------------------------------------------
 
-function deriveKey(masterKey: string): Buffer {
-  return scryptSync(masterKey, SALT, KEY_LEN);
+function deriveKey(masterKey: string, salt: Buffer): Buffer {
+  return scryptSync(masterKey, salt, KEY_LEN);
 }
 
 function encrypt(
   data: Record<string, string>,
   masterKey: string,
 ): Buffer {
-  const key = deriveKey(masterKey);
+  const key = deriveKey(masterKey, ensureSalt());
   const iv = randomBytes(IV_LEN);
   const cipher = createCipheriv(ALGO, key, iv);
 
@@ -216,7 +221,7 @@ function decrypt(
     throw new Error("Vault file too short to be valid");
   }
 
-  const key = deriveKey(masterKey);
+  const key = deriveKey(masterKey, resolveSalt());
   const iv = raw.subarray(0, IV_LEN);
   const tag = raw.subarray(IV_LEN, IV_LEN + TAG_LEN);
   const ciphertext = raw.subarray(IV_LEN + TAG_LEN);
@@ -278,4 +283,34 @@ function ensureMasterKey(): string {
     "[apollo] Generated master key at .apollo/master.key (local-only, gitignored)",
   );
   return generated;
+}
+
+/**
+ * Resolve the key-derivation salt. Returns the per-install random salt from
+ * .apollo/salt if present, else the legacy fixed salt so vaults encrypted before
+ * per-install salts still decrypt. Read-only (no side effects).
+ */
+function resolveSalt(): Buffer {
+  const saltPath = join(apolloDir(), SALT_FILE);
+  if (existsSync(saltPath)) {
+    return readFileSync(saltPath);
+  }
+  return Buffer.from(LEGACY_SALT);
+}
+
+/**
+ * Ensure a per-install salt exists, generating and persisting a random one on
+ * first use (mode 0600). Used by the encrypt (write) path: new and rewritten
+ * vaults move to a random salt, while existing legacy vaults keep decrypting via
+ * resolveSalt()'s fallback until the next write migrates them.
+ */
+function ensureSalt(): Buffer {
+  const saltPath = join(apolloDir(), SALT_FILE);
+  if (existsSync(saltPath)) {
+    return readFileSync(saltPath);
+  }
+  const salt = randomBytes(SALT_LEN);
+  mkdirSync(apolloDir(), { recursive: true });
+  writeFileSync(saltPath, salt, { mode: 0o600 });
+  return salt;
 }

@@ -21,6 +21,7 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs";
 import { join, basename } from "node:path";
 import { toolsRoot } from "./tools/sandbox";
+import { assertValidToolName } from "./validation";
 import type { ApiToolConfig } from "./db/schema";
 
 const DIR = ".simple-harmonic/skills";
@@ -58,6 +59,7 @@ export function listCustomToolFiles(): CustomToolFile[] {
 }
 
 export function saveCustomToolFile(tool: CustomToolFile): void {
+  assertValidToolName(tool.name);
   const dir = skillsDir();
   mkdirSync(dir, { recursive: true });
   writeFileSync(
@@ -67,6 +69,7 @@ export function saveCustomToolFile(tool: CustomToolFile): void {
 }
 
 export function deleteCustomToolFile(name: string): boolean {
+  assertValidToolName(name);
   const file = join(skillsDir(), `${name}.json`);
   if (!existsSync(file)) return false;
   unlinkSync(file);
