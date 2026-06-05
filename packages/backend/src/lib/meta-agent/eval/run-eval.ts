@@ -13,7 +13,7 @@
 // fixtures/validators elsewhere never triggers an LLM call.
 // ---------------------------------------------------------------------------
 
-import { plannerStream } from "../planner";
+import { type PlannerDeps, plannerStream } from "../planner";
 import { VISION_INPUTS } from "./fixtures";
 import { type EvalReport, summarize, validateSpawnResult } from "./validators";
 
@@ -40,12 +40,27 @@ async function runPlannerEval(): Promise<EvalReport[]> {
   }
   const reports: EvalReport[] = [];
 
+  // The library eval stays server-free: build PlannerDeps from env directly
+  // (the OpenAI-compatible path). The codex path isn't exercised here.
+  const deps: PlannerDeps = {
+    config: {
+      model: process.env.OPENAI_MODEL || "o4-mini",
+      openaiApiKey: process.env.OPENAI_API_KEY,
+      openaiBaseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+    },
+    apiKeySource: "env",
+    codexAccessToken: null,
+    codexAccountId: "",
+    fetchImpl: (url, init) => fetch(url, init as RequestInit),
+  };
+
   for (const input of VISION_INPUTS) {
     process.stdout.write(`\n[${input.id}] `);
     try {
       const result = await plannerStream(
         [{ role: "user", content: input.vision }],
         () => {}, // ignore streamed tokens
+        deps,
       );
 
       // PlannerResult is a union: only the "spawn" variant carries a team.

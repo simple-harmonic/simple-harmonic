@@ -1,12 +1,15 @@
-import { NextResponse } from "next/server";
-import type { PlannerMessage, ModifyAgentResult } from "@simple-harmonic/backend/lib/meta-agent";
+import type { ModifyAgentResult, PlannerMessage } from "@simple-harmonic/backend/lib/meta-agent";
 import { plannerStream } from "@simple-harmonic/backend/lib/meta-agent";
+import { emitAppEvent } from "@simple-harmonic/backend/server/app-events";
 import { db } from "@simple-harmonic/backend/server/db";
 import { agents, teams } from "@simple-harmonic/backend/server/db/schema";
-import { emitAppEvent } from "@simple-harmonic/backend/server/app-events";
+import { buildPlannerDeps } from "@simple-harmonic/backend/server/planner-deps";
 import { and, eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
 
-async function applyModifyAgent(result: ModifyAgentResult): Promise<{ ok: boolean; error?: string }> {
+async function applyModifyAgent(
+  result: ModifyAgentResult,
+): Promise<{ ok: boolean; error?: string }> {
   const d = db();
 
   const team = await d.query.teams.findFirst({
@@ -17,7 +20,11 @@ async function applyModifyAgent(result: ModifyAgentResult): Promise<{ ok: boolea
   const agent = await d.query.agents.findFirst({
     where: and(eq(agents.teamId, team.id), eq(agents.name, result.agent_name)),
   });
-  if (!agent) return { ok: false, error: `Agent "${result.agent_name}" not found in team "${result.team_name}"` };
+  if (!agent)
+    return {
+      ok: false,
+      error: `Agent "${result.agent_name}" not found in team "${result.team_name}"`,
+    };
 
   const set: Record<string, unknown> = {};
   const u = result.updates;
@@ -45,11 +52,15 @@ export async function POST(request: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       try {
-        const result = await plannerStream(messages, (token) => {
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ type: "token", text: token })}\n\n`),
-          );
-        });
+        const result = await plannerStream(
+          messages,
+          (token) => {
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "token", text: token })}\n\n`),
+            );
+          },
+          buildPlannerDeps(),
+        );
 
         if (result.type === "spawn") {
           controller.enqueue(

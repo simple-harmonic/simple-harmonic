@@ -1,18 +1,40 @@
 import OpenAI from "openai";
-import { getCodexAccessToken, getCodexAuthStatus } from "../../server/codex-auth";
-import { getApiKeySource, getConfig } from "../../server/config";
-import { proxyFetch } from "../../server/proxy-fetch";
 import { DEFAULT_META_AGENT_PROMPT } from "./default-prompt";
+
+// ---------------------------------------------------------------------------
+// Dependency injection: the planner lives in the NPM-extractable library core,
+// so it must not import app server modules. The app resolves these and passes
+// them in (see server/planner-deps.ts).
+// ---------------------------------------------------------------------------
+
+export interface PlannerDeps {
+  /** Resolved LLM config. */
+  config: { model: string; openaiApiKey?: string; openaiBaseUrl?: string };
+  /** Backend selector: "codex" routes to the Codex subscription path. */
+  apiKeySource: string;
+  /** Codex subscription auth (used only when apiKeySource === "codex"). */
+  codexAccessToken: string | null;
+  codexAccountId: string;
+  /** Proxy-aware fetch, injected so the core doesn't import server/proxy-fetch. */
+  fetchImpl: (
+    url: string,
+    init?: {
+      method?: string;
+      headers?: Record<string, string>;
+      body?: string;
+      signal?: AbortSignal;
+    },
+  ) => Promise<Response>;
+}
 
 // ---------------------------------------------------------------------------
 // OpenAI SDK client (for Platform API key / env var)
 // ---------------------------------------------------------------------------
 
-function openaiClient() {
-  const cfg = getConfig();
+function openaiClient(config: PlannerDeps["config"]) {
   return new OpenAI({
-    apiKey: cfg.openaiApiKey || undefined,
-    baseURL: cfg.openaiBaseUrl || undefined,
+    apiKey: config.openaiApiKey || undefined,
+    baseURL: config.openaiBaseUrl || undefined,
     timeout: 30000,
   });
 }
@@ -218,12 +240,12 @@ export type PlannerResult =
 export async function plannerStream(
   messages: PlannerMessage[],
   onToken: (token: string) => void,
+  deps: PlannerDeps,
 ): Promise<PlannerResult> {
-  const source = getApiKeySource();
-  if (source === "codex") {
-    return codexResponsesStream(messages, onToken);
+  if (deps.apiKeySource === "codex") {
+    return codexResponsesStream(messages, onToken, deps);
   }
-  return openaiChatStream(messages, onToken);
+  return openaiChatStream(messages, onToken, deps);
 }
 
 // ---------------------------------------------------------------------------
@@ -233,9 +255,10 @@ export async function plannerStream(
 async function openaiChatStream(
   messages: PlannerMessage[],
   onToken: (token: string) => void,
+  deps: PlannerDeps,
 ): Promise<PlannerResult> {
-  const stream = await openaiClient().chat.completions.create({
-    model: getConfig().model,
+  const stream = await openaiClient(deps.config).chat.completions.create({
+    model: deps.config.model,
     stream: true,
     messages: [
       { role: "system", content: DEFAULT_META_AGENT_PROMPT },
@@ -278,12 +301,11 @@ async function openaiChatStream(
 
 const CODEX_RESPONSES_URL = "https://chatgpt.com/backend-api/codex/responses";
 
-function codexHeaders(): Record<string, string> {
-  const token = getCodexAccessToken();
+function codexHeaders(deps: PlannerDeps): Record<string, string> {
+  const token = deps.codexAccessToken;
   if (!token) throw new Error("No Codex access token available");
 
-  const status = getCodexAuthStatus();
-  const accountId = status.accountId || "";
+  const accountId = deps.codexAccountId || "";
 
   return {
     Authorization: `Bearer ${token}`,
@@ -297,6 +319,7 @@ function codexHeaders(): Record<string, string> {
 async function codexResponsesStream(
   messages: PlannerMessage[],
   onToken: (token: string) => void,
+  deps: PlannerDeps,
 ): Promise<PlannerResult> {
   const input = messages.map((m) => ({
     role: m.role,
@@ -304,7 +327,7 @@ async function codexResponsesStream(
   }));
 
   const body = {
-    model: getConfig().model,
+    model: deps.config.model,
     instructions: DEFAULT_META_AGENT_PROMPT,
     input,
     tools: [
@@ -331,9 +354,9 @@ async function codexResponsesStream(
     stream: true,
   };
 
-  const res = await proxyFetch(CODEX_RESPONSES_URL, {
+  const res = await deps.fetchImpl(CODEX_RESPONSES_URL, {
     method: "POST",
-    headers: codexHeaders(),
+    headers: codexHeaders(deps),
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(60000),
   });

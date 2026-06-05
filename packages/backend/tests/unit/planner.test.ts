@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PlannerMessage } from "@/lib/meta-agent/planner";
+import type { PlannerDeps, PlannerMessage } from "@/lib/meta-agent/planner";
 
 // Shared mock stream that each test configures
 const chunks: unknown[] = [];
@@ -19,26 +19,33 @@ vi.mock("openai", () => {
   return { default: MockOpenAI };
 });
 
-// Force the "config" path (not "codex") so tests use the OpenAI Chat Completions mock
-vi.mock("@/server/config", () => ({
-  getConfig: () => ({
-    openaiApiKey: "sk-test",
-    openaiBaseUrl: "https://api.openai.com/v1",
-    model: "gpt-5.4-mini",
-    databaseUrl: "",
-  }),
-  getApiKeySource: () => "config" as const,
-}));
-
-vi.mock("@/server/codex-auth", () => ({
-  getCodexAccessToken: () => null,
-  getCodexAuthStatus: () => ({ found: false, accountId: null }),
-}));
-
+// The planner is dependency-injected now (no server imports), so tests pass
+// deps directly instead of mocking server modules. mockProxyFetch is the
+// injected fetchImpl for the codex path.
 const mockProxyFetch = vi.fn();
-vi.mock("@/server/proxy-fetch", () => ({
-  proxyFetch: mockProxyFetch,
-}));
+
+function configDeps(): PlannerDeps {
+  return {
+    config: {
+      model: "gpt-5.4-mini",
+      openaiApiKey: "sk-test",
+      openaiBaseUrl: "https://api.openai.com/v1",
+    },
+    apiKeySource: "config",
+    codexAccessToken: null,
+    codexAccountId: "",
+    fetchImpl: mockProxyFetch,
+  };
+}
+
+function codexDeps(): PlannerDeps {
+  return {
+    ...configDeps(),
+    apiKeySource: "codex",
+    codexAccessToken: "test-codex-token",
+    codexAccountId: "acc-1",
+  };
+}
 
 function textChunk(content: string) {
   return { choices: [{ delta: { content, tool_calls: undefined } }] };
@@ -72,7 +79,7 @@ describe("plannerStream", () => {
     const tokens: string[] = [];
     const messages: PlannerMessage[] = [{ role: "user", content: "I run a SaaS startup" }];
 
-    const result = await plannerStream(messages, (token) => tokens.push(token));
+    const result = await plannerStream(messages, (token) => tokens.push(token), configDeps());
 
     expect(result.type).toBe("message");
     expect(result.content).toBe("Hello founder.");
@@ -108,7 +115,7 @@ describe("plannerStream", () => {
       { role: "user", content: "Email and content. Ready to go." },
     ];
 
-    const result = await plannerStream(messages, (token) => tokens.push(token));
+    const result = await plannerStream(messages, (token) => tokens.push(token), configDeps());
 
     expect(result.type).toBe("spawn");
     if (result.type === "spawn") {
@@ -124,7 +131,7 @@ describe("plannerStream", () => {
     const { plannerStream } = await import("@/lib/meta-agent/planner");
 
     const messages: PlannerMessage[] = [{ role: "user", content: "Hello" }];
-    const result = await plannerStream(messages, () => {});
+    const result = await plannerStream(messages, () => {}, configDeps());
 
     expect(result.type).toBe("message");
     expect(result.content).toBe("I need a moment. Try again.");
@@ -142,7 +149,7 @@ describe("plannerStream", () => {
     const tokens: string[] = [];
     const messages: PlannerMessage[] = [{ role: "user", content: "Let's go" }];
 
-    const result = await plannerStream(messages, (token) => tokens.push(token));
+    const result = await plannerStream(messages, (token) => tokens.push(token), configDeps());
 
     // Malformed JSON falls back to message type
     expect(result.type).toBe("message");
@@ -159,7 +166,7 @@ describe("plannerStream", () => {
     const { plannerStream } = await import("@/lib/meta-agent/planner");
 
     const messages: PlannerMessage[] = [{ role: "user", content: "Do something" }];
-    const result = await plannerStream(messages, () => {});
+    const result = await plannerStream(messages, () => {}, configDeps());
 
     expect(result.type).toBe("message");
     expect(result.content).toBe("Text response.");
@@ -188,7 +195,7 @@ describe("plannerStream", () => {
       { role: "user", content: "Add slack_api to the bug-hunter" },
     ];
 
-    const result = await plannerStream(messages, (token) => tokens.push(token));
+    const result = await plannerStream(messages, (token) => tokens.push(token), configDeps());
 
     expect(result.type).toBe("modify_agent");
     if (result.type === "modify_agent") {
@@ -211,6 +218,7 @@ describe("plannerStream", () => {
     const result = await plannerStream(
       [{ role: "user", content: "Modify something" }],
       () => {},
+      configDeps(),
     );
 
     expect(result.type).toBe("message");
@@ -227,7 +235,7 @@ describe("plannerStream", () => {
     const { plannerStream } = await import("@/lib/meta-agent/planner");
 
     const messages: PlannerMessage[] = [{ role: "user", content: "Hi" }];
-    const result = await plannerStream(messages, () => {});
+    const result = await plannerStream(messages, () => {}, configDeps());
 
     expect(result.type).toBe("message");
     expect(result.content).toBe("After empty.");
@@ -246,7 +254,7 @@ describe("plannerStream", () => {
     const { plannerStream } = await import("@/lib/meta-agent/planner");
 
     const messages: PlannerMessage[] = [{ role: "user", content: "Go" }];
-    const result = await plannerStream(messages, () => {});
+    const result = await plannerStream(messages, () => {}, configDeps());
 
     expect(result.type).toBe("spawn");
     if (result.type === "spawn") {
@@ -276,7 +284,7 @@ describe("plannerStream", () => {
     const { plannerStream } = await import("@/lib/meta-agent/planner");
 
     const messages: PlannerMessage[] = [{ role: "user", content: "Build" }];
-    const result = await plannerStream(messages, () => {});
+    const result = await plannerStream(messages, () => {}, configDeps());
 
     expect(result.type).toBe("spawn");
     if (result.type === "spawn") {
@@ -338,6 +346,7 @@ describe("plannerStream (codex path)", () => {
     const result = await plannerStream(
       [{ role: "user", content: "Hi" }],
       (token) => tokens.push(token),
+      codexDeps(),
     );
 
     expect(result.type).toBe("message");
@@ -379,6 +388,7 @@ describe("plannerStream (codex path)", () => {
     const result = await plannerStream(
       [{ role: "user", content: "Go" }],
       () => {},
+      codexDeps(),
     );
 
     expect(result.type).toBe("spawn");
@@ -413,7 +423,7 @@ describe("plannerStream (codex path)", () => {
     const { plannerStream } = await import("@/lib/meta-agent/planner");
 
     await expect(
-      plannerStream([{ role: "user", content: "Hi" }], () => {}),
+      plannerStream([{ role: "user", content: "Hi" }], () => {}, codexDeps()),
     ).rejects.toThrow("Codex API error 429");
   });
 
@@ -441,7 +451,7 @@ describe("plannerStream (codex path)", () => {
     const { plannerStream } = await import("@/lib/meta-agent/planner");
 
     await expect(
-      plannerStream([{ role: "user", content: "Hi" }], () => {}),
+      plannerStream([{ role: "user", content: "Hi" }], () => {}, codexDeps()),
     ).rejects.toThrow("No response body");
   });
 
@@ -477,6 +487,7 @@ describe("plannerStream (codex path)", () => {
     const result = await plannerStream(
       [{ role: "user", content: "Hi" }],
       () => {},
+      codexDeps(),
     );
 
     expect(result.type).toBe("message");
@@ -518,6 +529,7 @@ describe("plannerStream (codex path)", () => {
     const result = await plannerStream(
       [{ role: "user", content: "Hi" }],
       () => {},
+      codexDeps(),
     );
 
     expect(result.content).toBe("event prefix");
@@ -548,6 +560,7 @@ describe("plannerStream (codex path)", () => {
     const result = await plannerStream(
       [{ role: "user", content: "Hi" }],
       () => {},
+      codexDeps(),
     );
 
     expect(result.type).toBe("message");
