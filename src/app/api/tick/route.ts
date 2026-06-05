@@ -17,7 +17,7 @@ import {
   teams,
 } from "@simple-harmonic/backend/server/db/schema";
 import { createAppRegistryWithCustomTools } from "@simple-harmonic/backend/server/tools";
-import { emitAppEvent, queryAppEvents, formatEventsForPrompt } from "@simple-harmonic/backend/server/app-events";
+import { emitAppEvent, queryAppEvents, formatEventsForPrompt, getPlatformStatus, formatPlatformStatusForPrompt } from "@simple-harmonic/backend/server/app-events";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
@@ -300,12 +300,17 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
 
   try {
     const contract = agent.outputContract as Record<string, unknown> | null;
-    const [ctx, recentHistory, recentValidations, recentEvents] = await Promise.all([
+    const [ctx, recentHistory, recentValidations, recentEvents, platformSt] = await Promise.all([
       a2ax.getAgentContext(team.id, agent.id),
       fetchRecentHistory(d, agent.id),
       contract ? fetchRecentValidations(d, agent.id) : Promise.resolve(undefined),
-      queryAppEvents({ teamId: team.id, since: new Date(now.getTime() - 3600000), limit: 10 }),
+      queryAppEvents({ teamId: team.id, since: new Date(now.getTime() - 3600000), limit: 10, includeInfra: false }),
+      getPlatformStatus(),
     ]);
+
+    // Combine health context: events + platform status
+    const healthParts = [formatEventsForPrompt(recentEvents), formatPlatformStatusForPrompt(platformSt)].filter(Boolean);
+    const appHealthContext = healthParts.length > 0 ? healthParts.join("\n\n") : undefined;
 
     const result = await withTimeout(
       (signal) =>
@@ -319,7 +324,7 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
           teamGoal: team.goal ?? undefined,
           outputContract: contract ?? undefined,
           recentValidations,
-          appHealthContext: formatEventsForPrompt(recentEvents),
+          appHealthContext,
           teamId: team.id,
           agentId: agent.id,
           peers: buildPeers(allAgents, agent.id),
@@ -456,6 +461,7 @@ async function failAgent(args: {
   // Persistent record (queryable via observe_app tool)
   emitAppEvent({
     severity: "error",
+    level: "agent",
     source: phase === "resume" ? "tick-resume" : "tick",
     message: `Agent ${agent.name} failed: ${msg}`,
     teamId: agent.teamId,

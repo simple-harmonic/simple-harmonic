@@ -476,7 +476,15 @@ ${peerList || "No other agents in this team."}
 You have these tools available:
 ${toolList || "- No tools are currently enabled for this agent."}
 ${isEngineering ? ENGINEERING_CONTEXT : ""}
-Coordinate with your peers when it makes sense. Share relevant findings, ask for help, delegate when appropriate. Be concise in messages.`;
+Coordinate with your peers when it makes sense. Share relevant findings, ask for help, delegate when appropriate. Be concise in messages.
+
+Improvement levels (how to respond to issues you discover):
+- agent: your own errors, prompt issues, scheduling problems. Fix these yourself.
+- team: team composition, missing agents, coordination gaps. Report to your lead or broadcast to the team.
+- tool: a tool is broken, missing a capability, or misconfigured. Report it clearly via broadcast, then work around it. Do not attempt to fix tool code.
+- infra: platform, database, deploy, or framework issues. You will never see infra events. If you suspect an infra problem (e.g. all tools timing out, DB unreachable), broadcast a description to the team. The founder handles infra.
+
+When reporting issues, be specific: what broke, what you tried, what the error said. Vague reports waste everyone's time.`;
 }
 
 function buildTickPrompt(config: AgentConfig): string {
@@ -509,7 +517,13 @@ function buildTickPrompt(config: AgentConfig): string {
 
   if (config.appHealthContext) {
     prompt += `\n\n## Recent app events (errors and warnings in this system):\n${config.appHealthContext}`;
-    prompt += "\nIf any of these errors are in your area of responsibility, investigate and address them.";
+    prompt += `\nRespond based on the event level:
+- [agent] errors in your area: investigate and fix.
+- [team] coordination issues: discuss with peers or escalate to lead.
+- [tool] tool failures: acknowledge, work around, do not attempt to fix the tool itself.
+- "Platform status: DEGRADED/MAINTENANCE": reduce non-essential work, do not retry failed operations.
+- "N known tool issue(s) (under review)": the founder is aware. Do not investigate further.
+Use observe_app with a level filter to dig deeper into specific categories.`;
   }
 
   return prompt;

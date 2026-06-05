@@ -65,6 +65,7 @@ export const teams = pgTable("teams", {
   tickCount: integer("tick_count").notNull().default(0),
   metaAgentPrompt: text("meta_agent_prompt"),
   cofounderName: text("cofounder_name"),
+  telemetryEnabled: boolean("telemetry_enabled").notNull().default(true),
   lastUserActiveAt: timestamp("last_user_active_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
@@ -254,19 +255,40 @@ export const appEventSeverity = pgEnum("app_event_severity", [
   "error",
 ]);
 
+export const appEventLevel = pgEnum("app_event_level", [
+  "agent",
+  "team",
+  "tool",
+  "infra",
+]);
+
 export const appEvents = pgTable("app_events", {
   id: uuid("id").defaultRandom().primaryKey(),
-  teamId: uuid("team_id"),  // nullable: some events are system-wide
+  teamId: uuid("team_id"),  // nullable: infra events are system-wide
   agentId: uuid("agent_id"), // nullable: not all events come from agents
   severity: appEventSeverity("severity").notNull().default("info"),
+  level: appEventLevel("level").notNull().default("agent"),
   source: text("source").notNull(), // e.g. "tick", "tool", "api", "test", "deploy"
   message: text("message").notNull(),
   metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }), // founder dismisses infra/tool events
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("app_events_created_idx").on(t.createdAt),
   index("app_events_team_idx").on(t.teamId, t.createdAt),
+  index("app_events_level_idx").on(t.level, t.createdAt),
 ]);
+
+// ---------------------------------------------------------------------------
+// Platform status singleton -- founder sets this so all agents know the state
+// ---------------------------------------------------------------------------
+
+export const platformStatus = pgTable("platform_status", {
+  id: integer("id").primaryKey().default(1), // singleton row
+  status: text("status", { enum: ["healthy", "degraded", "maintenance"] }).notNull().default("healthy"),
+  message: text("message"), // optional: "Deploying new version, expect restarts"
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const actionLog = pgTable("action_log", {
   id: uuid("id").defaultRandom().primaryKey(),
