@@ -169,7 +169,7 @@ export function TeamDashboard({
           </div>
 
           {/* Activity feed */}
-          <div>
+          <div data-testid="narration-feed">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-[11px] text-brand font-semibold tracking-[0.06em] uppercase font-mono">
                 Activity

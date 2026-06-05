@@ -17,8 +17,17 @@ function TeamViewInner({ teamId }: TeamViewProps) {
   const searchParams = useSearchParams();
   const agentParam = searchParams.get("agent");
 
-  const { team, agents, childTeams, childAgents, narration, loading, togglePause, updateAgent, updateTeam } =
-    useTeam(teamId);
+  const {
+    team,
+    agents,
+    childTeams,
+    childAgents,
+    narration,
+    loading,
+    togglePause,
+    updateAgent,
+    updateTeam,
+  } = useTeam(teamId);
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -153,9 +162,14 @@ function TeamViewInner({ teamId }: TeamViewProps) {
           </span>
         </div>
         <div className="flex items-center gap-3">
-          {team.paused && <span className="text-[11px] text-paused font-mono">paused by you</span>}
+          {team.paused && (
+            <span data-testid="paused-indicator" className="text-[11px] text-paused font-mono">
+              paused by you
+            </span>
+          )}
           <button
             type="button"
+            data-testid="pause-toggle"
             onClick={togglePause}
             className="bg-brand text-white py-2 px-4 rounded text-[12px] font-mono font-medium uppercase tracking-wider cursor-pointer"
           >
@@ -236,7 +250,12 @@ function TeamViewInner({ teamId }: TeamViewProps) {
               status: selectedAgent.status,
               inFlight: selectedAgent.inFlight,
             }}
-            teamAgents={agents.map((a) => ({ id: a.id, name: a.name, role: a.role, status: a.status }))}
+            teamAgents={agents.map((a) => ({
+              id: a.id,
+              name: a.name,
+              role: a.role,
+              status: a.status,
+            }))}
             cofounderName={team.cofounderName}
             onUpdated={handleAgentUpdated}
           />
@@ -246,7 +265,6 @@ function TeamViewInner({ teamId }: TeamViewProps) {
           <span className="text-fg-faint text-sm font-mono">Agent not found</span>
         </div>
       )}
-
     </div>
   );
 }
