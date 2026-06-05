@@ -134,48 +134,54 @@ export const modifyTeamImpl: ToolImpl<typeof modifyTeamSchema> = async (args, ct
         return { toolName: "modify_team", success: false, result: "Cannot delete your own team." };
       }
 
-      // Delete the entire sub-tree
+      // Delete the entire sub-tree atomically. a2ax rows (channels, messages,
+      // reads, tasks, tokens) are cleaned up by the DB-level ON DELETE CASCADE
+      // FKs when their team/channel rows go (floor item 9); this block only
+      // needs to remove the app-core rows whose FKs to teams/agents are NO
+      // ACTION, in dependency order, all inside one transaction.
       const subTreeIds = await getSubTreeIds(teamId);
       const ids = [...subTreeIds];
 
-      // Delete in dependency order
-      const subAgents = await d.query.agents.findMany({ where: inArray(agents.teamId, ids) });
-      const agentIds = subAgents.map((a) => a.id);
-      if (agentIds.length > 0) {
-        await d.delete(pendingApprovals).where(inArray(pendingApprovals.agentId, agentIds));
-        await d.delete(actionLog).where(inArray(actionLog.agentId, agentIds));
-        await d.delete(agents).where(inArray(agents.id, agentIds));
-      }
-      // Chat messages → sessions
-      const sessions = await d.query.chatSessions.findMany({ where: inArray(chatSessions.teamId, ids) });
-      const sessionIds = sessions.map((s) => s.id);
-      if (sessionIds.length > 0) {
-        await d.delete(chatMessages).where(inArray(chatMessages.sessionId, sessionIds));
-        await d.delete(chatSessions).where(inArray(chatSessions.id, sessionIds));
-      }
-      // Delete teams bottom-up (children first to satisfy FK)
-      const allTeams = await d.query.teams.findMany();
-      const depthMap = new Map<string, number>();
-      function computeDepth(id: string): number {
-        if (depthMap.has(id)) return depthMap.get(id)!;
-        const t = allTeams.find((x) => x.id === id);
-        const d2 = t?.parentTeamId ? computeDepth(t.parentTeamId) + 1 : 0;
-        depthMap.set(id, d2);
-        return d2;
-      }
-      for (const id of ids) computeDepth(id);
-      const sorted = ids.sort((a, b) => (depthMap.get(b) ?? 0) - (depthMap.get(a) ?? 0));
-      for (const id of sorted) {
-        await d.delete(teams).where(eq(teams.id, id));
-      }
+      const agentsDeleted = await d.transaction(async (tx) => {
+        const subAgents = await tx.query.agents.findMany({ where: inArray(agents.teamId, ids) });
+        const agentIds = subAgents.map((a) => a.id);
+        if (agentIds.length > 0) {
+          await tx.delete(pendingApprovals).where(inArray(pendingApprovals.agentId, agentIds));
+          await tx.delete(actionLog).where(inArray(actionLog.agentId, agentIds));
+          await tx.delete(agents).where(inArray(agents.id, agentIds));
+        }
+        // Chat messages → sessions
+        const sessions = await tx.query.chatSessions.findMany({ where: inArray(chatSessions.teamId, ids) });
+        const sessionIds = sessions.map((s) => s.id);
+        if (sessionIds.length > 0) {
+          await tx.delete(chatMessages).where(inArray(chatMessages.sessionId, sessionIds));
+          await tx.delete(chatSessions).where(inArray(chatSessions.id, sessionIds));
+        }
+        // Delete teams bottom-up (children first to satisfy the self-FK).
+        const allTeams = await tx.query.teams.findMany();
+        const depthMap = new Map<string, number>();
+        function computeDepth(id: string): number {
+          if (depthMap.has(id)) return depthMap.get(id)!;
+          const t = allTeams.find((x) => x.id === id);
+          const d2 = t?.parentTeamId ? computeDepth(t.parentTeamId) + 1 : 0;
+          depthMap.set(id, d2);
+          return d2;
+        }
+        for (const id of ids) computeDepth(id);
+        const sorted = ids.sort((a, b) => (depthMap.get(b) ?? 0) - (depthMap.get(a) ?? 0));
+        for (const id of sorted) {
+          await tx.delete(teams).where(eq(teams.id, id));
+        }
+        return agentIds.length;
+      });
 
       return {
         toolName: "modify_team",
         success: true,
-        result: `Team "${args.team_name}" and ${agentIds.length} agent(s) deleted.`,
+        result: `Team "${args.team_name}" and ${agentsDeleted} agent(s) deleted.`,
         action: {
           actionType: "team_deleted",
-          payload: { teamId, teamName: args.team_name, agentsDeleted: agentIds.length, teamsDeleted: ids.length },
+          payload: { teamId, teamName: args.team_name, agentsDeleted, teamsDeleted: ids.length },
         },
       };
     }
@@ -342,9 +348,11 @@ export const modifyAgentImpl: ToolImpl<typeof modifyAgentSchema> = async (args, 
 
     // --- Delete ---
     if (actionType === "delete") {
-      await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
-      await d.delete(actionLog).where(eq(actionLog.agentId, agent.id));
-      await d.delete(agents).where(eq(agents.id, agent.id));
+      await d.transaction(async (tx) => {
+        await tx.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
+        await tx.delete(actionLog).where(eq(actionLog.agentId, agent.id));
+        await tx.delete(agents).where(eq(agents.id, agent.id));
+      });
 
       return {
         toolName: "modify_agent",

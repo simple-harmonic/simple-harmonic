@@ -42,7 +42,7 @@ EXCEPTION WHEN duplicate_object THEN null; END $$;
 -- Teams
 CREATE TABLE IF NOT EXISTS "teams" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "parent_team_id" uuid REFERENCES "teams"("id"),
+  "parent_team_id" uuid REFERENCES "teams"("id") ON DELETE CASCADE,
   "name" text NOT NULL,
   "paused" boolean NOT NULL DEFAULT false,
   "tick_count" integer NOT NULL DEFAULT 0,
@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS "chat_messages" (
 -- a2ax
 CREATE TABLE IF NOT EXISTS "a2ax_channels" (
   "id" text PRIMARY KEY,
-  "team_id" uuid NOT NULL,
+  "team_id" uuid NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
   "channel_type" "a2ax_channel_type" NOT NULL,
   "name" text,
   "metadata" jsonb,
@@ -116,16 +116,18 @@ CREATE TABLE IF NOT EXISTS "a2ax_channels" (
 );
 
 CREATE TABLE IF NOT EXISTS "a2ax_channel_members" (
-  "channel_id" text NOT NULL REFERENCES "a2ax_channels"("id"),
+  "channel_id" text NOT NULL REFERENCES "a2ax_channels"("id") ON DELETE CASCADE,
   "agent_id" uuid NOT NULL,
   "joined_at" timestamp with time zone NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS "a2ax_messages" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "team_id" uuid NOT NULL,
+  "team_id" uuid NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
   "channel_type" "a2ax_channel_type" NOT NULL,
-  "channel_id" text NOT NULL,
+  "channel_id" text NOT NULL REFERENCES "a2ax_channels"("id") ON DELETE CASCADE,
+  -- from_agent_id is intentionally NOT a FK: it can be a cofounder/user
+  -- sentinel UUID (identity.ts) that has no agents row.
   "from_agent_id" uuid NOT NULL,
   "role" text NOT NULL DEFAULT 'agent',
   "kind" text NOT NULL,
@@ -133,7 +135,7 @@ CREATE TABLE IF NOT EXISTS "a2ax_messages" (
   "parts" jsonb,
   "artifacts" jsonb,
   "payload" jsonb,
-  "reply_to" uuid,
+  "reply_to" uuid REFERENCES "a2ax_messages"("id") ON DELETE SET NULL,
   "status" "a2ax_message_status" NOT NULL DEFAULT 'pending',
   "urgent" boolean NOT NULL DEFAULT false,
   "expires_at" timestamp with time zone,
@@ -142,7 +144,7 @@ CREATE TABLE IF NOT EXISTS "a2ax_messages" (
 CREATE INDEX IF NOT EXISTS "a2ax_messages_team_created_idx" ON "a2ax_messages" ("team_id", "created_at");
 
 CREATE TABLE IF NOT EXISTS "a2ax_message_reads" (
-  "message_id" uuid NOT NULL REFERENCES "a2ax_messages"("id"),
+  "message_id" uuid NOT NULL REFERENCES "a2ax_messages"("id") ON DELETE CASCADE,
   "agent_id" uuid NOT NULL,
   "read_at" timestamp with time zone NOT NULL DEFAULT now(),
   PRIMARY KEY ("message_id", "agent_id")
@@ -151,8 +153,9 @@ CREATE INDEX IF NOT EXISTS "a2ax_message_reads_agent_idx" ON "a2ax_message_reads
 
 CREATE TABLE IF NOT EXISTS "a2ax_tasks" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  "team_id" uuid NOT NULL,
-  "channel_id" text NOT NULL,
+  "team_id" uuid NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
+  "channel_id" text NOT NULL REFERENCES "a2ax_channels"("id") ON DELETE CASCADE,
+  -- requestor_id/assignee_id are NOT FKs: they may be cofounder/user sentinels.
   "requestor_id" uuid NOT NULL,
   "assignee_id" uuid NOT NULL,
   "title" text NOT NULL,
@@ -181,8 +184,9 @@ CREATE TABLE IF NOT EXISTS "a2ax_agent_cards" (
 
 CREATE TABLE IF NOT EXISTS "a2ax_tokens" (
   "token" text PRIMARY KEY,
+  -- agent_id is NOT a FK (may be a cofounder/user sentinel id).
   "agent_id" uuid NOT NULL,
-  "team_id" uuid NOT NULL,
+  "team_id" uuid NOT NULL REFERENCES "teams"("id") ON DELETE CASCADE,
   "scopes" jsonb NOT NULL,
   "expires_at" timestamp with time zone,
   "created_at" timestamp with time zone NOT NULL DEFAULT now()
@@ -231,7 +235,7 @@ CREATE TABLE IF NOT EXISTS "llm_spend" (
 CREATE INDEX IF NOT EXISTS "llm_spend_day_idx" ON "llm_spend" ("day");
 
 -- Add columns that may be missing on older databases
-ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "parent_team_id" uuid REFERENCES "teams"("id");
+ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "parent_team_id" uuid REFERENCES "teams"("id") ON DELETE CASCADE;
 ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "goal" text;
 ALTER TABLE "agents" ADD COLUMN IF NOT EXISTS "output_contract" jsonb;
 `;
