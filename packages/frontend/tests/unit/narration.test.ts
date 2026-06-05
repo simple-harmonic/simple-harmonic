@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeAction, extractDetail } from "@/components/team/narration-sidebar";
+import { describeAction, extractDetail } from "@/lib/narration";
 
 // T8: tool action labels + the collapsible-output detail extraction.
 

@@ -31,7 +31,6 @@
     "@simple-harmonic/a2ax": "*",
     "@simple-harmonic/backend": "*",
     "@simple-harmonic/frontend": "*",
-    "@xyflow/react": "^12.10.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",

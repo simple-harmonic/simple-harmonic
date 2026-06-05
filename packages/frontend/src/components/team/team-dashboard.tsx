@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { NarrationEntry } from "./narration-sidebar";
+import type { NarrationEntry } from "../../lib/narration";
 
 interface Agent {
   id: string;

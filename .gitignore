@@ -51,3 +51,8 @@ simple-harmonic.config.json
 *.tsbuildinfo
 next-env.d.ts
 .gstack/
+
+# local agent-loop state + dev scratch
+.claude/ralph-loop.local.md
+/test.mts
+/test.py

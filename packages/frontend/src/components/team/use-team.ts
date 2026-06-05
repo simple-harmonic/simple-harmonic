@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { NarrationEntry } from "./narration-sidebar";
-import { describeAction, extractDetail } from "./narration-sidebar";
+import type { NarrationEntry } from "../../lib/narration";
+import { describeAction, extractDetail } from "../../lib/narration";
 
 interface TeamAgent {
   id: string;
