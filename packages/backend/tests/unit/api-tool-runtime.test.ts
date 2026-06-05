@@ -15,6 +15,12 @@ vi.mock("@/server/proxy-fetch", () => ({
   proxyFetch: (...args: unknown[]) => mockFetch(...args),
 }));
 
+// The SSRF guard (url-guard) resolves DNS before fetching; mock it to a public
+// IP so these tests exercise the request path, not real DNS.
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn().mockResolvedValue([{ address: "93.184.216.34", family: 4 }]),
+}));
+
 const baseConfig: ApiToolConfig = {
   baseUrl: "https://api.example.com",
   connectorKey: "TEST_TOKEN",
@@ -72,6 +78,7 @@ describe("buildApiToolImpl", () => {
     expect(mockFetch).toHaveBeenCalledWith(
       "https://api.example.com/users",
       expect.objectContaining({ method: "GET" }),
+      { ip: "93.184.216.34", family: 4 },
     );
 
     const headers = mockFetch.mock.calls[0][1].headers;

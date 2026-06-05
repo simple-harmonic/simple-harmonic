@@ -10,6 +10,12 @@ vi.mock("@/server/proxy-fetch", () => ({
   proxyFetch: mockProxyFetch,
 }));
 
+// The SSRF guard resolves DNS before http_fetch/github_api request; mock it to
+// a public IP so these tests exercise the request path, not real DNS.
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn().mockResolvedValue([{ address: "93.184.216.34", family: 4 }]),
+}));
+
 import {
   readFileDef,
   readFileImpl,
@@ -255,6 +261,7 @@ describe("http_fetch", () => {
     expect(mockProxyFetch).toHaveBeenCalledWith(
       "https://example.com/",
       expect.objectContaining({ method: "GET" }),
+      { ip: "93.184.216.34", family: 4 },
     );
   });
 
@@ -303,6 +310,7 @@ describe("github_api", () => {
     expect(mockProxyFetch).toHaveBeenCalledWith(
       "https://api.github.com/repos/o/r",
       expect.objectContaining({ method: "GET" }),
+      { ip: "93.184.216.34", family: 4 },
     );
   });
 

@@ -12,6 +12,7 @@ import type { ToolDefinition, ToolImpl } from "../../lib/meta-agent/registry";
 import type { ApiToolConfig } from "../db/schema";
 import { resolveConnector } from "../connectors";
 import { proxyFetch } from "../proxy-fetch";
+import { assertPublicAndResolve } from "./url-guard";
 
 const MAX_BODY_BYTES = 128 * 1024;
 const FETCH_TIMEOUT_MS = 20_000;
@@ -89,6 +90,21 @@ export function buildApiToolImpl(
       }
     }
 
+    // SSRF guard BEFORE attaching the connector secret: a skill whose baseUrl
+    // resolves to an internal/metadata host must fail here so the bearer token
+    // is never sent off-box.
+    let pin: { ip: string; family: 4 | 6 };
+    try {
+      const checked = await assertPublicAndResolve(url.toString());
+      pin = { ip: checked.pinnedIp, family: checked.family };
+    } catch (err) {
+      return {
+        toolName,
+        success: false,
+        result: `${toolName} blocked: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+
     // Build headers
     const headers: Record<string, string> = {
       "User-Agent": "simple-harmonic-agent",
@@ -107,12 +123,16 @@ export function buildApiToolImpl(
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     try {
-      const res = await proxyFetch(url.toString(), {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
+      const res = await proxyFetch(
+        url.toString(),
+        {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          signal: controller.signal,
+        },
+        pin,
+      );
 
       const text = await readCapped(res, MAX_BODY_BYTES);
 

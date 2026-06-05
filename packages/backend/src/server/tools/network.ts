@@ -12,11 +12,11 @@
 // ---------------------------------------------------------------------------
 
 import { z } from "zod";
-import { isIP } from "node:net";
 import type { ToolDefinition, ToolImpl } from "../../lib/meta-agent/registry";
 import { resolveConnector } from "../connectors";
 import { proxyFetch } from "../proxy-fetch";
 import { toolsEnabled } from "./sandbox";
+import { assertPublicAndResolve } from "./url-guard";
 
 const MAX_BODY_BYTES = 128 * 1024;
 const FETCH_TIMEOUT_MS = 20_000;
@@ -40,11 +40,12 @@ export const httpFetchImpl: ToolImpl<typeof httpFetchSchema> = async (args) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const url = validatePublicHttpsUrl(args.url);
-    const res = await proxyFetch(url.toString(), {
-      method: "GET",
-      signal: controller.signal,
-    });
+    const { url, pinnedIp, family } = await assertPublicAndResolve(args.url);
+    const res = await proxyFetch(
+      url.toString(),
+      { method: "GET", signal: controller.signal },
+      { ip: pinnedIp, family },
+    );
     const { text, bytesRead } = await readCappedText(res, MAX_BODY_BYTES);
     return {
       toolName: "http_fetch",
@@ -138,12 +139,18 @@ export const githubApiImpl: ToolImpl<typeof githubApiSchema> = async (args) => {
     if (token) headers.Authorization = `Bearer ${token}`;
     if (args.body) headers["Content-Type"] = "application/json";
 
-    const res = await proxyFetch(`https://api.github.com${args.path}`, {
-      method: args.method,
-      headers,
-      body: args.body ? JSON.stringify(args.body) : undefined,
-      signal: controller.signal,
-    });
+    const ghUrl = `https://api.github.com${args.path}`;
+    const { pinnedIp, family } = await assertPublicAndResolve(ghUrl);
+    const res = await proxyFetch(
+      ghUrl,
+      {
+        method: args.method,
+        headers,
+        body: args.body ? JSON.stringify(args.body) : undefined,
+        signal: controller.signal,
+      },
+      { ip: pinnedIp, family },
+    );
     const { text } = await readCappedText(res, MAX_BODY_BYTES);
     return {
       toolName: "github_api",
@@ -172,24 +179,6 @@ export const githubApiImpl: ToolImpl<typeof githubApiSchema> = async (args) => {
     clearTimeout(timer);
   }
 };
-
-function validatePublicHttpsUrl(raw: string): URL {
-  const url = new URL(raw);
-  if (url.protocol !== "https:") {
-    throw new Error("Only https:// URLs are allowed");
-  }
-  if (url.username || url.password) {
-    throw new Error("Credentials in URLs are not allowed");
-  }
-  const host = stripIpv6Brackets(url.hostname.toLowerCase().replace(/\.$/, ""));
-  if (host === "localhost" || host.endsWith(".localhost")) {
-    throw new Error("Localhost URLs are not allowed");
-  }
-  if (isPrivateHost(host)) {
-    throw new Error("Private-network URLs are not allowed");
-  }
-  return url;
-}
 
 async function readCappedText(
   res: Response,
@@ -220,42 +209,4 @@ async function readCappedText(
   }
 
   return { text: Buffer.concat(chunks).toString("utf-8"), bytesRead };
-}
-
-function stripIpv6Brackets(host: string): string {
-  return host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
-}
-
-function isPrivateHost(host: string): boolean {
-  const ipVersion = isIP(host);
-  if (ipVersion === 4) return isPrivateIpv4(host);
-  if (ipVersion === 6) return isPrivateIpv6(host);
-  return false;
-}
-
-function isPrivateIpv4(ip: string): boolean {
-  const [a, b] = ip.split(".").map((part) => Number.parseInt(part, 10));
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 198 && (b === 18 || b === 19)) ||
-    a >= 224
-  );
-}
-
-function isPrivateIpv6(ip: string): boolean {
-  const normalized = ip.toLowerCase();
-  if (normalized === "::1" || normalized === "::") return true;
-  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
-  if (normalized.startsWith("fe80")) return true;
-  if (normalized.startsWith("::ffff:")) {
-    const embedded = normalized.slice("::ffff:".length);
-    return isPrivateIpv4(embedded);
-  }
-  return false;
 }

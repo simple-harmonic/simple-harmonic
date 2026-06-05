@@ -1,6 +1,13 @@
 import { execSync } from "node:child_process";
 import http from "node:http";
 import https from "node:https";
+import type { LookupFunction } from "node:net";
+
+/** A pre-validated public IP to pin the connection to (anti-rebinding). */
+export interface PinnedAddress {
+  ip: string;
+  family: 4 | 6;
+}
 
 // Read the macOS system HTTPS proxy via `scutil --proxy`. Cached for the
 // lifetime of the process. Returns null on non-macOS or when no proxy is
@@ -37,8 +44,15 @@ function getSystemProxyMac(): string | null {
 function fetchViaHttps(
   url: string,
   init: RequestInit & { signal?: AbortSignal } = {},
+  pin?: PinnedAddress,
 ): Promise<Response> {
   const target = new URL(url);
+  // When pinned, override DNS resolution to the pre-validated public IP. net
+  // still uses target.hostname for TLS SNI + cert verification, so this closes
+  // the rebinding TOCTOU without weakening cert checks.
+  const pinnedLookup: LookupFunction | undefined = pin
+    ? (_hostname, _options, callback) => callback(null, pin.ip, pin.family)
+    : undefined;
   return new Promise<Response>((resolve, reject) => {
     const headers: Record<string, string> = {};
     if (init.headers) {
@@ -71,7 +85,9 @@ function fetchViaHttps(
         path: target.pathname + target.search,
         method: init.method || "GET",
         headers,
-        family: 4,
+        // Without a pin, keep the legacy v4 pin (avoids v6 tunnel hangs).
+        family: pin?.family ?? 4,
+        ...(pinnedLookup ? { lookup: pinnedLookup } : {}),
       },
       (res) => {
         const responseHeaders = new Headers();
@@ -114,6 +130,7 @@ function fetchViaHttps(
 export async function proxyFetch(
   url: string,
   init: RequestInit & { signal?: AbortSignal } = {},
+  pin?: PinnedAddress,
 ): Promise<Response> {
   const proxyUrl =
     process.env.HTTPS_PROXY ||
@@ -126,8 +143,10 @@ export async function proxyFetch(
     getSystemProxyMac();
 
   if (!proxyUrl) {
-    return fetchViaHttps(url, init);
+    return fetchViaHttps(url, init, pin);
   }
+  // Proxy-tunnel path: the proxy resolves the target host itself, so an IP pin
+  // is not applicable here (a corporate proxy is already a trust boundary).
 
   const target = new URL(url);
   const proxy = new URL(proxyUrl);
