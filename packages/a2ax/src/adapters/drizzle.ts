@@ -8,8 +8,18 @@ import type { AgentCard } from "../types/agent-card.js";
 import type { AgentToken } from "../types/auth.js";
 import type { Channel, ChannelMember } from "../types/channel.js";
 import { directChannelId } from "../types/channel.js";
-import type { CreateMessageInput, Message, MessageRole, MessageStatus } from "../types/message.js";
-import type { CreateTaskInput, Task, TaskState, UpdateTaskInput } from "../types/task.js";
+import type {
+  CreateMessageInput,
+  Message,
+  MessageRole,
+  MessageStatus,
+} from "../types/message.js";
+import type {
+  CreateTaskInput,
+  Task,
+  TaskState,
+  UpdateTaskInput,
+} from "../types/task.js";
 import type { MessageQuery, Transport } from "../core/transport.js";
 import {
   a2axAgentCards,
@@ -31,7 +41,7 @@ export class DrizzleTransport implements Transport {
     const [row] = await this.db
       .insert(a2axMessages)
       .values({
-        fleetId: input.fleetId,
+        teamId: input.teamId,
         channelType: input.channelType,
         channelId: input.channelId,
         fromAgentId: input.fromAgentId,
@@ -51,7 +61,7 @@ export class DrizzleTransport implements Transport {
 
   async queryMessages(query: MessageQuery): Promise<Message[]> {
     // Build conditions
-    const conditions = [eq(a2axMessages.fleetId, query.fleetId)];
+    const conditions = [eq(a2axMessages.teamId, query.teamId)];
 
     if (query.unreadOnly) {
       conditions.push(
@@ -85,7 +95,7 @@ export class DrizzleTransport implements Transport {
       .from(a2axTasks)
       .where(
         and(
-          eq(a2axTasks.fleetId, query.fleetId),
+          eq(a2axTasks.teamId, query.teamId),
           or(
             eq(a2axTasks.assigneeId, query.agentId),
             eq(a2axTasks.requestorId, query.agentId),
@@ -156,7 +166,7 @@ export class DrizzleTransport implements Transport {
       .insert(a2axChannels)
       .values({
         id: channel.id,
-        fleetId: channel.fleetId,
+        teamId: channel.teamId,
         channelType: channel.channelType,
         name: channel.name,
         metadata: channel.metadata,
@@ -165,11 +175,11 @@ export class DrizzleTransport implements Transport {
     return this.toChannel(row);
   }
 
-  async listChannels(fleetId: string): Promise<Channel[]> {
+  async listChannels(teamId: string): Promise<Channel[]> {
     const rows = await this.db
       .select()
       .from(a2axChannels)
-      .where(eq(a2axChannels.fleetId, fleetId));
+      .where(eq(a2axChannels.teamId, teamId));
     return rows.map((r) => this.toChannel(r));
   }
 
@@ -225,7 +235,7 @@ export class DrizzleTransport implements Transport {
       .insert(a2axTasks)
       .values({
         id,
-        fleetId: input.fleetId,
+        teamId: input.teamId,
         channelId: `task:${id}`,
         requestorId: input.requestorId,
         assigneeId: input.assigneeId,
@@ -260,8 +270,8 @@ export class DrizzleTransport implements Transport {
     return this.toTask(row);
   }
 
-  async listTasks(fleetId: string, agentId?: string): Promise<Task[]> {
-    const conditions = [eq(a2axTasks.fleetId, fleetId)];
+  async listTasks(teamId: string, agentId?: string): Promise<Task[]> {
+    const conditions = [eq(a2axTasks.teamId, teamId)];
     if (agentId) {
       conditions.push(
         or(
@@ -325,13 +335,13 @@ export class DrizzleTransport implements Transport {
     return this.toAgentCard(row);
   }
 
-  async listCards(fleetId: string): Promise<AgentCard[]> {
-    // Cards don't have a direct fleetId; filter by metadata if needed
+  async listCards(teamId: string): Promise<AgentCard[]> {
+    // Cards don't have a direct teamId; filter by metadata if needed
     const rows = await this.db.select().from(a2axAgentCards);
     return rows
       .filter((r) => {
         const meta = r.metadata as Record<string, unknown> | null;
-        return !fleetId || meta?.fleetId === fleetId || !meta?.fleetId;
+        return !teamId || meta?.teamId === teamId || !meta?.teamId;
       })
       .map((r) => this.toAgentCard(r));
   }
@@ -344,14 +354,14 @@ export class DrizzleTransport implements Transport {
       .values({
         token: token.token,
         agentId: token.agentId,
-        fleetId: token.fleetId,
+        teamId: token.teamId,
         scopes: token.scopes,
         expiresAt: token.expiresAt,
       })
       .returning();
     return {
       agentId: row.agentId,
-      fleetId: row.fleetId,
+      teamId: row.teamId,
       token: row.token,
       scopes: row.scopes,
       expiresAt: row.expiresAt ?? undefined,
@@ -368,7 +378,7 @@ export class DrizzleTransport implements Transport {
     if (!row) return null;
     return {
       agentId: row.agentId,
-      fleetId: row.fleetId,
+      teamId: row.teamId,
       token: row.token,
       scopes: row.scopes,
       expiresAt: row.expiresAt ?? undefined,
@@ -385,7 +395,7 @@ export class DrizzleTransport implements Transport {
   private toMessage(row: typeof a2axMessages.$inferSelect): Message {
     return {
       id: row.id,
-      fleetId: row.fleetId,
+      teamId: row.teamId,
       channelType: row.channelType,
       channelId: row.channelId,
       fromAgentId: row.fromAgentId,
@@ -406,7 +416,7 @@ export class DrizzleTransport implements Transport {
   private toChannel(row: typeof a2axChannels.$inferSelect): Channel {
     return {
       id: row.id,
-      fleetId: row.fleetId,
+      teamId: row.teamId,
       channelType: row.channelType,
       name: row.name ?? undefined,
       metadata: row.metadata ?? undefined,
@@ -417,7 +427,7 @@ export class DrizzleTransport implements Transport {
   private toTask(row: typeof a2axTasks.$inferSelect): Task {
     return {
       id: row.id,
-      fleetId: row.fleetId,
+      teamId: row.teamId,
       channelId: row.channelId,
       requestorId: row.requestorId,
       assigneeId: row.assigneeId,
@@ -438,9 +448,11 @@ export class DrizzleTransport implements Transport {
       endpoint: row.endpoint,
       capabilities: row.capabilities as unknown as AgentCard["capabilities"],
       skills: (row.skills ?? []) as unknown as AgentCard["skills"],
-      securitySchemes: row.securitySchemes as unknown as AgentCard["securitySchemes"],
+      securitySchemes:
+        row.securitySchemes as unknown as AgentCard["securitySchemes"],
       security: row.security as unknown as AgentCard["security"],
-      signature: (row.signature ?? undefined) as unknown as AgentCard["signature"],
+      signature: (row.signature ??
+        undefined) as unknown as AgentCard["signature"],
       provider: (row.provider ?? undefined) as unknown as AgentCard["provider"],
       metadata: (row.metadata ?? undefined) as AgentCard["metadata"],
     };

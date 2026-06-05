@@ -27,7 +27,8 @@ export interface CodexAuthStatus {
 }
 
 function codexAuthPath(): string {
-  const home = process.env.CODEX_HOME || join(process.env.HOME || "~", ".codex");
+  const home =
+    process.env.CODEX_HOME || join(process.env.HOME || "~", ".codex");
   return join(home, "auth.json");
 }
 
@@ -70,8 +71,12 @@ export function getCodexAuthStatus(): CodexAuthStatus {
   }
 
   const jwt = decodeJwtPayload(auth.tokens.access_token);
-  const profile = jwt?.["https://api.openai.com/profile"] as Record<string, string> | undefined;
-  const authInfo = jwt?.["https://api.openai.com/auth"] as Record<string, string> | undefined;
+  const profile = jwt?.["https://api.openai.com/profile"] as
+    | Record<string, string>
+    | undefined;
+  const authInfo = jwt?.["https://api.openai.com/auth"] as
+    | Record<string, string>
+    | undefined;
   const exp = jwt?.exp as number | undefined;
 
   return {
@@ -100,7 +105,8 @@ export interface CodexModel {
 }
 
 export function getCodexModels(): CodexModel[] {
-  const home = process.env.CODEX_HOME || join(process.env.HOME || "~", ".codex");
+  const home =
+    process.env.CODEX_HOME || join(process.env.HOME || "~", ".codex");
   const cachePath = join(home, "models_cache.json");
   try {
     if (!existsSync(cachePath)) return [];
@@ -117,7 +123,9 @@ export function getCodexModels(): CodexModel[] {
       });
     }
     // Sort by priority ascending, filter to API-supported
-    return models.filter((m) => m.supportedInApi).sort((a, b) => a.priority - b.priority);
+    return models
+      .filter((m) => m.supportedInApi)
+      .sort((a, b) => a.priority - b.priority);
   } catch {
     return [];
   }
@@ -148,7 +156,10 @@ export async function refreshCodexToken(): Promise<{
 
     if (!res.ok) {
       const text = await res.text();
-      return { ok: false, error: `Refresh failed (${res.status}): ${text.slice(0, 200)}` };
+      return {
+        ok: false,
+        error: `Refresh failed (${res.status}): ${text.slice(0, 200)}`,
+      };
     }
 
     const data = await res.json();

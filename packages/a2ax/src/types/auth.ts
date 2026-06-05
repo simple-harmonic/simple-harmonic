@@ -5,14 +5,14 @@
 /** A bearer token issued to an agent at spawn time */
 export interface AgentToken {
   agentId: string;
-  fleetId: string;
+  teamId: string;
   token: string;
   scopes: string[];
   expiresAt?: Date;
   createdAt: Date;
 }
 
-/** Default scopes for fleet-internal agents */
+/** Default scopes for team-internal agents */
 export const DEFAULT_SCOPES = [
   "message:send",
   "message:read",

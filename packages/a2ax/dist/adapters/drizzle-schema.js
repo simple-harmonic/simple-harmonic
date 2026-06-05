@@ -27,7 +27,7 @@ export const a2axTaskState = pgEnum("a2ax_task_state", [
 // --- Channels ---
 export const a2axChannels = pgTable("a2ax_channels", {
     id: text("id").primaryKey(),
-    fleetId: uuid("team_id").notNull(),
+    teamId: uuid("team_id").notNull(),
     channelType: a2axChannelType("channel_type").notNull(),
     name: text("name"),
     metadata: jsonb("metadata").$type(),
@@ -44,7 +44,7 @@ export const a2axChannelMembers = pgTable("a2ax_channel_members", {
 // --- Messages ---
 export const a2axMessages = pgTable("a2ax_messages", {
     id: uuid("id").defaultRandom().primaryKey(),
-    fleetId: uuid("team_id").notNull(),
+    teamId: uuid("team_id").notNull(),
     channelType: a2axChannelType("channel_type").notNull(),
     channelId: text("channel_id").notNull(),
     fromAgentId: uuid("from_agent_id").notNull(),
@@ -63,7 +63,7 @@ export const a2axMessages = pgTable("a2ax_messages", {
 // --- Tasks ---
 export const a2axTasks = pgTable("a2ax_tasks", {
     id: uuid("id").defaultRandom().primaryKey(),
-    fleetId: uuid("team_id").notNull(),
+    teamId: uuid("team_id").notNull(),
     channelId: text("channel_id").notNull(),
     requestorId: uuid("requestor_id").notNull(),
     assigneeId: uuid("assignee_id").notNull(),
@@ -94,7 +94,7 @@ export const a2axAgentCards = pgTable("a2ax_agent_cards", {
 export const a2axTokens = pgTable("a2ax_tokens", {
     token: text("token").primaryKey(),
     agentId: uuid("agent_id").notNull(),
-    fleetId: uuid("team_id").notNull(),
+    teamId: uuid("team_id").notNull(),
     scopes: jsonb("scopes").$type().notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

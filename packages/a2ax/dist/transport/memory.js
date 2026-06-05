@@ -13,7 +13,7 @@ export class MemoryTransport {
     async insertMessage(input) {
         const msg = {
             id: crypto.randomUUID(),
-            fleetId: input.fleetId,
+            teamId: input.teamId,
             channelType: input.channelType,
             channelId: input.channelId,
             fromAgentId: input.fromAgentId,
@@ -33,7 +33,7 @@ export class MemoryTransport {
         return msg;
     }
     async queryMessages(query) {
-        let results = this.messages.filter((m) => m.fleetId === query.fleetId);
+        let results = this.messages.filter((m) => m.teamId === query.teamId);
         if (query.unreadOnly) {
             results = results.filter((m) => m.status === "pending" || m.status === "delivered");
         }
@@ -98,8 +98,8 @@ export class MemoryTransport {
         this.channels.set(channel.id, full);
         return full;
     }
-    async listChannels(fleetId) {
-        return [...this.channels.values()].filter((c) => c.fleetId === fleetId);
+    async listChannels(teamId) {
+        return [...this.channels.values()].filter((c) => c.teamId === teamId);
     }
     async addMember(channelId, agentId) {
         const existing = this.members.find((m) => m.channelId === channelId && m.agentId === agentId);
@@ -122,7 +122,7 @@ export class MemoryTransport {
     async createTask(input) {
         const task = {
             id: crypto.randomUUID(),
-            fleetId: input.fleetId,
+            teamId: input.teamId,
             channelId: `task:${crypto.randomUUID()}`,
             requestorId: input.requestorId,
             assigneeId: input.assigneeId,
@@ -152,8 +152,8 @@ export class MemoryTransport {
         task.updatedAt = new Date();
         return task;
     }
-    async listTasks(fleetId, agentId) {
-        let results = [...this.tasks.values()].filter((t) => t.fleetId === fleetId);
+    async listTasks(teamId, agentId) {
+        let results = [...this.tasks.values()].filter((t) => t.teamId === teamId);
         if (agentId) {
             results = results.filter((t) => t.assigneeId === agentId || t.requestorId === agentId);
         }
@@ -167,9 +167,9 @@ export class MemoryTransport {
         this.cards.set(card.id, card);
         return card;
     }
-    async listCards(fleetId) {
-        // In memory transport, fleetId is stored in metadata
-        return [...this.cards.values()].filter((c) => c.metadata?.fleetId === fleetId || true);
+    async listCards(teamId) {
+        // In memory transport, teamId is stored in metadata
+        return [...this.cards.values()].filter((c) => c.metadata?.teamId === teamId || true);
     }
     // --- Auth ---
     async createToken(token) {

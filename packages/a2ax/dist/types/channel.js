@@ -9,9 +9,9 @@ export function directChannelId(agentA, agentB) {
     const sorted = [agentA, agentB].sort();
     return `direct:${sorted[0]}:${sorted[1]}`;
 }
-/** Generate a broadcast channel ID for a fleet */
-export function broadcastChannelId(fleetId) {
-    return `fleet:${fleetId}`;
+/** Generate a broadcast channel ID for a team */
+export function broadcastChannelId(teamId) {
+    return `team:${teamId}`;
 }
 /** Generate a group channel ID */
 export function groupChannelId(groupId) {

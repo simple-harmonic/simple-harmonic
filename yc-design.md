@@ -9,13 +9,13 @@ Founder: yc (chenyian.v@gmail.com)
 
 ## Problem Statement
 
-Solo founders increasingly attempt to operate a "one-person company" (OPC) using AI agents: orchestrating customer support, content production, sales follow-up, ops automation, and product work through fleets of LLM-driven agents. As the agent count grows past three or four, the founder hits three compounding problems:
+Solo founders increasingly attempt to operate a "one-person company" (OPC) using AI agents: orchestrating customer support, content production, sales follow-up, ops automation, and product work through teams of LLM-driven agents. As the agent count grows past three or four, the founder hits three compounding problems:
 
 1. **Fragility.** Each agent is built with a different framework, prompt, or model, and breaks differently when APIs or providers change.
 2. **Opacity.** The founder loses visibility into what their agents are doing in real time; failures are discovered hours or days late.
 3. **Damage with limited undo.** When an agent does the wrong thing (sends the wrong email, posts the wrong content, writes bad data to a SaaS tool), reversing the damage is manual, slow, and sometimes impossible. Some actions (sent email, posted tweet, paid invoice) are irreversibly external; the goal is to make them rare via preview-and-approve, and to make reversible ones one-click.
 
-There is no native manager layer over a fleet of heterogeneous agents, so the founder is forced to BE the manager, which defeats the OPC promise.
+There is no native manager layer over a team of heterogeneous agents, so the founder is forced to BE the manager, which defeats the OPC promise.
 
 **Simple Harmonic** is a meta-agent that turns a founder's vision into a working team, supervises it, reports back, and gives the founder override at every layer plus rewind where reversible (with explicit preview-and-approve for actions that aren't). Open-source first, cloud-paid for hosted. "AI chief of staff" is the marketing framing; the product reality is a magical scaffold plus a live supervisor that always honors founder control.
 
@@ -42,7 +42,7 @@ The implicit cost of the status quo for the path-B persona is **founder time spe
 
 **Working profile:** technically-capable solo founder, indie SaaS or content business operator, who has already strung together 2-3 agents in scrappy ways and is starting to feel the fragility/opacity problem. Demographic: indie hackers, X solo-builder cluster, Reddit r/SaaS, niche Discords (BuildSpace alumni, Reflect, Levels.io's circle).
 
-**Wedge (Q4 answer):** Single-pillar minimum from the original three-pillar vision. The slice is **onboarding-as-orchestration**, where the act of getting started IS configuring your first running fleet. Founder's exact words: *"Onboarding and orchestration, they have to go hand in hand."*
+**Wedge (Q4 answer):** Single-pillar minimum from the original three-pillar vision. The slice is **onboarding-as-orchestration**, where the act of getting started IS configuring your first running team. Founder's exact words: *"Onboarding and orchestration, they have to go hand in hand."*
 
 ## Constraints
 
@@ -66,11 +66,11 @@ Locked premises after Phase 3 challenge and cold-read revision:
 
 An independent Claude subagent reviewed a structured cold-read summary and returned four sections:
 
-**Steelman.** "An AI chief of staff for solo founders: you describe your company in plain English, it spawns and supervises a fleet of specialized agents to execute, reports back like a real ops lead, and can undo their mistakes. It is the orchestration plus accountability layer that makes 'one-person company' go from meme to operating model, and it ships open-source to ride the same distribution wave that made n8n, LangChain, and Supabase defaults."
+**Steelman.** "An AI chief of staff for solo founders: you describe your company in plain English, it spawns and supervises a team of specialized agents to execute, reports back like a real ops lead, and can undo their mistakes. It is the orchestration plus accountability layer that makes 'one-person company' go from meme to operating model, and it ships open-source to ride the same distribution wave that made n8n, LangChain, and Supabase defaults."
 
 **Most revealing.** Quote: *"Onboarding and orchestration, they have to go hand in hand."* The only answer in the session that was a product insight rather than a vision statement. The actual wedge against Lindy / Relevance / Gumloop, which all treat build mode and run mode as separate surfaces.
 
-**Challenged premise.** P2 pre-revision. Subagent's position: "It's codegen-with-extra-steps. Build for that reality. The 'chief of staff' framing is marketing; the product is a vision-to-fleet compiler with a live supervisor pane." Founder accepted partial revision: keep the framing for marketing, honor override in the UX. This produced revised P2 above.
+**Challenged premise.** P2 pre-revision. Subagent's position: "It's codegen-with-extra-steps. Build for that reality. The 'chief of staff' framing is marketing; the product is a vision-to-team compiler with a live supervisor pane." Founder accepted partial revision: keep the framing for marketing, honor override in the UX. This produced revised P2 above.
 
 **48-hour prototype suggestion.** "VisionOS v0.0": single-page open-source app, vision-paste → planner LLM proposes 3-5 named agents → live graph + plain-English narration feed + working "rewind last action" button on at least one action type. Mostly mocked integrations, optimized for a 30-second YouTube demo. This shape was adopted directly as Approach A.
 
@@ -95,7 +95,7 @@ Only the research-summarizer touches the real world (read-only). Every other act
 
 **Onboarding-as-orchestration UX in concrete terms**: the vision-paste textbox IS the onboarding flow. The moment the founder submits, the meta-agent spawns the team and starts running it; there is no separate "configuration" step, no agent-builder UI. The meta-agent is the builder. Every spawned agent has an "edit" and "disable" button on its graph node from second zero (the override-at-every-layer commitment from P2-revised).
 
-**Meta-agent override surface (concrete v0.0 capabilities)**: beyond per-agent edit/disable, the founder can (a) cancel any planned action in-flight before it executes, (b) "Pause Fleet" with one button (halts all agent scheduling), (c) edit the meta-agent's current plan in a text view and re-submit to regenerate the team. These three buttons are first-class UI, not buried in settings.
+**Meta-agent override surface (concrete v0.0 capabilities)**: beyond per-agent edit/disable, the founder can (a) cancel any planned action in-flight before it executes, (b) "Pause team" with one button (halts all agent scheduling), (c) edit the meta-agent's current plan in a text view and re-submit to regenerate the team. These three buttons are first-class UI, not buried in settings.
 
 ### Approach B: Production v0.1 (real integrations)
 
@@ -202,7 +202,7 @@ These targets are downstream of wedge validation and should not pollute the wedg
 
 **Cost model (working estimate):**
 - v0.0 phase (months 0-2): Claude API ~$20-50/mo (light usage, manual testing), Vercel free, Neon free, Inngest free, domain $15/yr. Total: <$100/mo.
-- v0.1 phase (months 3-6): With 50 alpha users running a fleet of 3-5 agents continuously, sustained narration + planning + agent reasoning is non-trivial. Realistic Claude API spend $1k-2k/mo (back-of-envelope: 50 users × 4 agents × 1k tokens/action × 30 actions/day × $15/M output ≈ $900/mo for output alone, plus input tokens, plus planner calls). Vercel paid ~$20-50/mo, Neon paid ~$20-50/mo, Inngest paid ~$50/mo, OAuth verifications free-but-time-costly. Realistic total: ~$1.5k-2.5k/mo.
+- v0.1 phase (months 3-6): With 50 alpha users running a team of 3-5 agents continuously, sustained narration + planning + agent reasoning is non-trivial. Realistic Claude API spend $1k-2k/mo (back-of-envelope: 50 users × 4 agents × 1k tokens/action × 30 actions/day × $15/M output ≈ $900/mo for output alone, plus input tokens, plus planner calls). Vercel paid ~$20-50/mo, Neon paid ~$20-50/mo, Inngest paid ~$50/mo, OAuth verifications free-but-time-costly. Realistic total: ~$1.5k-2.5k/mo.
 - Plan a **$2k/mo floor budget** for the v0.1 build period. Free tiers shrink; don't bet on them surviving. If the cost model proves too aggressive in practice, throttle action frequency or cap alpha-user count.
 
 **Security posture (cloud preview deploy in v0.1, full paid tier at Month 6+):**

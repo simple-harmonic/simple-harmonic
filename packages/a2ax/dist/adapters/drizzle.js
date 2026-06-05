@@ -14,7 +14,7 @@ export class DrizzleTransport {
         const [row] = await this.db
             .insert(a2axMessages)
             .values({
-            fleetId: input.fleetId,
+            teamId: input.teamId,
             channelType: input.channelType,
             channelId: input.channelId,
             fromAgentId: input.fromAgentId,
@@ -33,7 +33,7 @@ export class DrizzleTransport {
     }
     async queryMessages(query) {
         // Build conditions
-        const conditions = [eq(a2axMessages.fleetId, query.fleetId)];
+        const conditions = [eq(a2axMessages.teamId, query.teamId)];
         if (query.unreadOnly) {
             conditions.push(or(eq(a2axMessages.status, "pending"), eq(a2axMessages.status, "delivered")));
         }
@@ -54,7 +54,7 @@ export class DrizzleTransport {
         const tasks = await this.db
             .select()
             .from(a2axTasks)
-            .where(and(eq(a2axTasks.fleetId, query.fleetId), or(eq(a2axTasks.assigneeId, query.agentId), eq(a2axTasks.requestorId, query.agentId))));
+            .where(and(eq(a2axTasks.teamId, query.teamId), or(eq(a2axTasks.assigneeId, query.agentId), eq(a2axTasks.requestorId, query.agentId))));
         const taskChannelIds = new Set(tasks.map((t) => `task:${t.id}`));
         const filtered = rows.filter((row) => {
             switch (row.channelType) {
@@ -105,7 +105,7 @@ export class DrizzleTransport {
             .insert(a2axChannels)
             .values({
             id: channel.id,
-            fleetId: channel.fleetId,
+            teamId: channel.teamId,
             channelType: channel.channelType,
             name: channel.name,
             metadata: channel.metadata,
@@ -113,11 +113,11 @@ export class DrizzleTransport {
             .returning();
         return this.toChannel(row);
     }
-    async listChannels(fleetId) {
+    async listChannels(teamId) {
         const rows = await this.db
             .select()
             .from(a2axChannels)
-            .where(eq(a2axChannels.fleetId, fleetId));
+            .where(eq(a2axChannels.teamId, teamId));
         return rows.map((r) => this.toChannel(r));
     }
     async addMember(channelId, agentId) {
@@ -162,7 +162,7 @@ export class DrizzleTransport {
             .insert(a2axTasks)
             .values({
             id,
-            fleetId: input.fleetId,
+            teamId: input.teamId,
             channelId: `task:${id}`,
             requestorId: input.requestorId,
             assigneeId: input.assigneeId,
@@ -196,8 +196,8 @@ export class DrizzleTransport {
             throw new Error(`Task ${taskId} not found`);
         return this.toTask(row);
     }
-    async listTasks(fleetId, agentId) {
-        const conditions = [eq(a2axTasks.fleetId, fleetId)];
+    async listTasks(teamId, agentId) {
+        const conditions = [eq(a2axTasks.teamId, teamId)];
         if (agentId) {
             conditions.push(or(eq(a2axTasks.assigneeId, agentId), eq(a2axTasks.requestorId, agentId)));
         }
@@ -252,13 +252,13 @@ export class DrizzleTransport {
             .returning();
         return this.toAgentCard(row);
     }
-    async listCards(fleetId) {
-        // Cards don't have a direct fleetId; filter by metadata if needed
+    async listCards(teamId) {
+        // Cards don't have a direct teamId; filter by metadata if needed
         const rows = await this.db.select().from(a2axAgentCards);
         return rows
             .filter((r) => {
             const meta = r.metadata;
-            return !fleetId || meta?.fleetId === fleetId || !meta?.fleetId;
+            return !teamId || meta?.teamId === teamId || !meta?.teamId;
         })
             .map((r) => this.toAgentCard(r));
     }
@@ -269,14 +269,14 @@ export class DrizzleTransport {
             .values({
             token: token.token,
             agentId: token.agentId,
-            fleetId: token.fleetId,
+            teamId: token.teamId,
             scopes: token.scopes,
             expiresAt: token.expiresAt,
         })
             .returning();
         return {
             agentId: row.agentId,
-            fleetId: row.fleetId,
+            teamId: row.teamId,
             token: row.token,
             scopes: row.scopes,
             expiresAt: row.expiresAt ?? undefined,
@@ -293,7 +293,7 @@ export class DrizzleTransport {
             return null;
         return {
             agentId: row.agentId,
-            fleetId: row.fleetId,
+            teamId: row.teamId,
             token: row.token,
             scopes: row.scopes,
             expiresAt: row.expiresAt ?? undefined,
@@ -307,7 +307,7 @@ export class DrizzleTransport {
     toMessage(row) {
         return {
             id: row.id,
-            fleetId: row.fleetId,
+            teamId: row.teamId,
             channelType: row.channelType,
             channelId: row.channelId,
             fromAgentId: row.fromAgentId,
@@ -327,7 +327,7 @@ export class DrizzleTransport {
     toChannel(row) {
         return {
             id: row.id,
-            fleetId: row.fleetId,
+            teamId: row.teamId,
             channelType: row.channelType,
             name: row.name ?? undefined,
             metadata: row.metadata ?? undefined,
@@ -337,7 +337,7 @@ export class DrizzleTransport {
     toTask(row) {
         return {
             id: row.id,
-            fleetId: row.fleetId,
+            teamId: row.teamId,
             channelId: row.channelId,
             requestorId: row.requestorId,
             assigneeId: row.assigneeId,

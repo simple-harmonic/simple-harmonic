@@ -16,7 +16,7 @@ export type TaskState =
 /** A structured task (work request between agents) */
 export interface Task {
   id: string;
-  fleetId: string;
+  teamId: string;
   channelId: string;
   requestorId: string;
   assigneeId: string;
@@ -30,7 +30,7 @@ export interface Task {
 
 /** Input for creating a new task */
 export interface CreateTaskInput {
-  fleetId: string;
+  teamId: string;
   requestorId: string;
   assigneeId: string;
   title: string;

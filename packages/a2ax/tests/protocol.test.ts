@@ -4,7 +4,7 @@ import { MemoryTransport } from "../src/transport/memory.js";
 
 describe("A2AX Protocol", () => {
   let a2ax: A2AX;
-  const fleetId = "fleet-1";
+  const teamId = "team-1";
   const agentA = "agent-a";
   const agentB = "agent-b";
   const agentC = "agent-c";
@@ -15,9 +15,9 @@ describe("A2AX Protocol", () => {
 
   describe("direct messaging", () => {
     it("sends and receives a direct message", async () => {
-      await a2ax.sendDirect(fleetId, agentA, agentB, "hello from A");
+      await a2ax.sendDirect(teamId, agentA, agentB, "hello from A");
 
-      const ctx = await a2ax.getAgentContext(fleetId, agentB);
+      const ctx = await a2ax.getAgentContext(teamId, agentB);
       expect(ctx.messages).toHaveLength(1);
       expect(ctx.messages[0].content).toBe("hello from A");
       expect(ctx.messages[0].channelType).toBe("direct");
@@ -25,31 +25,31 @@ describe("A2AX Protocol", () => {
     });
 
     it("does not show own messages", async () => {
-      await a2ax.sendDirect(fleetId, agentA, agentB, "hello");
+      await a2ax.sendDirect(teamId, agentA, agentB, "hello");
 
-      const ctx = await a2ax.getAgentContext(fleetId, agentA);
+      const ctx = await a2ax.getAgentContext(teamId, agentA);
       expect(ctx.messages).toHaveLength(0);
     });
 
     it("marks messages as read", async () => {
-      await a2ax.sendDirect(fleetId, agentA, agentB, "read me");
+      await a2ax.sendDirect(teamId, agentA, agentB, "read me");
 
-      const ctx1 = await a2ax.getAgentContext(fleetId, agentB);
+      const ctx1 = await a2ax.getAgentContext(teamId, agentB);
       expect(ctx1.messages).toHaveLength(1);
 
       await a2ax.markContextRead(ctx1.messageIds);
 
-      const ctx2 = await a2ax.getAgentContext(fleetId, agentB);
+      const ctx2 = await a2ax.getAgentContext(teamId, agentB);
       expect(ctx2.messages).toHaveLength(0);
     });
   });
 
   describe("broadcast", () => {
     it("delivers broadcast to all agents", async () => {
-      await a2ax.broadcast(fleetId, agentA, "announcement for everyone");
+      await a2ax.broadcast(teamId, agentA, "announcement for everyone");
 
-      const ctxB = await a2ax.getAgentContext(fleetId, agentB);
-      const ctxC = await a2ax.getAgentContext(fleetId, agentC);
+      const ctxB = await a2ax.getAgentContext(teamId, agentB);
+      const ctxC = await a2ax.getAgentContext(teamId, agentC);
 
       expect(ctxB.messages).toHaveLength(1);
       expect(ctxC.messages).toHaveLength(1);
@@ -57,21 +57,24 @@ describe("A2AX Protocol", () => {
     });
 
     it("sender does not see own broadcast", async () => {
-      await a2ax.broadcast(fleetId, agentA, "my broadcast");
+      await a2ax.broadcast(teamId, agentA, "my broadcast");
 
-      const ctxA = await a2ax.getAgentContext(fleetId, agentA);
+      const ctxA = await a2ax.getAgentContext(teamId, agentA);
       expect(ctxA.messages).toHaveLength(0);
     });
   });
 
   describe("group messaging", () => {
     it("creates a group and delivers messages to members only", async () => {
-      const { channelId } = await a2ax.createGroup(fleetId, "content-team", [agentA, agentB]);
+      const { channelId } = await a2ax.createGroup(teamId, "content-team", [
+        agentA,
+        agentB,
+      ]);
 
-      await a2ax.sendToGroup(fleetId, channelId, agentA, "group message");
+      await a2ax.sendToGroup(teamId, channelId, agentA, "group message");
 
-      const ctxB = await a2ax.getAgentContext(fleetId, agentB);
-      const ctxC = await a2ax.getAgentContext(fleetId, agentC);
+      const ctxB = await a2ax.getAgentContext(teamId, agentB);
+      const ctxC = await a2ax.getAgentContext(teamId, agentC);
 
       // agentB is a member, should see it
       const groupMsgs = ctxB.messages.filter((m) => m.kind === "text");
@@ -83,16 +86,18 @@ describe("A2AX Protocol", () => {
     });
 
     it("allows joining and leaving groups", async () => {
-      const { channelId } = await a2ax.createGroup(fleetId, "test-group", [agentA]);
+      const { channelId } = await a2ax.createGroup(teamId, "test-group", [
+        agentA,
+      ]);
 
-      await a2ax.sendToGroup(fleetId, channelId, agentA, "before join");
-      let ctxC = await a2ax.getAgentContext(fleetId, agentC);
+      await a2ax.sendToGroup(teamId, channelId, agentA, "before join");
+      let ctxC = await a2ax.getAgentContext(teamId, agentC);
       expect(ctxC.messages.filter((m) => m.kind === "text")).toHaveLength(0);
 
       await a2ax.joinGroup(channelId, agentC);
-      await a2ax.sendToGroup(fleetId, channelId, agentA, "after join");
+      await a2ax.sendToGroup(teamId, channelId, agentA, "after join");
 
-      ctxC = await a2ax.getAgentContext(fleetId, agentC);
+      ctxC = await a2ax.getAgentContext(teamId, agentC);
       // Should see both messages now (joined group, can see history)
       const textMsgs = ctxC.messages.filter((m) => m.kind === "text");
       expect(textMsgs.length).toBeGreaterThanOrEqual(1);
@@ -102,7 +107,7 @@ describe("A2AX Protocol", () => {
   describe("task management", () => {
     it("creates a task and delivers to assignee", async () => {
       const { task } = await a2ax.createTask({
-        fleetId,
+        teamId,
         requestorId: agentA,
         assigneeId: agentB,
         title: "Write summary",
@@ -111,15 +116,17 @@ describe("A2AX Protocol", () => {
 
       expect(task.state).toBe("submitted");
 
-      const ctx = await a2ax.getAgentContext(fleetId, agentB);
+      const ctx = await a2ax.getAgentContext(teamId, agentB);
       const taskMsgs = ctx.messages.filter((m) => m.kind === "task.create");
       expect(taskMsgs).toHaveLength(1);
-      expect(taskMsgs[0].content).toBe("Summarize this week's research findings");
+      expect(taskMsgs[0].content).toBe(
+        "Summarize this week's research findings",
+      );
     });
 
     it("follows task lifecycle", async () => {
       const { task } = await a2ax.createTask({
-        fleetId,
+        teamId,
         requestorId: agentA,
         assigneeId: agentB,
         title: "Test task",
@@ -128,14 +135,18 @@ describe("A2AX Protocol", () => {
 
       await a2ax.updateTaskState(task.id, agentB, "accepted");
       await a2ax.updateTaskState(task.id, agentB, "working");
-      const completed = await a2ax.completeTask(task.id, agentB, "Done. Here are the results.");
+      const completed = await a2ax.completeTask(
+        task.id,
+        agentB,
+        "Done. Here are the results.",
+      );
 
       expect(completed.state).toBe("completed");
     });
 
     it("rejects invalid state transitions", async () => {
       const { task } = await a2ax.createTask({
-        fleetId,
+        teamId,
         requestorId: agentA,
         assigneeId: agentB,
         title: "Test",
@@ -155,7 +166,11 @@ describe("A2AX Protocol", () => {
         name: "Research Scout",
         endpoint: "/api/agent/agent-a",
         skills: [
-          { id: "research", name: "Market Research", description: "Finds competitor data" },
+          {
+            id: "research",
+            name: "Market Research",
+            description: "Finds competitor data",
+          },
         ],
       });
 
@@ -171,7 +186,7 @@ describe("A2AX Protocol", () => {
 
   describe("auth", () => {
     it("issues and validates a token", async () => {
-      const token = await a2ax.issueToken(agentA, fleetId);
+      const token = await a2ax.issueToken(agentA, teamId);
 
       const identity = await a2ax.authenticate(token);
       expect(identity).toBeTruthy();
@@ -192,7 +207,7 @@ describe("A2AX Protocol", () => {
 
   describe("context formatting", () => {
     it("formats empty context as empty string", async () => {
-      const ctx = await a2ax.getAgentContext(fleetId, agentA);
+      const ctx = await a2ax.getAgentContext(teamId, agentA);
       expect(ctx.formatted).toBe("");
       expect(ctx.messages).toHaveLength(0);
     });
@@ -203,11 +218,11 @@ describe("A2AX Protocol", () => {
         maxContextMessages: 2,
       });
 
-      await a2axSmall.sendDirect(fleetId, agentA, agentB, "msg 1");
-      await a2axSmall.sendDirect(fleetId, agentA, agentB, "msg 2");
-      await a2axSmall.sendDirect(fleetId, agentA, agentB, "msg 3");
+      await a2axSmall.sendDirect(teamId, agentA, agentB, "msg 1");
+      await a2axSmall.sendDirect(teamId, agentA, agentB, "msg 2");
+      await a2axSmall.sendDirect(teamId, agentA, agentB, "msg 3");
 
-      const ctx = await a2axSmall.getAgentContext(fleetId, agentB);
+      const ctx = await a2axSmall.getAgentContext(teamId, agentB);
       expect(ctx.messages).toHaveLength(2);
     });
   });

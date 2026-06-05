@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
-import { COFOUNDER_AGENT_ID, USER_AGENT_ID } from "@simple-harmonic/backend/lib/meta-agent/identity";
+import {
+  COFOUNDER_AGENT_ID,
+  USER_AGENT_ID,
+} from "@simple-harmonic/backend/lib/meta-agent/identity";
 import { db } from "@simple-harmonic/backend/server/db";
-import { agents, chatSessions, teams } from "@simple-harmonic/backend/server/db/schema";
+import {
+  agents,
+  chatSessions,
+  teams,
+} from "@simple-harmonic/backend/server/db/schema";
 import { getA2AX } from "@simple-harmonic/backend/server/a2ax";
 
 const TEAM_NAME = "Simple Harmonic v0.0 Launch";
@@ -288,7 +295,6 @@ export async function POST() {
     agentMap.Relay,
     "Relay, the Show HN post is the single most important launch asset. I want to review it before it goes live. Draft by Wednesday so we have time to iterate.",
     { kind: "text" },
-
   );
   await delay(50);
   await a2ax.sendDirect(
@@ -400,86 +406,120 @@ export async function POST() {
 
   // --- Tasks ---
   await a2ax.createTask({
-    fleetId: team.id,
+    teamId: team.id,
     requestorId: agentMap.Relay,
     assigneeId: agentMap.Scout,
     title: "Competitor pricing comparison table",
-    description: "Pull pricing data for Lindy, Crew AI, and MultiOn. Format as a markdown table with tiers, price points, and what's included. Need this for the README positioning section.",
+    description:
+      "Pull pricing data for Lindy, Crew AI, and MultiOn. Format as a markdown table with tiers, price points, and what's included. Need this for the README positioning section.",
   });
 
   const { task: task2 } = await a2ax.createTask({
-    fleetId: team.id,
+    teamId: team.id,
     requestorId: agentMap.Chisel,
     assigneeId: agentMap.Pulse,
     title: "Triage GitHub issues for v0.0 release",
-    description: "Review all open GitHub issues. Label as v0.0-blocker, v0.1-backlog, or wontfix. Flag any security-related issues to me immediately.",
+    description:
+      "Review all open GitHub issues. Label as v0.0-blocker, v0.1-backlog, or wontfix. Flag any security-related issues to me immediately.",
   });
-  await a2ax.updateTaskState(task2.id, agentMap.Pulse, "accepted", "On it. Will have the triage done within the hour.");
+  await a2ax.updateTaskState(
+    task2.id,
+    agentMap.Pulse,
+    "accepted",
+    "On it. Will have the triage done within the hour.",
+  );
 
   const { task: task3 } = await a2ax.createTask({
-    fleetId: team.id,
+    teamId: team.id,
     requestorId: agentMap.Scout,
     assigneeId: agentMap.Relay,
     title: "Draft HN launch post",
-    description: "Write a Show HN post for Simple Harmonic v0.0 launch. Keep it builder-to-builder, no marketing fluff. Include: what it does, why we built it, link to GitHub, and a 30-second demo GIF placeholder.",
+    description:
+      "Write a Show HN post for Simple Harmonic v0.0 launch. Keep it builder-to-builder, no marketing fluff. Include: what it does, why we built it, link to GitHub, and a 30-second demo GIF placeholder.",
   });
   await a2ax.updateTaskState(task3.id, agentMap.Relay, "accepted");
-  await a2ax.updateTaskState(task3.id, agentMap.Relay, "working", "First draft in progress. Will share for review before posting.");
+  await a2ax.updateTaskState(
+    task3.id,
+    agentMap.Relay,
+    "working",
+    "First draft in progress. Will share for review before posting.",
+  );
 
   const { task: task4 } = await a2ax.createTask({
-    fleetId: team.id,
+    teamId: team.id,
     requestorId: agentMap.Pulse,
     assigneeId: agentMap.Chisel,
     title: "Fix agent status dot not updating on error",
-    description: "The team view status dot stays green when an agent errors out mid-tick. The useTeam hook polling doesn't pick up error state transitions. Reproduce: force an agent error and watch the graph view.",
+    description:
+      "The team view status dot stays green when an agent errors out mid-tick. The useTeam hook polling doesn't pick up error state transitions. Reproduce: force an agent error and watch the graph view.",
   });
   await a2ax.updateTaskState(task4.id, agentMap.Chisel, "accepted");
-  await a2ax.updateTaskState(task4.id, agentMap.Chisel, "working", "Found the bug. Polling interval skips status field in the diff check.");
+  await a2ax.updateTaskState(
+    task4.id,
+    agentMap.Chisel,
+    "working",
+    "Found the bug. Polling interval skips status field in the diff check.",
+  );
 
   const { task: task5 } = await a2ax.createTask({
-    fleetId: team.id,
+    teamId: team.id,
     requestorId: agentMap.Chisel,
     assigneeId: agentMap.Relay,
     title: "Update README with setup instructions",
-    description: "Add local development setup section: prerequisites (Node 20+, Postgres), env vars (.env.local template), and npm run dev. Keep it minimal.",
+    description:
+      "Add local development setup section: prerequisites (Node 20+, Postgres), env vars (.env.local template), and npm run dev. Keep it minimal.",
   });
   await a2ax.updateTaskState(task5.id, agentMap.Relay, "accepted");
   await a2ax.updateTaskState(task5.id, agentMap.Relay, "working");
-  await a2ax.updateTaskState(task5.id, agentMap.Relay, "completed", "README updated with setup section. Kept it to 12 lines. PR is up.");
+  await a2ax.updateTaskState(
+    task5.id,
+    agentMap.Relay,
+    "completed",
+    "README updated with setup section. Kept it to 12 lines. PR is up.",
+  );
 
   await a2ax.createTask({
-    fleetId: team.id,
+    teamId: team.id,
     requestorId: agentMap.Scout,
     assigneeId: agentMap.Pulse,
     title: "Monitor early adopter sentiment",
-    description: "Set up monitoring for mentions of Simple Harmonic on HN, Reddit r/SideProject, and Indie Hackers. Report daily summary of sentiment and feature requests.",
+    description:
+      "Set up monitoring for mentions of Simple Harmonic on HN, Reddit r/SideProject, and Indie Hackers. Report daily summary of sentiment and feature requests.",
   });
 
   // --- Cofounder-assigned tasks (direction from the cofounder to agents) ---
   const { task: cofTask1 } = await a2ax.createTask({
-    fleetId: team.id,
+    teamId: team.id,
     requestorId: COFOUNDER_AGENT_ID,
     assigneeId: agentMap.Relay,
     title: "Show HN launch post — final draft for review",
-    description: "Lead with the demo GIF, thesis as your first comment. 200 words max for the post body. I want to read it before it goes live.",
+    description:
+      "Lead with the demo GIF, thesis as your first comment. 200 words max for the post body. I want to read it before it goes live.",
   });
   await a2ax.updateTaskState(cofTask1.id, agentMap.Relay, "accepted");
-  await a2ax.updateTaskState(cofTask1.id, agentMap.Relay, "working", "Draft v1 in progress. Will share by Wednesday EOD.");
+  await a2ax.updateTaskState(
+    cofTask1.id,
+    agentMap.Relay,
+    "working",
+    "Draft v1 in progress. Will share by Wednesday EOD.",
+  );
 
   await a2ax.createTask({
-    fleetId: team.id,
+    teamId: team.id,
     requestorId: COFOUNDER_AGENT_ID,
     assigneeId: agentMap.Scout,
     title: "Competitor gap analysis — what they DON'T do",
-    description: "Add a 'gap' column to the competitor comparison. For each (Lindy, Crew AI, MultiOn, Induced, Relevance), list what they explicitly do not address for solo founders. That's our wedge.",
+    description:
+      "Add a 'gap' column to the competitor comparison. For each (Lindy, Crew AI, MultiOn, Induced, Relevance), list what they explicitly do not address for solo founders. That's our wedge.",
   });
 
   await a2ax.createTask({
-    fleetId: team.id,
+    teamId: team.id,
     requestorId: COFOUNDER_AGENT_ID,
     assigneeId: agentMap.Chisel,
     title: "Tag v0.0 release candidate by Thursday",
-    description: "Cut a stable RC tag once SSE narration and onboarding polish land. Relay needs it for the demo GIF recording.",
+    description:
+      "Cut a stable RC tag once SSE narration and onboarding polish land. Relay needs it for the demo GIF recording.",
   });
 
   return NextResponse.json({

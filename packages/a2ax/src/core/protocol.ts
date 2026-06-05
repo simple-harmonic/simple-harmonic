@@ -11,7 +11,12 @@ import {
   groupChannelId,
   taskChannelId,
 } from "../types/channel.js";
-import type { CreateMessageInput, Message, MessageKind, Part } from "../types/message.js";
+import type {
+  CreateMessageInput,
+  Message,
+  MessageKind,
+  Part,
+} from "../types/message.js";
 import type { CreateTaskInput, Task, TaskState } from "../types/task.js";
 import { isValidTransition } from "../types/task.js";
 import type { MessageQuery, Transport } from "./transport.js";
@@ -38,7 +43,7 @@ export interface AgentContext {
  * Usage:
  * ```ts
  * const a2ax = new A2AX({ transport: myTransport });
- * await a2ax.sendDirect(fleetId, fromId, toId, "hello");
+ * await a2ax.sendDirect(teamId, fromId, toId, "hello");
  * ```
  */
 export class A2AX {
@@ -57,19 +62,24 @@ export class A2AX {
   // -------------------------------------------------------------------------
 
   async sendDirect(
-    fleetId: string,
+    teamId: string,
     fromAgentId: string,
     toAgentId: string,
     content: string,
-    opts?: { kind?: MessageKind; parts?: Part[]; payload?: Record<string, unknown>; urgent?: boolean },
+    opts?: {
+      kind?: MessageKind;
+      parts?: Part[];
+      payload?: Record<string, unknown>;
+      urgent?: boolean;
+    },
   ): Promise<Message> {
     const channelId = directChannelId(fromAgentId, toAgentId);
 
     // Ensure channel exists
-    await this.ensureChannel(channelId, fleetId, "direct");
+    await this.ensureChannel(channelId, teamId, "direct");
 
     return this.transport.insertMessage({
-      fleetId,
+      teamId,
       channelType: "direct",
       channelId,
       fromAgentId,
@@ -87,17 +97,21 @@ export class A2AX {
   // -------------------------------------------------------------------------
 
   async broadcast(
-    fleetId: string,
+    teamId: string,
     fromAgentId: string,
     content: string,
-    opts?: { kind?: MessageKind; parts?: Part[]; payload?: Record<string, unknown> },
+    opts?: {
+      kind?: MessageKind;
+      parts?: Part[];
+      payload?: Record<string, unknown>;
+    },
   ): Promise<Message> {
-    const channelId = broadcastChannelId(fleetId);
+    const channelId = broadcastChannelId(teamId);
 
-    await this.ensureChannel(channelId, fleetId, "broadcast", "fleet-broadcast");
+    await this.ensureChannel(channelId, teamId, "broadcast", "team-broadcast");
 
     return this.transport.insertMessage({
-      fleetId,
+      teamId,
       channelType: "broadcast",
       channelId,
       fromAgentId,
@@ -114,7 +128,7 @@ export class A2AX {
   // -------------------------------------------------------------------------
 
   async createGroup(
-    fleetId: string,
+    teamId: string,
     name: string,
     memberIds: string[],
   ): Promise<{ channelId: string }> {
@@ -123,7 +137,7 @@ export class A2AX {
 
     await this.transport.createChannel({
       id: channelId,
-      fleetId,
+      teamId,
       channelType: "group",
       name,
     });
@@ -134,7 +148,7 @@ export class A2AX {
 
     // System message
     await this.transport.insertMessage({
-      fleetId,
+      teamId,
       channelType: "group",
       channelId,
       fromAgentId: memberIds[0],
@@ -147,14 +161,18 @@ export class A2AX {
   }
 
   async sendToGroup(
-    fleetId: string,
+    teamId: string,
     channelId: string,
     fromAgentId: string,
     content: string,
-    opts?: { kind?: MessageKind; parts?: Part[]; payload?: Record<string, unknown> },
+    opts?: {
+      kind?: MessageKind;
+      parts?: Part[];
+      payload?: Record<string, unknown>;
+    },
   ): Promise<Message> {
     return this.transport.insertMessage({
-      fleetId,
+      teamId,
       channelType: "group",
       channelId,
       fromAgentId,
@@ -182,20 +200,22 @@ export class A2AX {
   // Task management
   // -------------------------------------------------------------------------
 
-  async createTask(input: CreateTaskInput): Promise<{ task: Task; channelId: string }> {
+  async createTask(
+    input: CreateTaskInput,
+  ): Promise<{ task: Task; channelId: string }> {
     const task = await this.transport.createTask(input);
     const channelId = taskChannelId(task.id);
 
     await this.transport.createChannel({
       id: channelId,
-      fleetId: input.fleetId,
+      teamId: input.teamId,
       channelType: "task",
       name: input.title,
     });
 
     // Initial task.create message
     await this.transport.insertMessage({
-      fleetId: input.fleetId,
+      teamId: input.teamId,
       channelType: "task",
       channelId,
       fromAgentId: input.requestorId,
@@ -221,11 +241,13 @@ export class A2AX {
       throw new Error(`Invalid transition: ${task.state} -> ${newState}`);
     }
 
-    const updated = await this.transport.updateTask(taskId, { state: newState });
+    const updated = await this.transport.updateTask(taskId, {
+      state: newState,
+    });
     const channelId = taskChannelId(taskId);
 
     await this.transport.insertMessage({
-      fleetId: task.fleetId,
+      teamId: task.teamId,
       channelType: "task",
       channelId,
       fromAgentId: agentId,
@@ -246,11 +268,13 @@ export class A2AX {
     const task = await this.transport.getTask(taskId);
     if (!task) throw new Error(`Task ${taskId} not found`);
 
-    const updated = await this.transport.updateTask(taskId, { state: "completed" });
+    const updated = await this.transport.updateTask(taskId, {
+      state: "completed",
+    });
     const channelId = taskChannelId(taskId);
 
     await this.transport.insertMessage({
-      fleetId: task.fleetId,
+      teamId: task.teamId,
       channelType: "task",
       channelId,
       fromAgentId: agentId,
@@ -267,10 +291,13 @@ export class A2AX {
   // Agent context (for tick injection)
   // -------------------------------------------------------------------------
 
-  async getAgentContext(fleetId: string, agentId: string): Promise<AgentContext> {
+  async getAgentContext(
+    teamId: string,
+    agentId: string,
+  ): Promise<AgentContext> {
     // 1. Direct messages to this agent
     const directMsgs = await this.transport.queryMessages({
-      fleetId,
+      teamId,
       agentId,
       unreadOnly: true,
       channelType: "direct",
@@ -279,7 +306,7 @@ export class A2AX {
 
     // 2. Broadcast messages
     const broadcastMsgs = await this.transport.queryMessages({
-      fleetId,
+      teamId,
       agentId,
       unreadOnly: true,
       channelType: "broadcast",
@@ -288,7 +315,7 @@ export class A2AX {
 
     // 3. Group messages (agent must be a member)
     const groupMsgs = await this.transport.queryMessages({
-      fleetId,
+      teamId,
       agentId,
       unreadOnly: true,
       channelType: "group",
@@ -297,14 +324,19 @@ export class A2AX {
 
     // 4. Task messages (agent is requestor or assignee)
     const taskMsgs = await this.transport.queryMessages({
-      fleetId,
+      teamId,
       agentId,
       unreadOnly: true,
       channelType: "task",
       limit: this.maxContextMessages,
     });
 
-    const allMessages = [...directMsgs, ...broadcastMsgs, ...groupMsgs, ...taskMsgs]
+    const allMessages = [
+      ...directMsgs,
+      ...broadcastMsgs,
+      ...groupMsgs,
+      ...taskMsgs,
+    ]
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
       .slice(0, this.maxContextMessages);
 
@@ -332,19 +364,23 @@ export class A2AX {
     return this.transport.getCard(agentId);
   }
 
-  async discoverAgents(fleetId: string): Promise<AgentCard[]> {
-    return this.transport.listCards(fleetId);
+  async discoverAgents(teamId: string): Promise<AgentCard[]> {
+    return this.transport.listCards(teamId);
   }
 
   // -------------------------------------------------------------------------
   // Auth
   // -------------------------------------------------------------------------
 
-  async issueToken(agentId: string, fleetId: string, scopes?: Scope[]): Promise<string> {
+  async issueToken(
+    agentId: string,
+    teamId: string,
+    scopes?: Scope[],
+  ): Promise<string> {
     const token = generateToken();
     await this.transport.createToken({
       agentId,
-      fleetId,
+      teamId,
       token,
       scopes: scopes ?? [
         "message:send",
@@ -361,11 +397,13 @@ export class A2AX {
     return token;
   }
 
-  async authenticate(token: string): Promise<{ agentId: string; fleetId: string } | null> {
+  async authenticate(
+    token: string,
+  ): Promise<{ agentId: string; teamId: string } | null> {
     const t = await this.transport.getToken(token);
     if (!t) return null;
     if (t.expiresAt && t.expiresAt < new Date()) return null;
-    return { agentId: t.agentId, fleetId: t.fleetId };
+    return { agentId: t.agentId, teamId: t.teamId };
   }
 
   async authorize(token: string, scope: Scope): Promise<boolean> {
@@ -389,13 +427,18 @@ export class A2AX {
 
   private async ensureChannel(
     channelId: string,
-    fleetId: string,
+    teamId: string,
     channelType: CreateMessageInput["channelType"],
     name?: string,
   ): Promise<void> {
     const existing = await this.transport.getChannel(channelId);
     if (!existing) {
-      await this.transport.createChannel({ id: channelId, fleetId, channelType, name });
+      await this.transport.createChannel({
+        id: channelId,
+        teamId,
+        channelType,
+        name,
+      });
     }
   }
 

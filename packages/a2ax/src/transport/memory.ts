@@ -23,7 +23,7 @@ export class MemoryTransport implements Transport {
   async insertMessage(input: CreateMessageInput): Promise<Message> {
     const msg: Message = {
       id: crypto.randomUUID(),
-      fleetId: input.fleetId,
+      teamId: input.teamId,
       channelType: input.channelType,
       channelId: input.channelId,
       fromAgentId: input.fromAgentId,
@@ -44,10 +44,12 @@ export class MemoryTransport implements Transport {
   }
 
   async queryMessages(query: MessageQuery): Promise<Message[]> {
-    let results = this.messages.filter((m) => m.fleetId === query.fleetId);
+    let results = this.messages.filter((m) => m.teamId === query.teamId);
 
     if (query.unreadOnly) {
-      results = results.filter((m) => m.status === "pending" || m.status === "delivered");
+      results = results.filter(
+        (m) => m.status === "pending" || m.status === "delivered",
+      );
     }
 
     if (query.channelType) {
@@ -67,14 +69,16 @@ export class MemoryTransport implements Transport {
           return true;
         case "group":
           return this.members.some(
-            (mb) => mb.channelId === m.channelId && mb.agentId === query.agentId,
+            (mb) =>
+              mb.channelId === m.channelId && mb.agentId === query.agentId,
           );
         case "task":
           // Check if agent is involved in this task
           for (const t of this.tasks.values()) {
             if (
               m.channelId === `task:${t.id}` &&
-              (t.assigneeId === query.agentId || t.requestorId === query.agentId)
+              (t.assigneeId === query.agentId ||
+                t.requestorId === query.agentId)
             ) {
               return true;
             }
@@ -124,8 +128,8 @@ export class MemoryTransport implements Transport {
     return full;
   }
 
-  async listChannels(fleetId: string): Promise<Channel[]> {
-    return [...this.channels.values()].filter((c) => c.fleetId === fleetId);
+  async listChannels(teamId: string): Promise<Channel[]> {
+    return [...this.channels.values()].filter((c) => c.teamId === teamId);
   }
 
   async addMember(channelId: string, agentId: string): Promise<ChannelMember> {
@@ -157,7 +161,7 @@ export class MemoryTransport implements Transport {
   async createTask(input: CreateTaskInput): Promise<Task> {
     const task: Task = {
       id: crypto.randomUUID(),
-      fleetId: input.fleetId,
+      teamId: input.teamId,
       channelId: `task:${crypto.randomUUID()}`,
       requestorId: input.requestorId,
       assigneeId: input.assigneeId,
@@ -187,10 +191,12 @@ export class MemoryTransport implements Transport {
     return task;
   }
 
-  async listTasks(fleetId: string, agentId?: string): Promise<Task[]> {
-    let results = [...this.tasks.values()].filter((t) => t.fleetId === fleetId);
+  async listTasks(teamId: string, agentId?: string): Promise<Task[]> {
+    let results = [...this.tasks.values()].filter((t) => t.teamId === teamId);
     if (agentId) {
-      results = results.filter((t) => t.assigneeId === agentId || t.requestorId === agentId);
+      results = results.filter(
+        (t) => t.assigneeId === agentId || t.requestorId === agentId,
+      );
     }
     return results;
   }
@@ -206,10 +212,10 @@ export class MemoryTransport implements Transport {
     return card;
   }
 
-  async listCards(fleetId: string): Promise<AgentCard[]> {
-    // In memory transport, fleetId is stored in metadata
+  async listCards(teamId: string): Promise<AgentCard[]> {
+    // In memory transport, teamId is stored in metadata
     return [...this.cards.values()].filter(
-      (c) => (c.metadata as Record<string, unknown>)?.fleetId === fleetId || true,
+      (c) => (c.metadata as Record<string, unknown>)?.teamId === teamId || true,
     );
   }
 

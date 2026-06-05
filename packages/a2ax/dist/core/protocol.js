@@ -10,7 +10,7 @@ import { isValidTransition } from "../types/task.js";
  * Usage:
  * ```ts
  * const a2ax = new A2AX({ transport: myTransport });
- * await a2ax.sendDirect(fleetId, fromId, toId, "hello");
+ * await a2ax.sendDirect(teamId, fromId, toId, "hello");
  * ```
  */
 export class A2AX {
@@ -25,12 +25,12 @@ export class A2AX {
     // -------------------------------------------------------------------------
     // Direct messaging (1:1)
     // -------------------------------------------------------------------------
-    async sendDirect(fleetId, fromAgentId, toAgentId, content, opts) {
+    async sendDirect(teamId, fromAgentId, toAgentId, content, opts) {
         const channelId = directChannelId(fromAgentId, toAgentId);
         // Ensure channel exists
-        await this.ensureChannel(channelId, fleetId, "direct");
+        await this.ensureChannel(channelId, teamId, "direct");
         return this.transport.insertMessage({
-            fleetId,
+            teamId,
             channelType: "direct",
             channelId,
             fromAgentId,
@@ -45,11 +45,11 @@ export class A2AX {
     // -------------------------------------------------------------------------
     // Broadcast (one-to-all)
     // -------------------------------------------------------------------------
-    async broadcast(fleetId, fromAgentId, content, opts) {
-        const channelId = broadcastChannelId(fleetId);
-        await this.ensureChannel(channelId, fleetId, "broadcast", "fleet-broadcast");
+    async broadcast(teamId, fromAgentId, content, opts) {
+        const channelId = broadcastChannelId(teamId);
+        await this.ensureChannel(channelId, teamId, "broadcast", "team-broadcast");
         return this.transport.insertMessage({
-            fleetId,
+            teamId,
             channelType: "broadcast",
             channelId,
             fromAgentId,
@@ -63,12 +63,12 @@ export class A2AX {
     // -------------------------------------------------------------------------
     // Group messaging
     // -------------------------------------------------------------------------
-    async createGroup(fleetId, name, memberIds) {
+    async createGroup(teamId, name, memberIds) {
         const groupId = crypto.randomUUID();
         const channelId = groupChannelId(groupId);
         await this.transport.createChannel({
             id: channelId,
-            fleetId,
+            teamId,
             channelType: "group",
             name,
         });
@@ -77,7 +77,7 @@ export class A2AX {
         }
         // System message
         await this.transport.insertMessage({
-            fleetId,
+            teamId,
             channelType: "group",
             channelId,
             fromAgentId: memberIds[0],
@@ -87,9 +87,9 @@ export class A2AX {
         });
         return { channelId };
     }
-    async sendToGroup(fleetId, channelId, fromAgentId, content, opts) {
+    async sendToGroup(teamId, channelId, fromAgentId, content, opts) {
         return this.transport.insertMessage({
-            fleetId,
+            teamId,
             channelType: "group",
             channelId,
             fromAgentId,
@@ -118,13 +118,13 @@ export class A2AX {
         const channelId = taskChannelId(task.id);
         await this.transport.createChannel({
             id: channelId,
-            fleetId: input.fleetId,
+            teamId: input.teamId,
             channelType: "task",
             name: input.title,
         });
         // Initial task.create message
         await this.transport.insertMessage({
-            fleetId: input.fleetId,
+            teamId: input.teamId,
             channelType: "task",
             channelId,
             fromAgentId: input.requestorId,
@@ -145,7 +145,7 @@ export class A2AX {
         const updated = await this.transport.updateTask(taskId, { state: newState });
         const channelId = taskChannelId(taskId);
         await this.transport.insertMessage({
-            fleetId: task.fleetId,
+            teamId: task.teamId,
             channelType: "task",
             channelId,
             fromAgentId: agentId,
@@ -162,7 +162,7 @@ export class A2AX {
         const updated = await this.transport.updateTask(taskId, { state: "completed" });
         const channelId = taskChannelId(taskId);
         await this.transport.insertMessage({
-            fleetId: task.fleetId,
+            teamId: task.teamId,
             channelType: "task",
             channelId,
             fromAgentId: agentId,
@@ -176,10 +176,10 @@ export class A2AX {
     // -------------------------------------------------------------------------
     // Agent context (for tick injection)
     // -------------------------------------------------------------------------
-    async getAgentContext(fleetId, agentId) {
+    async getAgentContext(teamId, agentId) {
         // 1. Direct messages to this agent
         const directMsgs = await this.transport.queryMessages({
-            fleetId,
+            teamId,
             agentId,
             unreadOnly: true,
             channelType: "direct",
@@ -187,7 +187,7 @@ export class A2AX {
         });
         // 2. Broadcast messages
         const broadcastMsgs = await this.transport.queryMessages({
-            fleetId,
+            teamId,
             agentId,
             unreadOnly: true,
             channelType: "broadcast",
@@ -195,7 +195,7 @@ export class A2AX {
         });
         // 3. Group messages (agent must be a member)
         const groupMsgs = await this.transport.queryMessages({
-            fleetId,
+            teamId,
             agentId,
             unreadOnly: true,
             channelType: "group",
@@ -203,7 +203,7 @@ export class A2AX {
         });
         // 4. Task messages (agent is requestor or assignee)
         const taskMsgs = await this.transport.queryMessages({
-            fleetId,
+            teamId,
             agentId,
             unreadOnly: true,
             channelType: "task",
@@ -230,17 +230,17 @@ export class A2AX {
     async getCard(agentId) {
         return this.transport.getCard(agentId);
     }
-    async discoverAgents(fleetId) {
-        return this.transport.listCards(fleetId);
+    async discoverAgents(teamId) {
+        return this.transport.listCards(teamId);
     }
     // -------------------------------------------------------------------------
     // Auth
     // -------------------------------------------------------------------------
-    async issueToken(agentId, fleetId, scopes) {
+    async issueToken(agentId, teamId, scopes) {
         const token = generateToken();
         await this.transport.createToken({
             agentId,
-            fleetId,
+            teamId,
             token,
             scopes: scopes ?? [
                 "message:send",
@@ -262,7 +262,7 @@ export class A2AX {
             return null;
         if (t.expiresAt && t.expiresAt < new Date())
             return null;
-        return { agentId: t.agentId, fleetId: t.fleetId };
+        return { agentId: t.agentId, teamId: t.teamId };
     }
     async authorize(token, scope) {
         const t = await this.transport.getToken(token);
@@ -281,10 +281,10 @@ export class A2AX {
     // -------------------------------------------------------------------------
     // Private helpers
     // -------------------------------------------------------------------------
-    async ensureChannel(channelId, fleetId, channelType, name) {
+    async ensureChannel(channelId, teamId, channelType, name) {
         const existing = await this.transport.getChannel(channelId);
         if (!existing) {
-            await this.transport.createChannel({ id: channelId, fleetId, channelType, name });
+            await this.transport.createChannel({ id: channelId, teamId, channelType, name });
         }
     }
     formatContext(messages) {

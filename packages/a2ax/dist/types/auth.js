@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Auth types — A2A-compatible authentication
 // ---------------------------------------------------------------------------
-/** Default scopes for fleet-internal agents */
+/** Default scopes for team-internal agents */
 export const DEFAULT_SCOPES = [
     "message:send",
     "message:read",

@@ -10,7 +10,7 @@ import type { CreateTaskInput, Task, UpdateTaskInput } from "../types/task.js";
 
 /** Query filter for fetching messages */
 export interface MessageQuery {
-  fleetId: string;
+  teamId: string;
   agentId: string;
   /** Only unread (pending/delivered) */
   unreadOnly?: boolean;
@@ -34,7 +34,7 @@ export interface Transport {
   // --- Channels ---
   getChannel(channelId: string): Promise<Channel | null>;
   createChannel(channel: Omit<Channel, "createdAt">): Promise<Channel>;
-  listChannels(fleetId: string): Promise<Channel[]>;
+  listChannels(teamId: string): Promise<Channel[]>;
   addMember(channelId: string, agentId: string): Promise<ChannelMember>;
   removeMember(channelId: string, agentId: string): Promise<void>;
   getMembers(channelId: string): Promise<ChannelMember[]>;
@@ -44,12 +44,12 @@ export interface Transport {
   createTask(input: CreateTaskInput): Promise<Task>;
   getTask(taskId: string): Promise<Task | null>;
   updateTask(taskId: string, input: UpdateTaskInput): Promise<Task>;
-  listTasks(fleetId: string, agentId?: string): Promise<Task[]>;
+  listTasks(teamId: string, agentId?: string): Promise<Task[]>;
 
   // --- Agent Cards ---
   getCard(agentId: string): Promise<AgentCard | null>;
   upsertCard(card: AgentCard): Promise<AgentCard>;
-  listCards(fleetId: string): Promise<AgentCard[]>;
+  listCards(teamId: string): Promise<AgentCard[]>;
 
   // --- Auth ---
   createToken(token: AgentToken): Promise<AgentToken>;

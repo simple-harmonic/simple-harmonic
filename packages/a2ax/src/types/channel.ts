@@ -7,7 +7,7 @@ import type { ChannelType } from "./message.js";
 /** A communication channel */
 export interface Channel {
   id: string;
-  fleetId: string;
+  teamId: string;
   channelType: ChannelType;
   name?: string;
   metadata?: Record<string, unknown>;
@@ -31,9 +31,9 @@ export function directChannelId(agentA: string, agentB: string): string {
   return `direct:${sorted[0]}:${sorted[1]}`;
 }
 
-/** Generate a broadcast channel ID for a fleet */
-export function broadcastChannelId(fleetId: string): string {
-  return `fleet:${fleetId}`;
+/** Generate a broadcast channel ID for a team */
+export function broadcastChannelId(teamId: string): string {
+  return `team:${teamId}`;
 }
 
 /** Generate a group channel ID */

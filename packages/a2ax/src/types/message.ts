@@ -55,7 +55,7 @@ export interface Artifact {
 /** The core message envelope */
 export interface Message {
   id: string;
-  fleetId: string;
+  teamId: string;
   channelType: ChannelType;
   channelId: string;
   fromAgentId: string;
@@ -82,7 +82,7 @@ export interface Message {
 
 /** Input for creating a new message */
 export interface CreateMessageInput {
-  fleetId: string;
+  teamId: string;
   channelType: ChannelType;
   channelId: string;
   fromAgentId: string;
