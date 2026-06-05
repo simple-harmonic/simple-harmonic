@@ -162,7 +162,11 @@ export async function refreshCodexToken(): Promise<{
       };
     }
 
-    const data = await res.json();
+    const data = (await res.json()) as {
+      access_token?: string;
+      id_token?: string;
+      refresh_token?: string;
+    };
     if (!data.access_token) {
       return { ok: false, error: "No access_token in refresh response" };
     }

@@ -3,6 +3,7 @@
     "target": "ES2017",
     "lib": ["esnext"],
     "strict": true,
+    "skipLibCheck": true,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
@@ -15,5 +16,6 @@
     }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"],
-  "exclude": ["node_modules"]
+  "comment:exclude": "api-*.test.ts exercise the repo-root src/app routes (a different package); they are type-checked by the root tsconfig and run by vitest, so they are excluded here to keep the backend typecheck package-scoped.",
+  "exclude": ["node_modules", "tests/unit/api-*.test.ts"]
 }
