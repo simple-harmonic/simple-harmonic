@@ -102,6 +102,7 @@ export async function POST(request: Request) {
         const message = err instanceof Error ? err.message : "Unknown error";
         emitAppEvent({
           severity: "error",
+          level: "infra",
           source: "api",
           message: `Chat API error: ${message}`,
         });

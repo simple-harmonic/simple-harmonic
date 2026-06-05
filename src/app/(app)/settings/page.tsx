@@ -90,6 +90,20 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        <section className="mb-10">
+          <h2 className="text-[11px] text-brand font-semibold tracking-[0.06em] uppercase font-mono mb-4">
+            Platform
+          </h2>
+          <div className="flex flex-col gap-3">
+            <SettingsCard
+              href="/settings/platform"
+              title="Platform Health"
+              subtitle="Infrastructure report, platform status, telemetry"
+              status="ok"
+            />
+          </div>
+        </section>
+
         <section>
           <h2 className="text-[11px] text-brand font-semibold tracking-[0.06em] uppercase font-mono mb-4">
             Appearance

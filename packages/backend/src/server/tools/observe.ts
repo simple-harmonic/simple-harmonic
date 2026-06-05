@@ -1,10 +1,12 @@
 // ---------------------------------------------------------------------------
 // observe_app tool -- lets agents query the app's health events.
 //
-// Agents can see recent errors, warnings, and info events. This is the
-// active-query complement to the passive health-context injection in the
-// tick prompt. Use it when an agent wants to investigate a specific error
-// or check if a fix resolved an issue.
+// Agents can see recent errors, warnings, and info events at agent/team/tool
+// levels. Infra-level events are NEVER returned (founder-only).
+//
+// This is the active-query complement to the passive health-context injection
+// in the tick prompt. Use it when an agent wants to investigate a specific
+// error or check if a fix resolved an issue.
 // ---------------------------------------------------------------------------
 
 import { z } from "zod";
@@ -16,6 +18,10 @@ const observeAppSchema = z.object({
     .enum(["info", "warning", "error"])
     .optional()
     .describe("Filter by severity. Omit for all severities."),
+  level: z
+    .enum(["agent", "team", "tool"])
+    .optional()
+    .describe("Filter by level: agent (single agent issues), team (coordination issues), tool (tool bugs/limitations). Infrastructure events are not available through this tool."),
   source: z
     .string()
     .optional()
@@ -33,7 +39,7 @@ const observeAppSchema = z.object({
 export const observeAppDef: ToolDefinition<typeof observeAppSchema> = {
   name: "observe_app",
   description:
-    "Query recent app health events (errors, warnings, status updates). Use this to investigate issues, check if a fix resolved an error, or understand what's happening in the system. Returns events newest-first.",
+    "Query recent app health events (errors, warnings, status updates) at agent, team, or tool level. Use this to investigate issues, check if a fix resolved an error, or understand what's happening in the system. Returns events newest-first. Infrastructure-level events are not accessible through this tool.",
   category: "internal",
   risk: "safe",
   schema: observeAppSchema,
@@ -48,16 +54,18 @@ export const observeAppImpl: ToolImpl<typeof observeAppSchema> = async (args, ct
     const events = await queryAppEvents({
       teamId: ctx.teamId,
       severity: args.severity,
+      level: args.level,
       source: args.source,
       since,
       limit,
+      includeInfra: false, // never show infra to agents
     });
 
     if (events.length === 0) {
       return {
         toolName: "observe_app",
         success: true,
-        result: `No events found in the last ${hours} hour(s)${args.severity ? ` with severity=${args.severity}` : ""}${args.source ? ` from source=${args.source}` : ""}.`,
+        result: `No events found in the last ${hours} hour(s)${args.severity ? ` with severity=${args.severity}` : ""}${args.level ? ` at level=${args.level}` : ""}${args.source ? ` from source=${args.source}` : ""}.`,
       };
     }
 
@@ -71,7 +79,7 @@ export const observeAppImpl: ToolImpl<typeof observeAppSchema> = async (args, ct
         payload: {
           eventCount: events.length,
           hours,
-          filters: { severity: args.severity, source: args.source },
+          filters: { severity: args.severity, level: args.level, source: args.source },
         },
       },
     };
