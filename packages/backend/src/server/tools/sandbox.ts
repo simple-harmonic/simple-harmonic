@@ -117,6 +117,24 @@ export function scrubbedEnv(): NodeJS.ProcessEnv {
   return out as NodeJS.ProcessEnv;
 }
 
+/**
+ * Environment for a coding-agent subprocess (claude-code/codex/opencode): the
+ * scrubbedEnv() base allowlist plus ONLY the named provider keys the chosen
+ * backend needs (e.g. ANTHROPIC_API_KEY). Keeps DATABASE_URL, GITHUB_TOKEN,
+ * APOLLO_MASTER_KEY, and every other secret OUT of the autonomous coder's
+ * environment — the same posture run_command uses, applied to the most powerful
+ * tool. Keys must be uppercase env-var identifiers; anything else is ignored.
+ */
+export function codingEnv(extraKeys: string[] = []): NodeJS.ProcessEnv {
+  const out = scrubbedEnv() as Record<string, string>;
+  for (const key of extraKeys) {
+    if (!/^[A-Z][A-Z0-9_]*$/.test(key)) continue;
+    const v = process.env[key];
+    if (v !== undefined) out[key] = v;
+  }
+  return out as NodeJS.ProcessEnv;
+}
+
 // ---------------------------------------------------------------------------
 // internals
 // ---------------------------------------------------------------------------
