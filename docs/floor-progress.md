@@ -22,7 +22,7 @@ Verify a phase is fully green (tests + typecheck + stated acceptance) before sta
 | 7 | SSRF egress chokepoint | 3 | ✅ done | `1c36e79` | DNS resolve-then-pin; token never sent to internal host; 675 tests |
 | 8 | a2ax per-recipient reads + fleet leak | 4 | ✅ done | `5b7189c` | broadcast/group fan-out fixed (per-recipient reads); fleet-scoped discovery; 678 tests; dist rebuilt |
 | 9 | FKs + one schema source | 5 | ✅ done | `c27fbb9` | FK cascades VERIFIED vs real PG18 (sentinel inserts ok, zero orphans); transactional deletes; schema drift-guard test; 680 tests |
-| 10 | Dead code + planner DI | 5 | 🟡 next | — | last Phase 5 item; see NEXT |
+| 10 | Dead code + planner DI | 5 | ✅ done | 10a `958d8b3` · 10b `37147f4` | 8 dead components + @xyflow removed; planner DI restores lib boundary (zero server imports); 680 tests. Helper-hoist deferred (helpers diverged in behavior — see log) |
 | — | Standing guard (checklist in CLAUDE.md) | 6 | ⬜ todo | — | — |
 
 Legend: ⬜ todo · 🟡 in progress · ✅ done+verified · ⛔ blocked
@@ -36,8 +36,16 @@ Legend: ⬜ todo · 🟡 in progress · ✅ done+verified · ⛔ blocked
 - 2026-06-05: **PHASE 3 CLEARED.** Items 6 (`d47fbfd`), 7 (`1c36e79`) done+committed. Gate: typecheck 0; `npm test` 675/675; tree clean. (Process note: item 7's SSRF change broke 8 existing http_fetch/api-tool tests that didn't mock DNS; caught by the full suite, fixed + amended green. Lesson: run the FULL suite before committing a change to a shared primitive.) Beginning Phase 4.
 - 2026-06-05: **PHASE 4 CLEARED.** Item 8 done (`5b7189c`). Gate: typecheck 0; `npm test` 678/678; tree clean. The original-review broadcast bug is fixed + regression-tested. a2ax `dist` rebuilt (backend imports the built package — remember to rebuild dist after any a2ax src change). Beginning Phase 5.
 - 2026-06-05: Item 9 done (`c27fbb9`). 680/680. FK cascades + transactional deletes + schema drift-guard test. **Verified against a real throwaway Postgres 18** (initdb/pg_ctl available locally, set `LC_ALL=C` to avoid the PG18 macOS "multithreaded postmaster" start error): fresh+idempotent apply, sentinel-id inserts succeed (agent columns correctly NOT FK'd), root-team delete cascades child team + all a2ax rows to zero orphans. Phase 5 has one item left (item 10).
+- 2026-06-06: **PHASE 5 CLEARED.** Item 10 done: 10a (`958d8b3`) deleted 8 zero-importer components (~2400 LOC incl. the unused React Flow graph) + dropped @xyflow + moved live narration helpers to lib; 10b (`37147f4`) inverted the planner to DI so `lib/meta-agent` has ZERO server imports (the NPM-extractability boundary the original review flagged). Gate: typecheck 0; `npm test` 680/680; tree clean. **Helper-hoist sub-part deliberately DEFERRED**: on inspection the "duplicated" `formatTime`/etc. had DIVERGED in behavior across files (agent-messages-view = HH:MM only; message.tsx handles undefined; others show full date), so a naive hoist would change UI timestamp rendering — that's a product decision, not a safe refactor. Logged rather than forced. (Also: `git add -A` once accidentally tracked the ralph state file + test.mts/test.py scratch; amended out + gitignored. Use explicit paths.) Beginning Phase 6 (final).
 
-## NEXT: item 10 (Phase 5 final) — dead code + helper hoist + planner DI
+## NEXT: Phase 6 — standing guard (the final phase)
+Make the floor stay raised. Mostly a CLAUDE.md doc task + confirm the CI gates.
+1. Add a **"new-surface checklist"** section to `CLAUDE.md` (the rules that keep the floor up): any new tool that runs code/touches the network routes through `runSubprocess`/`url-guard`; any new API route is gated by `middleware.ts`; any new DB table has FKs + lives in `schema.ts` AND the setup-db SQL (the `schema-sync` test enforces it); any new feature ships with a test that runs in CI; rebuild a2ax `dist` after any a2ax src change; run the FULL `npm test` before committing a change to a shared primitive.
+2. Note the CI required-vs-advisory rollout is already in `.github/workflows/ci.yml`; in `CLAUDE.md`, point to it + the `docs/floor-plan.md` Phase 6 section.
+3. Optionally flip backend `typecheck` to a required CI gate now that it's green (branch-protection note — can't be done from code, document it).
+Phase 6 gate: CLAUDE.md updated + `npm test` still green. Then the floor plan is COMPLETE.
+
+## (done) item 10 NEXT spec — dead code + helper hoist + planner DI
 See `docs/floor-plan.md` Phase 5 item 10. This is mostly deletion + import-repointing (compiler-checked, low risk). Run the FULL `npm test` before committing (item-7 lesson). Steps:
 1. **Delete the zero-importer components** (grep-verify each has no importer first): `packages/frontend/src/components/team/{agent-graph,meta-agent-panel,agent-detail-panel,agent-hub-view,user-pov-view,paused-banner}.tsx` and `components/top-bar.tsx`. Then drop `@xyflow/react` from root package.json deps (grep `@xyflow` across src+packages returns empty first) + `npm install`.
 2. **narration-sidebar.tsx is split**: the NarrationSidebar component is dead but its exports `describeAction`/`extractDetail`/`NarrationEntry` are LIVE (used by use-team.ts + team-dashboard + narration.test). Move those live helpers into a new `packages/frontend/src/lib/narration.ts`, repoint the 3 consumers, then delete narration-sidebar.tsx.
