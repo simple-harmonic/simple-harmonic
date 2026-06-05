@@ -169,6 +169,13 @@ export function createAnthropicClient(opts: {
                 finish_reason: finishReason,
               },
             ],
+            usage: {
+              input_tokens: response.usage?.input_tokens ?? 0,
+              output_tokens: response.usage?.output_tokens ?? 0,
+              // OpenAI-compatible aliases so the counting wrapper reads either.
+              prompt_tokens: response.usage?.input_tokens ?? 0,
+              completion_tokens: response.usage?.output_tokens ?? 0,
+            },
           };
         },
       },

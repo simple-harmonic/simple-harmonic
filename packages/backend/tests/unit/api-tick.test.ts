@@ -15,6 +15,12 @@ const mockUpdate = vi.fn().mockReturnValue({ set: mockSet });
 const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
 const mockDelete = vi.fn().mockReturnValue({ where: mockDeleteWhere });
 
+// Spend ledger read (checkSpendAllowed). Default: $0 spent today (under cap).
+const mockSelectWhere = vi.fn().mockResolvedValue([{ total: 0 }]);
+const mockSelect = vi
+  .fn()
+  .mockReturnValue({ from: vi.fn().mockReturnValue({ where: mockSelectWhere }) });
+
 const mockDb = {
   query: {
     teams: {
@@ -36,6 +42,7 @@ const mockDb = {
   update: mockUpdate,
   insert: mockInsert,
   delete: mockDelete,
+  select: mockSelect,
   transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(mockDb)),
 };
 
@@ -54,6 +61,7 @@ vi.mock("@/server/db/schema", () => ({
   actionLog: {},
   pendingApprovals: { agentId: "pending_approvals.agentId", status: "pending_approvals.status" },
   appEvents: {},
+  llmSpend: { costCents: "llm_spend.cost_cents", day: "llm_spend.day" },
 }));
 
 // T2: the tick route builds a tool registry to classify destructive tools.
@@ -143,6 +151,13 @@ vi.mock("@/server/config", () => ({
 // ---------------------------------------------------------------------------
 
 const TEAM_ID = "team-1";
+
+// The tick route now requires a Request (cron auth). In the test env
+// (NODE_ENV !== production, no VERCEL) an unset CRON_SECRET authorizes any
+// request, so a bare POST Request suffices for the existing behavior tests.
+function tickReq(headers?: Record<string, string>): Request {
+  return new Request("http://localhost/api/tick", { method: "POST", headers });
+}
 
 const sampleTeam = {
   id: TEAM_ID,
@@ -234,7 +249,7 @@ describe("POST /api/tick", () => {
     const { POST } = await import("@/app/api/tick/route");
     mockDb.query.teams.findMany.mockResolvedValueOnce([]);
 
-    const res = await POST();
+    const res = await POST(tickReq());
     const body = await res.json();
 
     expect(body.ok).toBe(true);
@@ -247,7 +262,7 @@ describe("POST /api/tick", () => {
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
 
-    const res = await POST();
+    const res = await POST(tickReq());
     const body = await res.json();
 
     expect(body.ok).toBe(true);
@@ -263,7 +278,7 @@ describe("POST /api/tick", () => {
     // The agent won't be approved because approveAgentTick returns not allowed
     mockApproveAgentTick.mockReturnValue({ allowed: false, reason: "not due", reasonCode: "not_due" });
 
-    await POST();
+    await POST(tickReq());
 
     // First update call should be the errored->running recovery
     expect(mockUpdate).toHaveBeenCalled();
@@ -284,7 +299,7 @@ describe("POST /api/tick", () => {
       payload: { summary: "Found data" },
     });
 
-    const res = await POST();
+    const res = await POST(tickReq());
     const body = await res.json();
 
     expect(body.ok).toBe(true);
@@ -321,7 +336,7 @@ describe("POST /api/tick", () => {
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockRunAgent.mockRejectedValueOnce(new Error("LLM timeout"));
 
-    const res = await POST();
+    const res = await POST(tickReq());
     const body = await res.json();
 
     // Agent failed but tick still completes
@@ -339,7 +354,7 @@ describe("POST /api/tick", () => {
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
 
-    await POST();
+    await POST(tickReq());
 
     // tickCount is incremented atomically in SQL (sql`${tickCount} + 1`)
     // rather than read-modify-write, so the value passed to .set() is the
@@ -364,7 +379,7 @@ describe("POST /api/tick", () => {
       reasonCode: "not_due",
     });
 
-    const res = await POST();
+    const res = await POST(tickReq());
     const body = await res.json();
 
     expect(body.agentsRan).toBe(0);
@@ -384,7 +399,7 @@ describe("POST /api/tick", () => {
       .mockReturnValueOnce({ allowed: false, reason: "paused", reasonCode: "agent_paused" });
     mockRunAgent.mockResolvedValueOnce({ actionType: "noop", payload: {} });
 
-    await POST();
+    await POST(tickReq());
 
     // runAgent should receive peers that excludes agent-1 (self)
     expect(mockRunAgent).toHaveBeenCalledWith(
@@ -412,7 +427,7 @@ describe("POST /api/tick", () => {
     });
     mockRunAgent.mockResolvedValueOnce({ actionType: "noop", payload: {} });
 
-    await POST();
+    await POST(tickReq());
 
     expect(mockGetAgentContext).toHaveBeenCalledWith(TEAM_ID, "agent-1");
     expect(mockMarkContextRead).toHaveBeenCalledWith(["msg-1", "msg-2"]);
@@ -434,7 +449,7 @@ describe("POST /api/tick", () => {
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockRunAgent.mockResolvedValueOnce({ actionType: "noop", payload: {} });
 
-    const res = await POST();
+    const res = await POST(tickReq());
     const body = await res.json();
 
     expect(body.agentsRan).toBe(1);
@@ -443,6 +458,39 @@ describe("POST /api/tick", () => {
       (call) => call[0] && "tickCount" in call[0],
     );
     expect(tickCountCalls).toHaveLength(2);
+  });
+
+  describe("auth + spend gating", () => {
+    it("returns 401 in production when not an authorized cron caller", async () => {
+      process.env.VERCEL = "1";
+      try {
+        const { POST } = await import("@/app/api/tick/route");
+        const res = await POST(tickReq());
+        expect(res.status).toBe(401);
+      } finally {
+        delete process.env.VERCEL;
+      }
+    });
+
+    it("proceeds with the x-vercel-cron header", async () => {
+      process.env.VERCEL = "1";
+      try {
+        const { POST } = await import("@/app/api/tick/route");
+        const res = await POST(tickReq({ "x-vercel-cron": "1" }));
+        expect(res.status).toBe(200);
+      } finally {
+        delete process.env.VERCEL;
+      }
+    });
+
+    it("skips the tick when the daily spend cap is reached", async () => {
+      mockSelectWhere.mockResolvedValueOnce([{ total: 999999 }]);
+      const { POST } = await import("@/app/api/tick/route");
+      const res = await POST(tickReq());
+      const body = await res.json();
+      expect(body.skipped).toBe("spend_cap");
+      expect(body.agentsRan).toBe(0);
+    });
   });
 });
 
@@ -469,7 +517,7 @@ describe("POST /api/tick — approval suspend/resume", () => {
       suspension,
     });
 
-    await POST();
+    await POST(tickReq());
 
     expect(mockDb.transaction).toHaveBeenCalled();
     // Agent parked: status awaiting_approval + conversation state saved.
@@ -507,7 +555,7 @@ describe("POST /api/tick — approval suspend/resume", () => {
       { toolCallId: "call_w", status: "pending", decisionNote: null },
     ]);
 
-    await POST();
+    await POST(tickReq());
 
     expect(mockRunAgent).not.toHaveBeenCalled();
   });
@@ -526,7 +574,7 @@ describe("POST /api/tick — approval suspend/resume", () => {
       payload: { agent: "Researcher" },
     });
 
-    await POST();
+    await POST(tickReq());
 
     // runAgent called with resume carrying the decision.
     expect(mockRunAgent).toHaveBeenCalledWith(
@@ -556,7 +604,7 @@ describe("POST /api/tick — approval suspend/resume", () => {
     ]);
     mockRunAgent.mockResolvedValueOnce({ actionType: "agent_thought", payload: {} });
 
-    await POST();
+    await POST(tickReq());
 
     expect(mockRunAgent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -585,7 +633,7 @@ describe("POST /api/tick — timeout + parallelism", () => {
       () => new Promise((resolve) => setTimeout(() => resolve({ actionType: "noop", payload: {} }), 500)),
     );
 
-    const res = await POST();
+    const res = await POST(tickReq());
     const body = await res.json();
 
     expect(body.agentsRan).toBe(0);
@@ -616,7 +664,7 @@ describe("POST /api/tick — timeout + parallelism", () => {
       );
     });
 
-    const res = await POST();
+    const res = await POST(tickReq());
     const body = await res.json();
 
     expect(body.agentsRan).toBe(3);
@@ -637,7 +685,7 @@ describe("POST /api/tick — timeout + parallelism", () => {
       .mockRejectedValueOnce(new Error("boom"))
       .mockResolvedValueOnce({ actionType: "noop", payload: {} });
 
-    const res = await POST();
+    const res = await POST(tickReq());
     const body = await res.json();
 
     // One failed, one succeeded — tick still completes, count reflects the win.
@@ -668,7 +716,7 @@ describe("POST /api/tick — LLM client selection", () => {
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockRunAgent.mockResolvedValueOnce({ actionType: "noop", payload: {} });
 
-    await POST();
+    await POST(tickReq());
 
     expect(mockCreateCodexClient).toHaveBeenCalledWith(
       expect.objectContaining({ model: "gpt-5.5" }),
@@ -686,7 +734,7 @@ describe("POST /api/tick — LLM client selection", () => {
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockRunAgent.mockResolvedValueOnce({ actionType: "noop", payload: {} });
 
-    await POST();
+    await POST(tickReq());
 
     expect(mockCreateAnthropicClient).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -711,7 +759,7 @@ describe("POST /api/tick — LLM client selection", () => {
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
 
-    await POST();
+    await POST(tickReq());
 
     expect(mockCreateCodexClient).not.toHaveBeenCalled();
     expect(mockCreateAnthropicClient).not.toHaveBeenCalled();
@@ -729,7 +777,7 @@ describe("GET /api/tick", () => {
     const { GET } = await import("@/app/api/tick/route");
     mockDb.query.teams.findMany.mockResolvedValueOnce([]);
 
-    const res = await GET();
+    const res = await GET(tickReq());
     const body = await res.json();
 
     expect(body.ok).toBe(true);

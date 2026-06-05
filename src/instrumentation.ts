@@ -22,15 +22,20 @@ export async function register() {
       setInterval(async () => {
         try {
           const port = process.env.PORT || 3000;
-          await fetch(`http://localhost:${port}/api/tick`, { method: "POST" });
+          const headers: Record<string, string> = {};
+          if (process.env.CRON_SECRET) {
+            headers.authorization = `Bearer ${process.env.CRON_SECRET}`;
+          }
+          await fetch(`http://localhost:${port}/api/tick`, {
+            method: "POST",
+            headers,
+          });
         } catch {
           // Server not ready yet or tick failed; will retry next interval.
         }
       }, TICK_INTERVAL_MS);
 
-      console.log(
-        "[simple-harmonic] Background tick loop started (10s interval)",
-      );
+      console.log("[simple-harmonic] Background tick loop started (10s interval)");
     }
   }
 }

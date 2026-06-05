@@ -8,6 +8,11 @@ import type {
 } from "@simple-harmonic/backend/lib/meta-agent/runner";
 import type { PeerAgent } from "@simple-harmonic/backend/lib/meta-agent/tools";
 import { getA2AX } from "@simple-harmonic/backend/server/a2ax";
+import {
+  emitAppEvent,
+  formatEventsForPrompt,
+  queryAppEvents,
+} from "@simple-harmonic/backend/server/app-events";
 import { getApiKeySource, getConfig } from "@simple-harmonic/backend/server/config";
 import { db } from "@simple-harmonic/backend/server/db";
 import {
@@ -16,8 +21,13 @@ import {
   pendingApprovals,
   teams,
 } from "@simple-harmonic/backend/server/db/schema";
+import { isCronAuthorized } from "@simple-harmonic/backend/server/operator-auth";
+import {
+  checkSpendAllowed,
+  makeCountingLLM,
+  recordSpend,
+} from "@simple-harmonic/backend/server/spend";
 import { createAppRegistryWithCustomTools } from "@simple-harmonic/backend/server/tools";
-import { emitAppEvent, queryAppEvents, formatEventsForPrompt } from "@simple-harmonic/backend/server/app-events";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
@@ -44,7 +54,10 @@ const HISTORY_LIMIT = 10;
 
 const VALIDATION_HISTORY_LIMIT = 5;
 
-async function fetchRecentValidations(d: ReturnType<typeof db>, agentId: string): Promise<string | undefined> {
+async function fetchRecentValidations(
+  d: ReturnType<typeof db>,
+  agentId: string,
+): Promise<string | undefined> {
   const rows = await d.query.actionLog.findMany({
     where: eq(actionLog.agentId, agentId),
     orderBy: [desc(actionLog.executedAt)],
@@ -53,7 +66,9 @@ async function fetchRecentValidations(d: ReturnType<typeof db>, agentId: string)
 
   const validations: string[] = [];
   for (const r of rows.reverse()) {
-    const v = r.payload?.validation as { valid?: boolean; issues?: Array<{ path: string; message: string }> } | undefined;
+    const v = r.payload?.validation as
+      | { valid?: boolean; issues?: Array<{ path: string; message: string }> }
+      | undefined;
     if (v === undefined) continue;
     if (v.valid) {
       validations.push(`[${r.executedAt.toISOString().slice(11, 19)}] PASS`);
@@ -67,7 +82,10 @@ async function fetchRecentValidations(d: ReturnType<typeof db>, agentId: string)
   return validations.length > 0 ? validations.join("\n") : undefined;
 }
 
-async function fetchRecentHistory(d: ReturnType<typeof db>, agentId: string): Promise<string | undefined> {
+async function fetchRecentHistory(
+  d: ReturnType<typeof db>,
+  agentId: string,
+): Promise<string | undefined> {
   const rows = await d.query.actionLog.findMany({
     where: eq(actionLog.agentId, agentId),
     orderBy: [desc(actionLog.executedAt)],
@@ -88,7 +106,8 @@ function summarizePayload(actionType: string, payload: Record<string, unknown>):
     return `requested approval for ${tool}`;
   }
   if (payload.tool && payload.args) {
-    const args = typeof payload.args === "object" ? JSON.stringify(payload.args) : String(payload.args);
+    const args =
+      typeof payload.args === "object" ? JSON.stringify(payload.args) : String(payload.args);
     const truncated = args.length > 120 ? args.slice(0, 117) + "..." : args;
     return `${payload.tool}(${truncated})`;
   }
@@ -100,17 +119,18 @@ function summarizePayload(actionType: string, payload: Record<string, unknown>):
 
 type AgentRow = typeof agents.$inferSelect;
 
-export async function POST() {
+export async function POST(req: Request) {
+  if (!isCronAuthorized(req, process.env.CRON_SECRET)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   const d = db();
   const now = new Date();
 
   if (!didResetInFlight) {
     didResetInFlight = true;
     try {
-      await d
-        .update(agents)
-        .set({ inFlight: false })
-        .where(eq(agents.inFlight, true));
+      await d.update(agents).set({ inFlight: false }).where(eq(agents.inFlight, true));
     } catch {
       didResetInFlight = false;
     }
@@ -155,6 +175,33 @@ export async function POST() {
 
   const timeoutMs = agentTimeoutMs();
 
+  // Daily spend cap: bail before any LLM work if today's recorded spend is at
+  // or over the ceiling. Fails OPEN on a ledger read error (see spend.ts) so a
+  // missing migration / DB hiccup can't silently halt every team's agents.
+  const spend = await checkSpendAllowed(d, now);
+  if (spend.unknown) {
+    emitAppEvent({
+      severity: "warning",
+      source: "tick",
+      message:
+        "Spend ledger unreadable (llm_spend not migrated?); proceeding without the cap this tick",
+    });
+  } else if (!spend.allowed) {
+    emitAppEvent({
+      severity: "error",
+      source: "tick",
+      message: `Daily spend cap reached: ${spend.spentCents}c >= ${spend.capCents}c; skipping tick`,
+    });
+    return NextResponse.json({
+      ok: true,
+      agentsRan: 0,
+      skipped: "spend_cap",
+      spentCents: spend.spentCents,
+      capCents: spend.capCents,
+      timestamp: now.toISOString(),
+    });
+  }
+
   for (const team of activeTeams) {
     const registry = createAppRegistryWithCustomTools();
 
@@ -186,7 +233,18 @@ export async function POST() {
     const parked = allAgents.filter((a) => a.status === "awaiting_approval");
     const resumeOutcomes = await Promise.allSettled(
       parked.map((agent) =>
-        tryResumeAgent({ d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs, registry }),
+        tryResumeAgent({
+          d,
+          team,
+          agent,
+          allAgents,
+          a2ax,
+          llm,
+          modelOverride,
+          now,
+          timeoutMs,
+          registry,
+        }),
       ),
     );
     totalRan += countRan(resumeOutcomes);
@@ -196,7 +254,18 @@ export async function POST() {
     const dueAgents = allAgents.filter((a) => approveAgentTick(team, a, now).allowed);
     const freshOutcomes = await Promise.allSettled(
       dueAgents.map((agent) =>
-        runFreshAgent({ d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs, registry }),
+        runFreshAgent({
+          d,
+          team,
+          agent,
+          allAgents,
+          a2ax,
+          llm,
+          modelOverride,
+          now,
+          timeoutMs,
+          registry,
+        }),
       ),
     );
     totalRan += countRan(freshOutcomes);
@@ -307,6 +376,7 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
       queryAppEvents({ teamId: team.id, since: new Date(now.getTime() - 3600000), limit: 10 }),
     ]);
 
+    const counting = makeCountingLLM(llm, modelOverride ?? "unknown");
     const result = await withTimeout(
       (signal) =>
         runAgent({
@@ -324,7 +394,7 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
           agentId: agent.id,
           peers: buildPeers(allAgents, agent.id),
           a2ax,
-          llm,
+          llm: counting.llm,
           model: modelOverride,
           signal,
           toolRegistry: registry,
@@ -336,6 +406,13 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
 
     await a2ax.markContextRead(ctx.messageIds);
     await handleRunResult({ d, agent, result, now });
+    await recordSpend(d, now, {
+      teamId: team.id,
+      agentId: agent.id,
+      model: counting.usage.model,
+      inputTokens: counting.usage.inputTokens,
+      outputTokens: counting.usage.outputTokens,
+    });
     return true;
   } catch (err) {
     await failAgent({ d, agent, now, err, phase: "tick", a2ax, teamId: team.id });
@@ -390,6 +467,7 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
 
   try {
     const recentHistory = await fetchRecentHistory(d, agent.id);
+    const counting = makeCountingLLM(llm, modelOverride ?? "unknown");
     const result = await withTimeout(
       (signal) =>
         runAgent({
@@ -402,7 +480,7 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
           agentId: agent.id,
           peers: buildPeers(allAgents, agent.id),
           a2ax,
-          llm,
+          llm: counting.llm,
           model: modelOverride,
           signal,
           toolRegistry: registry,
@@ -416,6 +494,13 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
     // Consume the resolved approvals so they don't block a future suspension.
     await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
     await handleRunResult({ d, agent, result, now });
+    await recordSpend(d, now, {
+      teamId: team.id,
+      agentId: agent.id,
+      model: counting.usage.model,
+      inputTokens: counting.usage.inputTokens,
+      outputTokens: counting.usage.outputTokens,
+    });
     return true;
   } catch (err) {
     await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
@@ -465,10 +550,12 @@ async function failAgent(args: {
 
   // Real-time alert: broadcast to the team so peers see it on their next tick.
   // Fire-and-forget; a failed broadcast should never block error recovery.
-  a2ax.broadcast(teamId, agent.id, `[SYSTEM] Agent ${agent.name} errored during ${phase}: ${msg}`, {
-    kind: "text",
-    payload: { systemAlert: true, severity: "error", source: phase },
-  }).catch(() => {});
+  a2ax
+    .broadcast(teamId, agent.id, `[SYSTEM] Agent ${agent.name} errored during ${phase}: ${msg}`, {
+      kind: "text",
+      payload: { systemAlert: true, severity: "error", source: phase },
+    })
+    .catch(() => {});
 
   await d
     .update(agents)
@@ -530,7 +617,10 @@ async function handleRunResult(args: {
   }
 
   const payload = result.validation
-    ? { ...result.payload, validation: { valid: result.validation.valid, issues: result.validation.issues } }
+    ? {
+        ...result.payload,
+        validation: { valid: result.validation.valid, issues: result.validation.issues },
+      }
     : result.payload;
 
   await d.insert(actionLog).values({
@@ -551,6 +641,6 @@ async function handleRunResult(args: {
 }
 
 // Vercel cron sends GET requests
-export async function GET() {
-  return POST();
+export async function GET(req: Request) {
+  return POST(req);
 }

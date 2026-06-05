@@ -1,6 +1,6 @@
+import { getConfig, setConfig } from "@simple-harmonic/backend/server/config";
 import { NextResponse } from "next/server";
 import { Pool } from "pg";
-import { getConfig, setConfig } from "@simple-harmonic/backend/server/config";
 
 /** Extract a useful message from pg errors */
 function pgError(err: unknown): string {
@@ -208,6 +208,19 @@ CREATE TABLE IF NOT EXISTS "app_events" (
 );
 CREATE INDEX IF NOT EXISTS "app_events_created_idx" ON "app_events" ("created_at");
 CREATE INDEX IF NOT EXISTS "app_events_team_idx" ON "app_events" ("team_id", "created_at");
+
+CREATE TABLE IF NOT EXISTS "llm_spend" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  "team_id" uuid,
+  "agent_id" uuid,
+  "model" text NOT NULL,
+  "input_tokens" integer NOT NULL,
+  "output_tokens" integer NOT NULL,
+  "cost_cents" integer NOT NULL,
+  "day" text NOT NULL,
+  "created_at" timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "llm_spend_day_idx" ON "llm_spend" ("day");
 
 -- Add columns that may be missing on older databases
 ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "parent_team_id" uuid REFERENCES "teams"("id");

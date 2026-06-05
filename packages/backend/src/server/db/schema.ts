@@ -280,3 +280,20 @@ export const actionLog = pgTable("action_log", {
 }, (t) => [
   index("action_log_agent_executed_idx").on(t.agentId, t.executedAt),
 ]);
+
+// LLM spend ledger: one row per agent run, summed per UTC day to enforce the
+// daily cost cap (see server/spend.ts). costCents stored as an integer to avoid
+// float drift. team_id/agent_id nullable so non-agent calls can be recorded.
+export const llmSpend = pgTable("llm_spend", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  teamId: uuid("team_id"),
+  agentId: uuid("agent_id"),
+  model: text("model").notNull(),
+  inputTokens: integer("input_tokens").notNull(),
+  outputTokens: integer("output_tokens").notNull(),
+  costCents: integer("cost_cents").notNull(),
+  day: text("day").notNull(), // UTC YYYY-MM-DD
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("llm_spend_day_idx").on(t.day),
+]);
