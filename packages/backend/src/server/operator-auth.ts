@@ -2,7 +2,7 @@
 // Operator / cron auth helpers.
 //
 // EDGE-SAFE: uses only Web Crypto (globalThis.crypto), TextEncoder, and header
-// parsing, so this file can be imported from Next middleware (edge runtime) as
+// parsing, so this file can be imported from the Next proxy (edge runtime) as
 // well as node route handlers and vitest. Do NOT add node:crypto, node:fs, the
 // DB, or any node-only import here.
 //
