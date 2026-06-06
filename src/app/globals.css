@@ -1,0 +1,209 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.25);
+  --radius-2xl: calc(var(--radius) * 1.5);
+  --radius-3xl: calc(var(--radius) * 1.75);
+  --radius-4xl: calc(var(--radius) * 2);
+
+  /* Simple Harmonic custom tokens */
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-faint: var(--fg-faint);
+  --color-bg: var(--bg);
+  --color-bg-elev: var(--bg-elev);
+  --color-bg-input: var(--bg-input);
+  --color-border-strong: var(--border-strong);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-running: var(--running);
+  --color-paused: var(--paused);
+  --color-error: var(--error);
+  --color-user: var(--user);
+  --color-user-soft: var(--user-soft);
+  --color-meta: var(--meta);
+  --color-meta-soft: var(--meta-soft);
+}
+
+/* ---------------------------------------------------------------------------
+ * Theme tokens.
+ *
+ * Default (:root) is the LIGHT palette so users with JS disabled still get a
+ * readable page. The .dark class on <html> swaps to the dark palette. The
+ * theme provider in src/components/theme-provider.tsx adds/removes that class
+ * based on the user's preference (system / light / dark).
+ *
+ * The brand orange (#ea580c) and status colors are tuned per-theme for
+ * contrast against the respective background.
+ * ------------------------------------------------------------------------- */
+
+:root {
+  /* Simple Harmonic tokens — LIGHT (Carbon Light) */
+  --fg: #161616;
+  --fg-muted: #525252;
+  --fg-faint: #8d8d8d;
+  --bg: #ffffff;
+  --bg-elev: #f4f4f4;
+  --bg-input: #ffffff;
+  --border: #e0e0e0;
+  --border-strong: #c6c6c6;
+  --brand: #0f62fe;
+  --brand-soft: #edf5ff;
+  --running: #198038;
+  --paused: #8d8d8d;
+  --error: #da1e28;
+  --user: #0043ce;
+  --user-soft: #edf5ff;
+  --meta: #ff832b;
+  --meta-soft: #fff3e0;
+
+  /* shadcn vars — LIGHT */
+  --background: #ffffff;
+  --foreground: #161616;
+  --card: #f4f4f4;
+  --card-foreground: #161616;
+  --popover: #ffffff;
+  --popover-foreground: #161616;
+  --primary: #0f62fe;
+  --primary-foreground: #ffffff;
+  --secondary: #e0e0e0;
+  --secondary-foreground: #161616;
+  --muted: #f4f4f4;
+  --muted-foreground: #525252;
+  --accent: #edf5ff;
+  --accent-foreground: #0f62fe;
+  --destructive: #da1e28;
+  --input: #ffffff;
+  --ring: #0f62fe;
+  --radius: 0.25rem;
+
+  --chart-1: #0f62fe;
+  --chart-2: #198038;
+  --chart-3: #525252;
+  --chart-4: #8d8d8d;
+  --chart-5: #161616;
+
+  --sidebar: #f4f4f4;
+  --sidebar-foreground: #161616;
+  --sidebar-primary: #0f62fe;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #edf5ff;
+  --sidebar-accent-foreground: #0f62fe;
+  --sidebar-border: #e0e0e0;
+  --sidebar-ring: #0f62fe;
+}
+
+.dark {
+  /* Simple Harmonic tokens — DARK (Carbon) */
+  --fg: #f4f4f4;
+  --fg-muted: #c6c6c6;
+  --fg-faint: #525252;
+  --bg: #161616;
+  --bg-elev: #1a1a1a;
+  --bg-input: #262626;
+  --border: #262626;
+  --border-strong: #393939;
+  --brand: #0f62fe;
+  --brand-soft: #001d6c;
+  --running: #42be65;
+  --paused: #525252;
+  --error: #fa4d56;
+  --user: #4589ff;
+  --user-soft: #001d6c;
+  --meta: #ff832b;
+  --meta-soft: #3e1a00;
+
+  /* shadcn vars — DARK */
+  --background: #161616;
+  --foreground: #f4f4f4;
+  --card: #1a1a1a;
+  --card-foreground: #f4f4f4;
+  --popover: #1a1a1a;
+  --popover-foreground: #f4f4f4;
+  --primary: #0f62fe;
+  --primary-foreground: #ffffff;
+  --secondary: #262626;
+  --secondary-foreground: #f4f4f4;
+  --muted: #262626;
+  --muted-foreground: #c6c6c6;
+  --accent: #001d6c;
+  --accent-foreground: #4589ff;
+  --destructive: #fa4d56;
+  --input: #262626;
+  --ring: #0f62fe;
+
+  --chart-1: #0f62fe;
+  --chart-2: #42be65;
+  --chart-3: #c6c6c6;
+  --chart-4: #525252;
+  --chart-5: #f4f4f4;
+
+  --sidebar: #1a1a1a;
+  --sidebar-foreground: #f4f4f4;
+  --sidebar-primary: #0f62fe;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #001d6c;
+  --sidebar-accent-foreground: #4589ff;
+  --sidebar-border: #262626;
+  --sidebar-ring: #0f62fe;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  strong, b {
+    font-weight: 600;
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "GitHub",
+  "description": "GitHub PAT for github_api tool",
+  "type": "api_key",
+  "key": "GITHUB_TOKEN"
+}
