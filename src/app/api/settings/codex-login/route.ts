@@ -1,8 +1,8 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { NextResponse } from "next/server";
 import { getCodexAuthStatus } from "@simple-harmonic/backend/server/codex-auth";
+import { NextResponse } from "next/server";
 
 function codexAuthPath(): string {
   const home = process.env.CODEX_HOME || join(process.env.HOME || "~", ".codex");

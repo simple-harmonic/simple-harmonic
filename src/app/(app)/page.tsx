@@ -103,13 +103,19 @@ export default function OverviewPage() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="px-8 py-10">
-        <h1 className="text-[14px] font-semibold font-mono uppercase tracking-[1px] mb-6">Overview</h1>
+        <h1 className="text-[14px] font-semibold font-mono uppercase tracking-[1px] mb-6">
+          Overview
+        </h1>
 
         <div className="grid grid-cols-4 gap-3 mb-4">
           <StatCard
             label="Teams"
             value={String(rootTeams.length)}
-            sub={subTeamCount > 0 ? `${runningRoots} running, ${subTeamCount} sub-team${subTeamCount !== 1 ? "s" : ""}` : `${runningRoots} running`}
+            sub={
+              subTeamCount > 0
+                ? `${runningRoots} running, ${subTeamCount} sub-team${subTeamCount !== 1 ? "s" : ""}`
+                : `${runningRoots} running`
+            }
           />
           <StatCard label="Total Ticks" value={fmt(totalTicks)} />
           <StatCard label="Tokens In" value={fmt(tokensUp)} sub="estimated" />
@@ -161,9 +167,7 @@ function OverviewTeamNode({ node, depth }: { node: TeamNode; depth: number }) {
           <span className="text-[13px] font-medium group-hover:text-fg transition-colors">
             {t.name}
           </span>
-          {depth > 0 && (
-            <span className="text-[10px] text-fg-faint font-mono">sub-team</span>
-          )}
+          {depth > 0 && <span className="text-[10px] text-fg-faint font-mono">sub-team</span>}
           {agentCount > 0 && (
             <span className="text-[10px] text-fg-faint font-mono">
               {runningAgents}/{agentCount} agents
@@ -211,7 +215,9 @@ function OverviewTeamNode({ node, depth }: { node: TeamNode; depth: number }) {
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="border border-border bg-bg-elev rounded px-4 py-3">
-      <div className="text-[9px] text-fg-faint font-mono uppercase tracking-[1.5px] mb-1">{label}</div>
+      <div className="text-[9px] text-fg-faint font-mono uppercase tracking-[1.5px] mb-1">
+        {label}
+      </div>
       <div className="text-[20px] font-semibold tracking-tight text-fg">{value}</div>
       {sub && <div className="text-[11px] text-fg-faint font-mono mt-0.5">{sub}</div>}
     </div>

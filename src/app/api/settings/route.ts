@@ -1,5 +1,10 @@
+import {
+  type AppConfig,
+  getConfig,
+  getSafeConfig,
+  setConfig,
+} from "@simple-harmonic/backend/server/config";
 import { NextResponse } from "next/server";
-import { type AppConfig, type CodingBackendConfig, getConfig, getSafeConfig, setConfig } from "@simple-harmonic/backend/server/config";
 
 export async function GET() {
   return NextResponse.json(getSafeConfig());

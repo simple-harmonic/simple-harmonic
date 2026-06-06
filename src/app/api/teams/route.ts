@@ -1,7 +1,7 @@
-import { desc } from "drizzle-orm";
-import { NextResponse } from "next/server";
 import { db } from "@simple-harmonic/backend/server/db";
 import { teams } from "@simple-harmonic/backend/server/db/schema";
+import { desc } from "drizzle-orm";
+import { NextResponse } from "next/server";
 
 export async function GET() {
   const d = db();

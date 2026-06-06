@@ -1,7 +1,10 @@
+import { MobileNotice } from "@simple-harmonic/frontend/components/mobile-notice";
+import {
+  THEME_INIT_SCRIPT,
+  ThemeProvider,
+} from "@simple-harmonic/frontend/components/theme-provider";
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Inter } from "next/font/google";
-import { MobileNotice } from "@simple-harmonic/frontend/components/mobile-notice";
-import { THEME_INIT_SCRIPT, ThemeProvider } from "@simple-harmonic/frontend/components/theme-provider";
 import "./globals.css";
 
 const inter = Inter({

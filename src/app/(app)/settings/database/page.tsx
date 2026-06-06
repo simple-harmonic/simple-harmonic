@@ -114,7 +114,9 @@ export default function DatabaseSettingsPage() {
     <div className="h-full overflow-y-auto">
       <div className="max-w-[640px] mx-auto px-6 py-10">
         <div className="flex items-center gap-3 mb-6">
-          <a href="/settings" className="text-[13px] text-brand font-medium">&#8592;</a>
+          <a href="/settings" className="text-[13px] text-brand font-medium">
+            &#8592;
+          </a>
           <h1 className="text-lg font-semibold tracking-tight">Database</h1>
         </div>
 

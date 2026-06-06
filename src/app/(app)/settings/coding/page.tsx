@@ -124,8 +124,7 @@ export default function CodingSettingsPage() {
   }
 
   const dirty =
-    selected !== data.current ||
-    JSON.stringify(configs) !== JSON.stringify(data.codingConfig);
+    selected !== data.current || JSON.stringify(configs) !== JSON.stringify(data.codingConfig);
 
   const activeBackend = data.backends[selected];
   const activeInfo = BACKENDS.find((b) => b.value === selected)!;
@@ -149,8 +148,8 @@ export default function CodingSettingsPage() {
           <code className="text-[12px] bg-bg-input px-1.5 py-0.5 rounded font-mono">
             coding_task
           </code>{" "}
-          tool. Engineering agents use this for multi-file changes, debugging,
-          test runs, and research.
+          tool. Engineering agents use this for multi-file changes, debugging, test runs, and
+          research.
         </p>
 
         {/* Backend selector */}
@@ -220,8 +219,11 @@ export default function CodingSettingsPage() {
                 <span className="text-[13px] font-medium text-fg">CLI not installed</span>
               </div>
               <p className="text-[12px] text-fg-muted leading-relaxed">
-                Install the <code className="font-mono text-[11px] bg-bg-input px-1 py-0.5 rounded">{activeInfo.cli}</code> CLI
-                and make sure it is on your PATH.
+                Install the{" "}
+                <code className="font-mono text-[11px] bg-bg-input px-1 py-0.5 rounded">
+                  {activeInfo.cli}
+                </code>{" "}
+                CLI and make sure it is on your PATH.
               </p>
             </div>
           )}
@@ -264,16 +266,11 @@ export default function CodingSettingsPage() {
           </h2>
           <div className="border border-border bg-bg-elev rounded-[10px] px-5 py-5">
             <div className="flex flex-col gap-5">
-              <FieldGroup
-                label="Model override"
-                hint="Leave empty to use the CLI default"
-              >
+              <FieldGroup label="Model override" hint="Leave empty to use the CLI default">
                 <input
                   type="text"
                   value={configs[selected]?.model || ""}
-                  onChange={(e) =>
-                    updateBackendConfig(selected, "model", e.target.value)
-                  }
+                  onChange={(e) => updateBackendConfig(selected, "model", e.target.value)}
                   placeholder={
                     selected === "codex"
                       ? "e.g. o3, gpt-4.1"
@@ -284,18 +281,13 @@ export default function CodingSettingsPage() {
                   className="w-full bg-bg-input border border-border rounded-md px-3 py-2.5 text-sm text-fg placeholder:text-fg-faint outline-none focus:border-brand font-mono text-[13px]"
                 />
               </FieldGroup>
-              <FieldGroup
-                label="Timeout"
-                hint="seconds, default 300"
-              >
+              <FieldGroup label="Timeout" hint="seconds, default 300">
                 <input
                   type="number"
                   min={30}
                   max={1800}
                   value={configs[selected]?.timeout || ""}
-                  onChange={(e) =>
-                    updateBackendConfig(selected, "timeout", e.target.value)
-                  }
+                  onChange={(e) => updateBackendConfig(selected, "timeout", e.target.value)}
                   placeholder="300"
                   className="w-32 bg-bg-input border border-border rounded-md px-3 py-2.5 text-sm text-fg placeholder:text-fg-faint outline-none focus:border-brand font-mono text-[13px]"
                 />
@@ -314,9 +306,7 @@ export default function CodingSettingsPage() {
           >
             {saving ? "Saving..." : "Save"}
           </button>
-          {saved && (
-            <span className="text-[13px] text-running font-mono">saved</span>
-          )}
+          {saved && <span className="text-[13px] text-running font-mono">saved</span>}
         </div>
       </div>
     </div>
@@ -336,9 +326,7 @@ function FieldGroup({
     <div>
       <div className="flex items-baseline gap-2 mb-1.5">
         <span className="text-[13px] font-medium text-fg">{label}</span>
-        {hint && (
-          <span className="text-[11px] text-fg-faint font-mono">{hint}</span>
-        )}
+        {hint && <span className="text-[11px] text-fg-faint font-mono">{hint}</span>}
       </div>
       {children}
     </div>

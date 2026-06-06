@@ -31,7 +31,6 @@ export default function SkillsPage() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [allAgents, setAllAgents] = useState<TeamAgent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingAgent, setEditingAgent] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const reload = useCallback(() => {
@@ -42,7 +41,10 @@ export default function SkillsPage() {
         try {
           const teamsRes = await fetch("/api/teams");
           const teams = await teamsRes.json();
-          if (!Array.isArray(teams)) { setLoading(false); return; }
+          if (!Array.isArray(teams)) {
+            setLoading(false);
+            return;
+          }
           const agentList: TeamAgent[] = [];
           for (const team of teams) {
             const res = await fetch(`/api/team/${team.id}`);
@@ -77,9 +79,7 @@ export default function SkillsPage() {
     async (agentId: string, toolName: string, enabled: boolean) => {
       const agent = allAgents.find((a) => a.id === agentId);
       if (!agent) return;
-      const next = enabled
-        ? [...agent.tools, toolName]
-        : agent.tools.filter((t) => t !== toolName);
+      const next = enabled ? [...agent.tools, toolName] : agent.tools.filter((t) => t !== toolName);
 
       setSaving(true);
       try {
@@ -89,9 +89,7 @@ export default function SkillsPage() {
           body: JSON.stringify({ agentId, tools: next }),
         });
         if (res.ok) {
-          setAllAgents((prev) =>
-            prev.map((a) => (a.id === agentId ? { ...a, tools: next } : a)),
-          );
+          setAllAgents((prev) => prev.map((a) => (a.id === agentId ? { ...a, tools: next } : a)));
           reload();
         }
       } finally {
@@ -138,15 +136,7 @@ export default function SkillsPage() {
               {skills
                 .filter((s) => s.category === cat)
                 .map((skill) => (
-                  <SkillCard
-                    key={skill.name}
-                    skill={skill}
-                    allAgents={allAgents}
-                    editingAgent={editingAgent}
-                    onEditAgent={setEditingAgent}
-                    onToggle={toggleTool}
-                    saving={saving}
-                  />
+                  <SkillCard key={skill.name} skill={skill} />
                 ))}
             </div>
           </section>
@@ -175,21 +165,7 @@ export default function SkillsPage() {
   );
 }
 
-function SkillCard({
-  skill,
-  allAgents,
-  editingAgent,
-  onEditAgent,
-  onToggle,
-  saving,
-}: {
-  skill: Skill;
-  allAgents: TeamAgent[];
-  editingAgent: string | null;
-  onEditAgent: (id: string | null) => void;
-  onToggle: (agentId: string, toolName: string, enabled: boolean) => void;
-  saving: boolean;
-}) {
+function SkillCard({ skill }: { skill: Skill }) {
   return (
     <div className="border border-border bg-bg-elev rounded-[10px] px-5 py-4">
       <div className="flex items-start justify-between">
@@ -206,9 +182,7 @@ function SkillCard({
               {skill.risk}
             </span>
           </div>
-          <p className="text-[12px] text-fg-muted mt-1 leading-relaxed">
-            {skill.description}
-          </p>
+          <p className="text-[12px] text-fg-muted mt-1 leading-relaxed">{skill.description}</p>
         </div>
         <span className="text-[11px] text-fg-faint font-mono shrink-0 ml-3">
           {skill.agentCount} agent{skill.agentCount !== 1 ? "s" : ""}
@@ -263,6 +237,7 @@ function AgentSkillRow({
             height="12"
             viewBox="0 0 12 12"
             fill="none"
+            aria-hidden="true"
             className={`text-fg-faint transition-transform ${expanded ? "rotate-180" : ""}`}
           >
             <path
@@ -280,10 +255,7 @@ function AgentSkillRow({
           {skills.map((skill) => {
             const enabled = agent.tools.includes(skill.name);
             return (
-              <label
-                key={skill.name}
-                className="flex items-center gap-2 cursor-pointer py-1"
-              >
+              <label key={skill.name} className="flex items-center gap-2 cursor-pointer py-1">
                 <input
                   type="checkbox"
                   checked={enabled}

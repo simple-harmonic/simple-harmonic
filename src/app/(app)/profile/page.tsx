@@ -14,7 +14,9 @@ function loadProfile(): UserProfile {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw) as UserProfile;
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return { displayName: "You", role: "Founder" };
 }
 
@@ -66,7 +68,10 @@ export default function ProfilePage() {
           </div>
 
           <div>
-            <label htmlFor="displayName" className="block text-[11px] text-fg-faint font-mono uppercase tracking-wider mb-1.5">
+            <label
+              htmlFor="displayName"
+              className="block text-[11px] text-fg-faint font-mono uppercase tracking-wider mb-1.5"
+            >
               Display Name
             </label>
             <input
@@ -79,7 +84,10 @@ export default function ProfilePage() {
           </div>
 
           <div>
-            <label htmlFor="role" className="block text-[11px] text-fg-faint font-mono uppercase tracking-wider mb-1.5">
+            <label
+              htmlFor="role"
+              className="block text-[11px] text-fg-faint font-mono uppercase tracking-wider mb-1.5"
+            >
               Role
             </label>
             <input
@@ -99,9 +107,7 @@ export default function ProfilePage() {
             >
               Save
             </button>
-            {saved && (
-              <span className="text-[12px] text-running font-mono">Saved</span>
-            )}
+            {saved && <span className="text-[12px] text-running font-mono">Saved</span>}
           </div>
         </div>
 

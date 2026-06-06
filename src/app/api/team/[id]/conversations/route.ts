@@ -1,15 +1,15 @@
-import { eq } from "drizzle-orm";
-import { NextResponse } from "next/server";
 import {
   COFOUNDER_AGENT_ID,
   COFOUNDER_POV,
+  resolveCofounderName,
   USER_AGENT_ID,
   USER_DISPLAY_NAME,
   USER_POV,
-  resolveCofounderName,
 } from "@simple-harmonic/backend/lib/meta-agent/identity";
 import { db } from "@simple-harmonic/backend/server/db";
 import { a2axMessages, a2axTasks, agents, teams } from "@simple-harmonic/backend/server/db/schema";
+import { eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
 
 // GET /api/team/[id]/conversations?agentId=xxx
 // Special agentIds: "cofounder" (all messages), "team" (broadcast + group only)
@@ -29,20 +29,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     d.query.teams.findFirst({ where: eq(teams.id, teamId) }),
   ]);
   const cofounderName = resolveCofounderName(teamRow?.cofounderName);
-  const nameMap: Record<string, string> = Object.fromEntries(
-    agentRows.map((a) => [a.id, a.name]),
-  );
+  const nameMap: Record<string, string> = Object.fromEntries(agentRows.map((a) => [a.id, a.name]));
   nameMap[COFOUNDER_AGENT_ID] = cofounderName;
   nameMap[USER_AGENT_ID] = USER_DISPLAY_NAME;
 
   const isTeamOverview = agentId === "team";
   // Cofounder/user POVs translate to their sentinel UUIDs to query like participants.
   const participantId =
-    agentId === COFOUNDER_POV
-      ? COFOUNDER_AGENT_ID
-      : agentId === USER_POV
-        ? USER_AGENT_ID
-        : agentId;
+    agentId === COFOUNDER_POV ? COFOUNDER_AGENT_ID : agentId === USER_POV ? USER_AGENT_ID : agentId;
 
   const allMessages = await d
     .select()
@@ -69,28 +63,29 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     .select({ id: a2axTasks.id, title: a2axTasks.title })
     .from(a2axTasks)
     .where(eq(a2axTasks.teamId, teamId));
-  const taskTitleMap = Object.fromEntries(
-    taskRows.map((t) => [`task:${t.id}`, t.title]),
-  );
+  const taskTitleMap = Object.fromEntries(taskRows.map((t) => [`task:${t.id}`, t.title]));
 
   // Group by channelId to form threads
-  const threads = new Map<string, {
-    channelId: string;
-    channelType: string;
-    peerAgentId: string | null;
-    peerAgentName: string | null;
-    messages: Array<{
-      id: string;
-      fromAgentId: string;
-      fromAgentName: string;
-      content: string;
-      kind: string;
-      status: string;
-      urgent: boolean;
-      createdAt: string;
-      isSelf: boolean;
-    }>;
-  }>();
+  const threads = new Map<
+    string,
+    {
+      channelId: string;
+      channelType: string;
+      peerAgentId: string | null;
+      peerAgentName: string | null;
+      messages: Array<{
+        id: string;
+        fromAgentId: string;
+        fromAgentName: string;
+        content: string;
+        kind: string;
+        status: string;
+        urgent: boolean;
+        createdAt: string;
+        isSelf: boolean;
+      }>;
+    }
+  >();
 
   for (const m of messages) {
     if (!threads.has(m.channelId)) {
@@ -146,9 +141,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return bLast.localeCompare(aLast);
   });
 
-  const displayName = isTeamOverview
-    ? "Team Overview"
-    : (nameMap[participantId] ?? participantId);
+  const displayName = isTeamOverview ? "Team Overview" : (nameMap[participantId] ?? participantId);
 
   return NextResponse.json({
     agentId,
