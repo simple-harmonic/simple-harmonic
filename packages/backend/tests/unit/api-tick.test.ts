@@ -25,6 +25,7 @@ const mockDb = {
   query: {
     teams: {
       findMany: vi.fn().mockResolvedValue([]),
+      findFirst: vi.fn().mockResolvedValue({ telemetryEnabled: true }),
     },
     agents: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -36,6 +37,9 @@ const mockDb = {
       findMany: vi.fn().mockResolvedValue([]),
     },
     appEvents: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    platformStatus: {
       findMany: vi.fn().mockResolvedValue([]),
     },
   },
@@ -60,8 +64,9 @@ vi.mock("@/server/db/schema", () => ({
   },
   actionLog: {},
   pendingApprovals: { agentId: "pending_approvals.agentId", status: "pending_approvals.status" },
-  appEvents: {},
+  appEvents: { level: "app_events.level" },
   llmSpend: { costCents: "llm_spend.cost_cents", day: "llm_spend.day" },
+  platformStatus: { id: "platform_status.id" },
 }));
 
 // T2: the tick route builds a tool registry to classify destructive tools.
@@ -75,6 +80,9 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn((...clauses: unknown[]) => ({ _and: clauses })),
   desc: vi.fn((col: unknown) => ({ _desc: col })),
   gte: vi.fn((_col: unknown, val: unknown) => ({ _gte: val })),
+  ne: vi.fn((_col: unknown, val: unknown) => ({ _ne: val })),
+  isNull: vi.fn((_col: unknown) => ({ _isNull: true })),
+  inArray: vi.fn((_col: unknown, vals: unknown[]) => ({ _inArray: vals })),
   // The tick route builds an atomic increment via sql`${tickCount} + 1`.
   // Mock the tagged-template so the route code runs without a real driver.
   sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({

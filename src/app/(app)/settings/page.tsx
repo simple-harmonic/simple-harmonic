@@ -1,8 +1,8 @@
 "use client";
 
+import { type ThemePref, useTheme } from "@simple-harmonic/frontend/components/theme-provider";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { type ThemePref, useTheme } from "@simple-harmonic/frontend/components/theme-provider";
 
 interface SafeConfig {
   model: string;
@@ -85,6 +85,20 @@ export default function SettingsPage() {
               href="/settings/skills"
               title="Skills"
               subtitle="Browse tools and manage per-agent assignments"
+              status="ok"
+            />
+          </div>
+        </section>
+
+        <section className="mb-10">
+          <h2 className="text-[11px] text-brand font-semibold tracking-[0.06em] uppercase font-mono mb-4">
+            Platform
+          </h2>
+          <div className="flex flex-col gap-3">
+            <SettingsCard
+              href="/settings/platform"
+              title="Platform Health"
+              subtitle="Infrastructure report, platform status, telemetry"
               status="ok"
             />
           </div>

@@ -208,18 +208,34 @@ DO $$ BEGIN
   CREATE TYPE "app_event_severity" AS ENUM ('info', 'warning', 'error');
 EXCEPTION WHEN duplicate_object THEN null; END $$;
 
+DO $$ BEGIN
+  CREATE TYPE "app_event_level" AS ENUM ('agent', 'team', 'tool', 'infra');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
 CREATE TABLE IF NOT EXISTS "app_events" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "team_id" uuid,
   "agent_id" uuid,
   "severity" "app_event_severity" NOT NULL DEFAULT 'info',
+  "level" "app_event_level" NOT NULL DEFAULT 'agent',
   "source" text NOT NULL,
   "message" text NOT NULL,
   "metadata" jsonb,
+  "acknowledged_at" timestamp with time zone,
   "created_at" timestamp with time zone NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS "app_events_created_idx" ON "app_events" ("created_at");
 CREATE INDEX IF NOT EXISTS "app_events_team_idx" ON "app_events" ("team_id", "created_at");
+CREATE INDEX IF NOT EXISTS "app_events_level_idx" ON "app_events" ("level", "created_at");
+
+-- Platform status singleton
+CREATE TABLE IF NOT EXISTS "platform_status" (
+  "id" integer PRIMARY KEY DEFAULT 1,
+  "status" text NOT NULL DEFAULT 'healthy',
+  "message" text,
+  "updated_at" timestamp with time zone NOT NULL DEFAULT now()
+);
+INSERT INTO "platform_status" ("id", "status") VALUES (1, 'healthy') ON CONFLICT ("id") DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS "llm_spend" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -237,7 +253,10 @@ CREATE INDEX IF NOT EXISTS "llm_spend_day_idx" ON "llm_spend" ("day");
 -- Add columns that may be missing on older databases
 ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "parent_team_id" uuid REFERENCES "teams"("id") ON DELETE CASCADE;
 ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "goal" text;
+ALTER TABLE "teams" ADD COLUMN IF NOT EXISTS "telemetry_enabled" boolean NOT NULL DEFAULT true;
 ALTER TABLE "agents" ADD COLUMN IF NOT EXISTS "output_contract" jsonb;
+ALTER TABLE "app_events" ADD COLUMN IF NOT EXISTS "level" "app_event_level" NOT NULL DEFAULT 'agent';
+ALTER TABLE "app_events" ADD COLUMN IF NOT EXISTS "acknowledged_at" timestamp with time zone;
 `;
 
 export async function POST(req: Request) {

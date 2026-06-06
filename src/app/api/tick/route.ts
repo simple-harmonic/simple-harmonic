@@ -11,6 +11,8 @@ import { getA2AX } from "@simple-harmonic/backend/server/a2ax";
 import {
   emitAppEvent,
   formatEventsForPrompt,
+  formatPlatformStatusForPrompt,
+  getPlatformStatus,
   queryAppEvents,
 } from "@simple-harmonic/backend/server/app-events";
 import { getApiKeySource, getConfig } from "@simple-harmonic/backend/server/config";
@@ -369,12 +371,25 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
 
   try {
     const contract = agent.outputContract as Record<string, unknown> | null;
-    const [ctx, recentHistory, recentValidations, recentEvents] = await Promise.all([
+    const [ctx, recentHistory, recentValidations, recentEvents, platformSt] = await Promise.all([
       a2ax.getAgentContext(team.id, agent.id),
       fetchRecentHistory(d, agent.id),
       contract ? fetchRecentValidations(d, agent.id) : Promise.resolve(undefined),
-      queryAppEvents({ teamId: team.id, since: new Date(now.getTime() - 3600000), limit: 10 }),
+      queryAppEvents({
+        teamId: team.id,
+        since: new Date(now.getTime() - 3600000),
+        limit: 10,
+        includeInfra: false,
+      }),
+      getPlatformStatus(),
     ]);
+
+    // Combine health context: events + platform status (origin/main)
+    const healthParts = [
+      formatEventsForPrompt(recentEvents),
+      formatPlatformStatusForPrompt(platformSt),
+    ].filter(Boolean);
+    const appHealthContext = healthParts.length > 0 ? healthParts.join("\n\n") : undefined;
 
     const counting = makeCountingLLM(llm, modelOverride ?? "unknown");
     const result = await withTimeout(
@@ -389,7 +404,7 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
           teamGoal: team.goal ?? undefined,
           outputContract: contract ?? undefined,
           recentValidations,
-          appHealthContext: formatEventsForPrompt(recentEvents),
+          appHealthContext,
           teamId: team.id,
           agentId: agent.id,
           peers: buildPeers(allAgents, agent.id),
@@ -541,6 +556,7 @@ async function failAgent(args: {
   // Persistent record (queryable via observe_app tool)
   emitAppEvent({
     severity: "error",
+    level: "agent",
     source: phase === "resume" ? "tick-resume" : "tick",
     message: `Agent ${agent.name} failed: ${msg}`,
     teamId: agent.teamId,
