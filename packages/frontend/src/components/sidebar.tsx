@@ -317,7 +317,7 @@ function TeamTreeNode({
   );
 
   return (
-    <div style={{ paddingLeft: depth > 0 ? 4 : 0 }} className={depth > 0 ? "mt-0.5" : ""}>
+    <div style={{ paddingLeft: depth > 0 ? 4 : 0 }}>
       <div className={`flex items-center gap-0.5 ${depth > 0 ? "rounded bg-bg-elev/60" : ""}`}>
         {chevron}
         <div className="flex-1 min-w-0">
@@ -326,15 +326,38 @@ function TeamTreeNode({
             active={isActive}
             label={node.name}
             indicator={
-              <span className={`w-1.5 h-1.5 rounded-full inline-block shrink-0 ${node.paused ? "bg-paused" : "bg-running"}`} />
+              depth > 0 ? (
+                // Sub-team: a "team" (group of agents) icon, tinted by run state.
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={node.paused ? "var(--color-paused)" : "var(--color-running)"}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="shrink-0"
+                >
+                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+                  <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                </svg>
+              ) : (
+                <span className={`w-1.5 h-1.5 rounded-full inline-block shrink-0 ${node.paused ? "bg-paused" : "bg-running"}`} />
+              )
             }
           />
         </div>
       </div>
       {expanded && (
         <div className="ml-[9px] border-l border-border pl-2">
-          {/* People */}
-          {activeTeamId === node.id && (
+          {/* People — pinned to root teams. "You" (the founder) and Harmon
+              (the cofounder, auto-spawned only on root teams) belong to the
+              top-level team and must not relocate into a sub-team when it's
+              expanded or active. Sub-team leads are ordinary `agents` entries. */}
+          {depth === 0 && (
             <>
               <SidebarLink
                 href={`/f/${node.id}?agent=user`}
@@ -353,8 +376,9 @@ function TeamTreeNode({
                 label={teamCofounderNames[node.id] || "Harmon"}
                 small
                 indicator={
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-meta, #f59e0b)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                    <path d="M12 2L2 7l10 5 10-5-10-5z" /><path d="M2 17l10 5 10-5" /><path d="M2 12l10 5 10-5" />
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-meta, #ff832b)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                    {/* sparkle — marks Harmon as the AI cofounder */}
+                    <path d="M12 3l1.9 5.8a2 2 0 0 0 1.3 1.3L21 12l-5.8 1.9a2 2 0 0 0-1.3 1.3L12 21l-1.9-5.8a2 2 0 0 0-1.3-1.3L3 12l5.8-1.9a2 2 0 0 0 1.3-1.3z" />
                   </svg>
                 }
               />
@@ -422,8 +446,8 @@ function SidebarLink({
   return (
     <Link
       href={href}
-      className={`flex items-center gap-2 px-2 rounded-none transition-colors ${
-        small ? "py-[5px] text-[12px]" : "py-[7px] text-[13px]"
+      className={`flex items-center gap-2 px-2 py-[5px] leading-[18px] rounded-none transition-colors ${
+        small ? "text-[12px]" : "text-[13px]"
       } ${
         active
           ? "border-l-2 border-brand bg-brand-soft/30 text-fg font-medium"

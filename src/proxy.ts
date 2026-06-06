@@ -11,9 +11,11 @@ import { type NextRequest, NextResponse } from "next/server";
 //
 // edge runtime: this file and operator-auth.ts use only Web Crypto + header
 // parsing, no node-only APIs.
+//
+// Renamed from the deprecated `middleware` file convention to `proxy` (Next 16).
 // ---------------------------------------------------------------------------
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // The tick endpoint runs its own cron-secret check (cron callers carry no

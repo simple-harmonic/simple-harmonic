@@ -6,7 +6,7 @@ import {
 import { NextResponse } from "next/server";
 
 // Operator login: exchange the shared OPERATOR_PASSWORD for the sh_operator
-// session cookie (= sha256(password)). Excluded from the middleware gate.
+// session cookie (= sha256(password)). Excluded from the proxy gate.
 export async function POST(req: Request) {
   const password = process.env.OPERATOR_PASSWORD;
   if (!password) {
