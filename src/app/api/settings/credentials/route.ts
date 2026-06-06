@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import * as apollo from "@simple-harmonic/backend/server/apollo";
+import { NextResponse } from "next/server";
 
 // Credential endpoint for the Harmon credential-request flow.
 // Secrets are encrypted at rest via Apollo (.apollo/vault.enc) and loaded

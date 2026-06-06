@@ -1,6 +1,5 @@
 import { db } from "@simple-harmonic/backend/server/db";
 import { platformStatus } from "@simple-harmonic/backend/server/db/schema";
-import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 /**

@@ -1,7 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import type { SpawnTeamAgent } from "@simple-harmonic/backend/lib/meta-agent";
 import { ApprovalCard } from "@simple-harmonic/frontend/components/chat/approval-card";
 import { CredentialRequestCard } from "@simple-harmonic/frontend/components/chat/credential-request-card";
 import { ChatInputBar } from "@simple-harmonic/frontend/components/chat/input-bar";
@@ -12,7 +11,8 @@ import {
   UserMessage,
 } from "@simple-harmonic/frontend/components/chat/message";
 import { useChat } from "@simple-harmonic/frontend/components/chat/use-chat";
-import type { SpawnTeamAgent } from "@simple-harmonic/backend/lib/meta-agent";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 
 function SpawningScreen({ agentCount }: { agentCount: number }) {
   return (
@@ -32,7 +32,16 @@ function SpawningScreen({ agentCount }: { agentCount: number }) {
 
 export default function NewTeamPage() {
   const router = useRouter();
-  const { messages, status, spawnProposal, credentialRequest, sendMessage, retry, clearSpawnProposal, clearCredentialRequest } = useChat();
+  const {
+    messages,
+    status,
+    spawnProposal,
+    credentialRequest,
+    sendMessage,
+    retry,
+    clearSpawnProposal,
+    clearCredentialRequest,
+  } = useChat();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [spawning, setSpawning] = useState<{ count: number } | null>(null);
 
@@ -94,13 +103,7 @@ export default function NewTeamPage() {
               return null;
             }
             if (msg.role === "assistant") {
-              return (
-                <AssistantMessage
-                  key={msg.id}
-                  message={msg}
-                  isStreaming={isStreamingMsg}
-                />
-              );
+              return <AssistantMessage key={msg.id} message={msg} isStreaming={isStreamingMsg} />;
             }
             if (msg.role === "user") {
               return <UserMessage key={msg.id} message={msg} />;

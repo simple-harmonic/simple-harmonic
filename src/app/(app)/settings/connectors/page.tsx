@@ -52,8 +52,9 @@ export default function ConnectorsPage() {
         </div>
         <h1 className="text-lg font-semibold tracking-tight mb-2">Connectors</h1>
         <p className="text-[13px] text-fg-muted mb-8">
-          Credentials and configuration that agent tools need to operate.
-          Set these as environment variables in <code className="text-[12px] font-mono bg-bg-elev px-1 py-0.5 rounded">.env.local</code>.
+          Credentials and configuration that agent tools need to operate. Set these as environment
+          variables in{" "}
+          <code className="text-[12px] font-mono bg-bg-elev px-1 py-0.5 rounded">.env.local</code>.
         </p>
 
         {missing.length > 0 && (
@@ -107,9 +108,7 @@ function ConnectorCard({ connector }: { connector: Connector }) {
           {connector.envVar}
         </code>
       </div>
-      <p className="text-[12px] text-fg-muted mt-3 leading-relaxed">
-        {connector.description}
-      </p>
+      <p className="text-[12px] text-fg-muted mt-3 leading-relaxed">{connector.description}</p>
     </div>
   );
 }

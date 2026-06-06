@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { NextResponse } from "next/server";
-import { getConfig } from "@simple-harmonic/backend/server/config";
 import { getCodexAuthStatus } from "@simple-harmonic/backend/server/codex-auth";
+import { getConfig } from "@simple-harmonic/backend/server/config";
+import { NextResponse } from "next/server";
 
 function checkCli(name: string): Promise<{ installed: boolean; version: string | null }> {
   return new Promise((resolve) => {

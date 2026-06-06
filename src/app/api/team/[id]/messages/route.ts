@@ -1,5 +1,3 @@
-import { eq } from "drizzle-orm";
-import { NextResponse } from "next/server";
 import {
   COFOUNDER_AGENT_ID,
   COFOUNDER_POV,
@@ -9,6 +7,8 @@ import {
 import { getA2AX } from "@simple-harmonic/backend/server/a2ax";
 import { db } from "@simple-harmonic/backend/server/db";
 import { agents } from "@simple-harmonic/backend/server/db/schema";
+import { eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
 
 // GET /api/team/[id]/messages?agentId=xxx — get messages relevant to an agent
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -51,7 +51,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { id: teamId } = await params;
   const body = await req.json();
 
-  const { fromAgentId: rawFromAgentId, toAgentId: rawToAgentId, content, channelType, channelId } = body;
+  const {
+    fromAgentId: rawFromAgentId,
+    toAgentId: rawToAgentId,
+    content,
+    channelType,
+    channelId,
+  } = body;
 
   if (!rawFromAgentId || !content) {
     return NextResponse.json({ error: "fromAgentId and content required" }, { status: 400 });
@@ -70,21 +76,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const a2ax = getA2AX();
 
-  let msg;
+  let msg: Awaited<ReturnType<typeof a2ax.broadcast>>;
   switch (channelType) {
     case "broadcast":
       msg = await a2ax.broadcast(teamId, fromAgentId, content);
       break;
     case "group":
       if (!channelId) {
-        return NextResponse.json({ error: "channelId required for group messages" }, { status: 400 });
+        return NextResponse.json(
+          { error: "channelId required for group messages" },
+          { status: 400 },
+        );
       }
       msg = await a2ax.sendToGroup(teamId, channelId, fromAgentId, content);
       break;
-    case "direct":
     default:
       if (!toAgentId) {
-        return NextResponse.json({ error: "toAgentId required for direct messages" }, { status: 400 });
+        return NextResponse.json(
+          { error: "toAgentId required for direct messages" },
+          { status: 400 },
+        );
       }
       msg = await a2ax.sendDirect(teamId, fromAgentId, toAgentId, content);
       break;

@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
-import { createAppRegistry } from "@simple-harmonic/backend/server/tools";
 import { db } from "@simple-harmonic/backend/server/db";
-import { agents, teams } from "@simple-harmonic/backend/server/db/schema";
+import { agents } from "@simple-harmonic/backend/server/db/schema";
+import { createAppRegistry } from "@simple-harmonic/backend/server/tools";
 import { eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
 
 interface SkillInfo {
   name: string;
@@ -63,10 +63,7 @@ export async function PATCH(req: Request) {
   const validNames = new Set(registry.listForAgent().map((d) => d.name));
   const invalid = tools.filter((t) => !validNames.has(t));
   if (invalid.length > 0) {
-    return NextResponse.json(
-      { error: `Unknown tools: ${invalid.join(", ")}` },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: `Unknown tools: ${invalid.join(", ")}` }, { status: 400 });
   }
 
   const d = db();

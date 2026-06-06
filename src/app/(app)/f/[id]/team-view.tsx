@@ -1,6 +1,5 @@
 "use client";
 
-import { resolveCofounderName } from "@simple-harmonic/backend/lib/meta-agent/identity";
 import { AgentMessagesView } from "@simple-harmonic/frontend/components/team/agent-messages-view";
 import { AgentPovView } from "@simple-harmonic/frontend/components/team/agent-pov-view";
 import { ApprovalQueue } from "@simple-harmonic/frontend/components/team/approval-queue";
@@ -31,7 +30,7 @@ function TeamViewInner({ teamId }: TeamViewProps) {
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
-  const [userName, setUserName] = useState("You");
+  const [_userName, setUserName] = useState("You");
 
   // Load user display name from localStorage
   useEffect(() => {

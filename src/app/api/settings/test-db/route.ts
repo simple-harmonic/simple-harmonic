@@ -1,6 +1,6 @@
+import { getConfig } from "@simple-harmonic/backend/server/config";
 import { NextResponse } from "next/server";
 import { Pool } from "pg";
-import { getConfig } from "@simple-harmonic/backend/server/config";
 
 export async function POST() {
   const { databaseUrl } = getConfig();

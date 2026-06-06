@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
 import { db } from "@simple-harmonic/backend/server/db";
 import { agents, chatSessions, teams } from "@simple-harmonic/backend/server/db/schema";
+import { eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
 
 const HARMON_TOOLS = [
   "read_file",
@@ -53,8 +53,15 @@ interface SpawnPayload {
 }
 
 export async function POST(request: Request) {
-  const { agents: agentList, teamName, parentTeam, parentTeamId, cofounderName, goal, noHarmon } =
-    (await request.json()) as SpawnPayload;
+  const {
+    agents: agentList,
+    teamName,
+    parentTeam,
+    parentTeamId,
+    cofounderName,
+    goal,
+    noHarmon,
+  } = (await request.json()) as SpawnPayload;
 
   if (!agentList || !Array.isArray(agentList) || agentList.length === 0) {
     return NextResponse.json({ error: "agents required" }, { status: 400 });
@@ -69,17 +76,17 @@ export async function POST(request: Request) {
       where: eq(teams.name, parentTeam),
     });
     if (!parent) {
-      return NextResponse.json(
-        { error: `Parent team "${parentTeam}" not found` },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: `Parent team "${parentTeam}" not found` }, { status: 400 });
     }
     resolvedParentId = parent.id;
   }
 
   const resolvedTeamName =
     teamName?.trim() ||
-    agentList.map((a) => a.archetype).join("-").slice(0, 50);
+    agentList
+      .map((a) => a.archetype)
+      .join("-")
+      .slice(0, 50);
 
   const isRootTeam = !resolvedParentId;
   const resolvedCofounderName = cofounderName?.trim() || "Harmon";

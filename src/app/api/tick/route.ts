@@ -110,13 +110,13 @@ function summarizePayload(actionType: string, payload: Record<string, unknown>):
   if (payload.tool && payload.args) {
     const args =
       typeof payload.args === "object" ? JSON.stringify(payload.args) : String(payload.args);
-    const truncated = args.length > 120 ? args.slice(0, 117) + "..." : args;
+    const truncated = args.length > 120 ? `${args.slice(0, 117)}...` : args;
     return `${payload.tool}(${truncated})`;
   }
   if (payload.summary) return String(payload.summary).slice(0, 150);
   if (payload.message) return String(payload.message).slice(0, 150);
   const json = JSON.stringify(payload);
-  return json.length > 150 ? json.slice(0, 147) + "..." : json;
+  return json.length > 150 ? `${json.slice(0, 147)}...` : json;
 }
 
 type AgentRow = typeof agents.$inferSelect;

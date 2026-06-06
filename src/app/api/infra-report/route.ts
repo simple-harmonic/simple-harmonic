@@ -1,7 +1,7 @@
 import { queryAppEvents } from "@simple-harmonic/backend/server/app-events";
 import { db } from "@simple-harmonic/backend/server/db";
 import { appEvents } from "@simple-harmonic/backend/server/db/schema";
-import { eq, inArray } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 const MAX_UNACKNOWLEDGED = 100;

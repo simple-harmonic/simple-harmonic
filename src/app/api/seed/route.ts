@@ -1,16 +1,12 @@
-import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
 import {
   COFOUNDER_AGENT_ID,
   USER_AGENT_ID,
 } from "@simple-harmonic/backend/lib/meta-agent/identity";
-import { db } from "@simple-harmonic/backend/server/db";
-import {
-  agents,
-  chatSessions,
-  teams,
-} from "@simple-harmonic/backend/server/db/schema";
 import { getA2AX } from "@simple-harmonic/backend/server/a2ax";
+import { db } from "@simple-harmonic/backend/server/db";
+import { agents, chatSessions, teams } from "@simple-harmonic/backend/server/db/schema";
+import { eq } from "drizzle-orm";
+import { NextResponse } from "next/server";
 
 const TEAM_NAME = "Simple Harmonic v0.0 Launch";
 const META_PROMPT = `You are the AI cofounder for Simple Harmonic, an AI cofounder and team product for founders. The company goal: ship Simple Harmonic v0.0 by June 1 2026, hit 1.5k GitHub stars by month 6, begin MRR at month 6. Your agents handle content, dev ops, market research, and community. Coordinate them. Be direct and opinionated.`;
