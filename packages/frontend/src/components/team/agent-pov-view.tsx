@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { USER_AGENT_ID } from "@simple-harmonic/backend/lib/meta-agent/identity";
 import { AgentMessagesView } from "./agent-messages-view";
+import { TraceView } from "./trace-view";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -72,7 +73,7 @@ interface AgentPovViewProps {
   onUpdated: (agent: AgentDetail) => void;
 }
 
-type ActiveTab = "dashboard" | "history" | "messages" | "config";
+type ActiveTab = "dashboard" | "history" | "trace" | "messages" | "config";
 type ViewMode = "normal" | "thinking" | "verbose";
 
 // ---------------------------------------------------------------------------
@@ -212,7 +213,7 @@ export function AgentPovView({ teamId, agent, teamAgents, cofounderName, onUpdat
       {/* Tabs + view mode */}
       <div className="flex items-center border-b border-border shrink-0 bg-bg-elev px-5">
         <div className="flex">
-          {(["dashboard", "history", "messages", "config"] as const).map((t) => (
+          {(["dashboard", "history", "trace", "messages", "config"] as const).map((t) => (
             <button
               key={t}
               type="button"
@@ -257,6 +258,7 @@ export function AgentPovView({ teamId, agent, teamAgents, cofounderName, onUpdat
         {tab === "history" && (
           <HistoryTab teamId={teamId} agentId={agent.id} viewMode={viewMode} />
         )}
+        {tab === "trace" && <TraceView teamId={teamId} agentId={agent.id} />}
         {tab === "messages" && (
           <AgentMessagesView
             teamId={teamId}

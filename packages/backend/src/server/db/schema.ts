@@ -316,6 +316,31 @@ export const actionLog = pgTable("action_log", {
   index("action_log_agent_executed_idx").on(t.agentId, t.executedAt),
 ]);
 
+// Play-by-play trace: one row per agent step (LLM round, tool call, approval
+// pause, human decision, tick boundary) emitted by the meta-agent runner via
+// the server trace sink (server/trace.ts). tick_id groups the steps of one
+// logical tick, including across suspension/resume; the global sort key is
+// (emitted_at, seq) because a resumed tick restarts seq in a later invocation.
+// team_id/agent_id are intentionally NOT FKs: traces are telemetry and must
+// never block agent/team deletion — pruning clears orphans.
+export const agentTraceEvents = pgTable("agent_trace_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  teamId: uuid("team_id").notNull(),
+  agentId: uuid("agent_id").notNull(),
+  tickId: uuid("tick_id").notNull(),
+  seq: integer("seq").notNull(),
+  type: text("type").notNull(),
+  data: jsonb("data").$type<Record<string, unknown>>().notNull(),
+  // Set from the emitting process clock (not the DB) so ordering matches the
+  // runner's actual step order even when rows land in one batched insert.
+  emittedAt: timestamp("emitted_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("agent_trace_team_emitted_idx").on(t.teamId, t.emittedAt),
+  index("agent_trace_agent_emitted_idx").on(t.agentId, t.emittedAt),
+  index("agent_trace_tick_idx").on(t.tickId, t.seq),
+]);
+
 // LLM spend ledger: one row per agent run, summed per UTC day to enforce the
 // daily cost cap (see server/spend.ts). costCents stored as an integer to avoid
 // float drift. team_id/agent_id nullable so non-agent calls can be recorded.

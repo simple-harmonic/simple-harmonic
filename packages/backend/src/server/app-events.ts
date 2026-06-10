@@ -83,7 +83,9 @@ const PII_PATTERNS = [
   /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/g,
 ];
 
-function scrubPII(message: string): string {
+/** Strip API keys, tokens, and emails from a string before persistence.
+ *  Shared by app events and the agent trace sink. */
+export function scrubPII(message: string): string {
   let scrubbed = message;
   for (const pattern of PII_PATTERNS) {
     scrubbed = scrubbed.replace(pattern, "[REDACTED]");

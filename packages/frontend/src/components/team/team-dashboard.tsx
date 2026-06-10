@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import type { NarrationEntry } from "../../lib/narration";
+import { TraceView } from "./trace-view";
 
 interface Agent {
   id: string;
@@ -72,7 +74,10 @@ export function TeamDashboard({
   paused,
   onAgentClick,
 }: TeamDashboardProps) {
+  const [feedMode, setFeedMode] = useState<"summary" | "steps">("summary");
   const allAgents = [...agents, ...childAgents];
+  const agentNames: Record<string, string> = {};
+  for (const a of allAgents) agentNames[a.id] = a.name;
   const running = allAgents.filter((a) => a.status === "running").length;
   const errored = allAgents.filter((a) => a.status === "errored").length;
   const awaiting = allAgents.filter((a) => a.status === "awaiting_approval").length;
@@ -174,16 +179,34 @@ export function TeamDashboard({
               <h2 className="text-[11px] text-brand font-semibold tracking-[0.06em] uppercase font-mono">
                 Activity
               </h2>
-              {!paused && (
-                <span className="flex items-center gap-1.5 text-[10px] text-running font-mono">
-                  <span className="w-1.5 h-1.5 rounded-full bg-running animate-pulse" />
-                  live
-                </span>
-              )}
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-0.5 bg-bg rounded-md border border-border p-0.5">
+                  {(["summary", "steps"] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setFeedMode(m)}
+                      className={`px-2 py-0.5 text-[10px] font-mono rounded cursor-pointer transition-colors ${
+                        feedMode === m ? "bg-bg-elev text-fg" : "text-fg-faint hover:text-fg-muted"
+                      }`}
+                    >
+                      {m === "summary" ? "summary" : "play-by-play"}
+                    </button>
+                  ))}
+                </div>
+                {!paused && (
+                  <span className="flex items-center gap-1.5 text-[10px] text-running font-mono">
+                    <span className="w-1.5 h-1.5 rounded-full bg-running animate-pulse" />
+                    live
+                  </span>
+                )}
+              </div>
             </div>
             <div className="border border-border rounded-[10px] bg-bg-elev overflow-hidden">
               <div className="max-h-[500px] overflow-y-auto">
-                {narration.length === 0 ? (
+                {feedMode === "steps" ? (
+                  <TraceView teamId={teamId} agentNames={agentNames} compact />
+                ) : narration.length === 0 ? (
                   <div className="px-4 py-8 text-center text-[12px] text-fg-faint font-mono">
                     {paused ? "Team is paused. Resume to see activity." : "Waiting for first tick..."}
                   </div>
