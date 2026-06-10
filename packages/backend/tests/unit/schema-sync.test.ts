@@ -136,7 +136,10 @@ interface DrizzleEnumLike {
   enumValues: string[];
 }
 
-const drizzleEnums = Object.values(schema).filter(
+// Widen the schema exports to unknown before narrowing: pgEnum's callable
+// type isn't structurally compatible with a plain predicate over the export
+// union, and all we need are the two runtime properties.
+const drizzleEnums = Object.values(schema as Record<string, unknown>).filter(
   (v): v is DrizzleEnumLike =>
     typeof v === "function" && "enumName" in v && "enumValues" in v,
 );
