@@ -1,9 +1,15 @@
 import { approveAgentTick, runAgent } from "@simple-harmonic/backend/lib/meta-agent";
 import { createAnthropicClient } from "@simple-harmonic/backend/lib/meta-agent/anthropic-adapter";
 import { createCodexClient } from "@simple-harmonic/backend/lib/meta-agent/codex-adapter";
+import {
+  type CodexThreadSuspension,
+  isCodexThreadSuspension,
+  runCodexAgentTick,
+} from "@simple-harmonic/backend/lib/meta-agent/codex-harness";
 import type {
   AgentSuspension,
   LLMClient,
+  PendingToolCall,
   ToolDecision,
 } from "@simple-harmonic/backend/lib/meta-agent/runner";
 import type { PeerAgent } from "@simple-harmonic/backend/lib/meta-agent/tools";
@@ -30,6 +36,11 @@ import {
   recordSpend,
 } from "@simple-harmonic/backend/server/spend";
 import { createAppRegistryWithCustomTools } from "@simple-harmonic/backend/server/tools";
+import {
+  createTraceSink,
+  type PersistentTraceSink,
+  pruneTraceEvents,
+} from "@simple-harmonic/backend/server/trace";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
@@ -129,6 +140,9 @@ export async function POST(req: Request) {
   const d = db();
   const now = new Date();
 
+  // Retention sweep for play-by-play traces; internally throttled to hourly.
+  void pruneTraceEvents();
+
   if (!didResetInFlight) {
     didResetInFlight = true;
     try {
@@ -158,6 +172,13 @@ export async function POST(req: Request) {
 
   let llm: LLMClient;
   let modelOverride: string | undefined;
+
+  // Engine mode (codex app-server harness): codex owns the agent loop and
+  // calls SH tools back over RPC. Default for the codex provider; set
+  // SH_CODEX_RUNTIME=exec to fall back to the legacy per-round exec adapter.
+  // The exec adapter LLM client is still constructed below either way: it
+  // serves legacy (message-based) suspensions parked before a deploy.
+  const useCodexHarness = apiKeySource === "codex" && process.env.SH_CODEX_RUNTIME !== "exec";
 
   if (apiKeySource === "codex") {
     // Use Codex CLI subprocess (ChatGPT subscription via codex exec)
@@ -246,6 +267,7 @@ export async function POST(req: Request) {
           now,
           timeoutMs,
           registry,
+          useCodexHarness,
         }),
       ),
     );
@@ -267,6 +289,7 @@ export async function POST(req: Request) {
           now,
           timeoutMs,
           registry,
+          useCodexHarness,
         }),
       ),
     );
@@ -356,6 +379,18 @@ interface RunArgs {
   now: Date;
   timeoutMs: number;
   registry: ReturnType<typeof createAppRegistryWithCustomTools>;
+  /** Engine mode: run via the codex app-server harness instead of the runner. */
+  useCodexHarness: boolean;
+}
+
+/** Structural result both runAgent and runCodexAgentTick satisfy; all the
+ *  route needs for parking, logging, and validation. The suspension is
+ *  persisted opaquely (whole object), so only `pending` is typed here. */
+interface RunOutcome {
+  actionType: string;
+  payload: Record<string, unknown>;
+  suspension?: { pending: PendingToolCall[] };
+  validation?: { valid: boolean; issues: Array<{ path: string; message: string }> };
 }
 
 /**
@@ -369,6 +404,7 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
   const claimed = await claimAgent(d, agent, "running");
   if (!claimed) return false;
 
+  const trace = createTraceSink({ teamId: team.id, agentId: agent.id });
   try {
     const contract = agent.outputContract as Record<string, unknown> | null;
     const [ctx, recentHistory, recentValidations, recentEvents, platformSt] = await Promise.all([
@@ -391,47 +427,63 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
     ].filter(Boolean);
     const appHealthContext = healthParts.length > 0 ? healthParts.join("\n\n") : undefined;
 
-    const counting = makeCountingLLM(llm, modelOverride ?? "unknown");
-    const result = await withTimeout(
-      (signal) =>
-        runAgent({
-          name: agent.name,
-          archetype: agent.archetype,
-          tools: agent.tools as string[],
-          initialPrompt: agent.initialPrompt,
-          a2axContext: ctx.formatted || undefined,
-          recentHistory,
-          teamGoal: team.goal ?? undefined,
-          outputContract: contract ?? undefined,
-          recentValidations,
-          appHealthContext,
-          teamId: team.id,
-          agentId: agent.id,
-          peers: buildPeers(allAgents, agent.id),
-          a2ax,
-          llm: counting.llm,
-          model: modelOverride,
-          signal,
-          toolRegistry: registry,
-          isDestructive: registry.isDestructive,
-        }),
-      timeoutMs,
-      `agent ${agent.name}`,
-    );
+    const shared = {
+      name: agent.name,
+      archetype: agent.archetype,
+      tools: agent.tools as string[],
+      initialPrompt: agent.initialPrompt,
+      a2axContext: ctx.formatted || undefined,
+      recentHistory,
+      teamGoal: team.goal ?? undefined,
+      outputContract: contract ?? undefined,
+      recentValidations,
+      appHealthContext,
+      teamId: team.id,
+      agentId: agent.id,
+      peers: buildPeers(allAgents, agent.id),
+      a2ax,
+      model: modelOverride,
+      toolRegistry: registry,
+      isDestructive: registry.isDestructive,
+      trace: trace.emit,
+    };
+
+    let result: RunOutcome;
+    let usage: { model: string; inputTokens: number; outputTokens: number };
+
+    if (args.useCodexHarness) {
+      const r = await withTimeout(
+        (signal) => runCodexAgentTick({ ...shared, signal }),
+        timeoutMs,
+        `agent ${agent.name}`,
+      );
+      result = r;
+      usage = { model: modelOverride ?? "gpt-5.5", ...r.usage };
+    } else {
+      const counting = makeCountingLLM(llm, modelOverride ?? "unknown");
+      result = await withTimeout(
+        (signal) => runAgent({ ...shared, llm: counting.llm, signal }),
+        timeoutMs,
+        `agent ${agent.name}`,
+      );
+      usage = counting.usage;
+    }
 
     await a2ax.markContextRead(agent.id, ctx.messageIds);
-    await handleRunResult({ d, agent, result, now });
+    await handleRunResult({ d, agent, result, now, traceTickId: trace.tickId });
     await recordSpend(d, now, {
       teamId: team.id,
       agentId: agent.id,
-      model: counting.usage.model,
-      inputTokens: counting.usage.inputTokens,
-      outputTokens: counting.usage.outputTokens,
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
     });
     return true;
   } catch (err) {
-    await failAgent({ d, agent, now, err, phase: "tick", a2ax, teamId: team.id });
+    await failAgent({ d, agent, now, err, phase: "tick", a2ax, teamId: team.id, trace });
     return false;
+  } finally {
+    await trace.flush();
   }
 }
 
@@ -443,7 +495,12 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
 async function tryResumeAgent(args: RunArgs): Promise<boolean> {
   const { d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs, registry } = args;
 
-  const suspension = agent.conversationState as AgentSuspension | null;
+  // Either shape may be parked here: a legacy message-based runner suspension
+  // or an engine-mode codex-thread suspension. Both carry `pending`.
+  const suspension = agent.conversationState as
+    | AgentSuspension
+    | (CodexThreadSuspension & Record<string, unknown>)
+    | null;
   if (!suspension) {
     // Defensive: parked with no state. Clear both sides of the parked state so
     // stale approval cards cannot linger or contaminate a later suspension.
@@ -480,49 +537,89 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
   const claimed = await claimAgent(d, agent, "awaiting_approval");
   if (!claimed) return false;
 
+  // Continue the original tick's play-by-play thread: handleRunResult parked
+  // the trace tickId alongside the suspension when the agent paused.
+  const trace = createTraceSink({
+    teamId: team.id,
+    agentId: agent.id,
+    tickId: extractTraceTickId(agent.conversationState),
+  });
   try {
     const recentHistory = await fetchRecentHistory(d, agent.id);
-    const counting = makeCountingLLM(llm, modelOverride ?? "unknown");
-    const result = await withTimeout(
-      (signal) =>
-        runAgent({
-          name: agent.name,
-          archetype: agent.archetype,
-          tools: agent.tools as string[],
-          initialPrompt: agent.initialPrompt,
-          recentHistory,
-          teamId: team.id,
-          agentId: agent.id,
-          peers: buildPeers(allAgents, agent.id),
-          a2ax,
-          llm: counting.llm,
-          model: modelOverride,
-          signal,
-          toolRegistry: registry,
-          isDestructive: registry.isDestructive,
-          resume: { suspension, decisions },
-        }),
-      timeoutMs,
-      `agent ${agent.name} (resume)`,
-    );
+
+    const shared = {
+      name: agent.name,
+      archetype: agent.archetype,
+      tools: agent.tools as string[],
+      initialPrompt: agent.initialPrompt,
+      recentHistory,
+      teamId: team.id,
+      agentId: agent.id,
+      peers: buildPeers(allAgents, agent.id),
+      a2ax,
+      model: modelOverride,
+      toolRegistry: registry,
+      isDestructive: registry.isDestructive,
+      trace: trace.emit,
+    };
+
+    let result: RunOutcome;
+    let usage: { model: string; inputTokens: number; outputTokens: number };
+
+    if (isCodexThreadSuspension(suspension)) {
+      // Engine-mode park: resume the codex thread and feed the decisions in.
+      const r = await withTimeout(
+        (signal) => runCodexAgentTick({ ...shared, signal, resume: { suspension, decisions } }),
+        timeoutMs,
+        `agent ${agent.name} (resume)`,
+      );
+      result = r;
+      usage = { model: modelOverride ?? "gpt-5.5", ...r.usage };
+    } else {
+      // Legacy message-based park (pre-harness, or SH_CODEX_RUNTIME=exec).
+      const counting = makeCountingLLM(llm, modelOverride ?? "unknown");
+      result = await withTimeout(
+        (signal) =>
+          runAgent({
+            ...shared,
+            llm: counting.llm,
+            signal,
+            resume: { suspension: suspension as AgentSuspension, decisions },
+          }),
+        timeoutMs,
+        `agent ${agent.name} (resume)`,
+      );
+      usage = counting.usage;
+    }
 
     // Consume the resolved approvals so they don't block a future suspension.
     await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
-    await handleRunResult({ d, agent, result, now });
+    await handleRunResult({ d, agent, result, now, traceTickId: trace.tickId });
     await recordSpend(d, now, {
       teamId: team.id,
       agentId: agent.id,
-      model: counting.usage.model,
-      inputTokens: counting.usage.inputTokens,
-      outputTokens: counting.usage.outputTokens,
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
     });
     return true;
   } catch (err) {
     await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
-    await failAgent({ d, agent, now, err, phase: "resume", a2ax, teamId: team.id });
+    await failAgent({ d, agent, now, err, phase: "resume", a2ax, teamId: team.id, trace });
     return false;
+  } finally {
+    await trace.flush();
   }
 }
+
+/** Pull the trace tickId persisted alongside a parked suspension, if any.
+ *  Returns undefined (→ fresh tickId) for pre-trace suspensions or bad data. */
+function extractTraceTickId(conversationState: unknown): string | undefined {
+  const id = (conversationState as { traceTickId?: unknown } | null)?.traceTickId;
+  return typeof id === "string" && UUID_RE.test(id) ? id : undefined;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function claimAgent(
   d: ReturnType<typeof db>,
@@ -548,10 +645,14 @@ async function failAgent(args: {
   phase: "tick" | "resume";
   a2ax: ReturnType<typeof getA2AX>;
   teamId: string;
+  trace?: PersistentTraceSink;
 }): Promise<void> {
-  const { d, agent, now, err, phase, a2ax, teamId } = args;
+  const { d, agent, now, err, phase, a2ax, teamId, trace } = args;
   const msg = err instanceof Error ? err.message : String(err);
   console.error(`[tick] ${phase} of ${agent.name} failed:`, msg);
+
+  // Terminal play-by-play step (the caller flushes the sink).
+  trace?.emit({ type: "tick_failed", data: { phase, error: msg } });
 
   // Persistent record (queryable via observe_app tool)
   emitAppEvent({
@@ -593,10 +694,15 @@ async function failAgent(args: {
 async function handleRunResult(args: {
   d: ReturnType<typeof db>;
   agent: AgentRow;
-  result: Awaited<ReturnType<typeof runAgent>>;
+  /** Result from either runAgent (runner) or runCodexAgentTick (harness);
+   *  the suspension is persisted opaquely in both cases. */
+  result: RunOutcome;
   now: Date;
+  /** Trace thread id for this run; parked with the suspension so the resume
+   *  pass can continue the same play-by-play thread. */
+  traceTickId?: string;
 }): Promise<void> {
-  const { d, agent, result, now } = args;
+  const { d, agent, result, now, traceTickId } = args;
 
   if (result.suspension) {
     const s = result.suspension;
@@ -606,7 +712,12 @@ async function handleRunResult(args: {
         .set({
           inFlight: false,
           status: "awaiting_approval",
-          conversationState: s as unknown as Record<string, unknown>,
+          // The extra traceTickId key rides along with the opaque suspension;
+          // the runner ignores it and extractTraceTickId reads it on resume.
+          conversationState: {
+            ...(s as unknown as Record<string, unknown>),
+            ...(traceTickId ? { traceTickId } : {}),
+          },
         })
         .where(eq(agents.id, agent.id));
 

@@ -67,6 +67,13 @@ vi.mock("@/server/db/schema", () => ({
   appEvents: { level: "app_events.level" },
   llmSpend: { costCents: "llm_spend.cost_cents", day: "llm_spend.day" },
   platformStatus: { id: "platform_status.id" },
+  agentTraceEvents: {
+    teamId: "agent_trace_events.teamId",
+    agentId: "agent_trace_events.agentId",
+    tickId: "agent_trace_events.tickId",
+    seq: "agent_trace_events.seq",
+    emittedAt: "agent_trace_events.emittedAt",
+  },
 }));
 
 // T2: the tick route builds a tool registry to classify destructive tools.
@@ -79,7 +86,9 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ _eq: val })),
   and: vi.fn((...clauses: unknown[]) => ({ _and: clauses })),
   desc: vi.fn((col: unknown) => ({ _desc: col })),
+  asc: vi.fn((col: unknown) => ({ _asc: col })),
   gte: vi.fn((_col: unknown, val: unknown) => ({ _gte: val })),
+  lt: vi.fn((_col: unknown, val: unknown) => ({ _lt: val })),
   ne: vi.fn((_col: unknown, val: unknown) => ({ _ne: val })),
   isNull: vi.fn((_col: unknown) => ({ _isNull: true })),
   inArray: vi.fn((_col: unknown, vals: unknown[]) => ({ _inArray: vals })),
@@ -101,6 +110,14 @@ const mockRunAgent = vi.fn();
 vi.mock("@/lib/meta-agent", () => ({
   approveAgentTick: (...args: unknown[]) => mockApproveAgentTick(...args),
   runAgent: (...args: unknown[]) => mockRunAgent(...args),
+}));
+
+// Engine mode (codex app-server harness). Real discriminator, mocked runner.
+const mockRunCodexAgentTick = vi.fn();
+vi.mock("@/lib/meta-agent/codex-harness", () => ({
+  runCodexAgentTick: (...args: unknown[]) => mockRunCodexAgentTick(...args),
+  isCodexThreadSuspension: (s: unknown) =>
+    typeof s === "object" && s !== null && (s as { kind?: unknown }).kind === "codex-thread",
 }));
 
 // ---------------------------------------------------------------------------
@@ -226,6 +243,8 @@ beforeEach(() => {
   // mockResolvedValueOnce queue from a prior test — clearAllMocks only clears
   // call history, so an unconsumed once-value would otherwise bleed across
   // tests and make ordering matter (surfaced when the tick route went parallel).
+  mockRunAgent.mockReset();
+  mockRunCodexAgentTick.mockReset();
   mockDb.query.teams.findMany.mockReset();
   mockDb.query.agents.findMany.mockReset();
   mockDb.query.pendingApprovals.findMany.mockReset();
@@ -528,11 +547,12 @@ describe("POST /api/tick — approval suspend/resume", () => {
     await POST(tickReq());
 
     expect(mockDb.transaction).toHaveBeenCalled();
-    // Agent parked: status awaiting_approval + conversation state saved.
+    // Agent parked: status awaiting_approval + conversation state saved, with
+    // the play-by-play trace tickId riding along for the resume pass.
     expect(mockSet).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "awaiting_approval",
-        conversationState: suspension,
+        conversationState: { ...suspension, traceTickId: expect.any(String) },
       }),
     );
     // A pending_approvals row was inserted for the destructive call.
@@ -722,14 +742,21 @@ describe("POST /api/tick — LLM client selection", () => {
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
     mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
     mockApproveAgentTick.mockReturnValue({ allowed: true });
-    mockRunAgent.mockResolvedValueOnce({ actionType: "noop", payload: {} });
+    // Engine mode: codex-provider fresh runs go through the harness now.
+    mockRunCodexAgentTick.mockResolvedValueOnce({
+      actionType: "noop",
+      payload: {},
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
 
     await POST(tickReq());
 
+    // The exec-adapter client is still constructed (legacy resume fallback).
     expect(mockCreateCodexClient).toHaveBeenCalledWith(
       expect.objectContaining({ model: "gpt-5.5" }),
     );
     expect(mockCreateAnthropicClient).not.toHaveBeenCalled();
+    expect(mockRunCodexAgentTick).toHaveBeenCalledTimes(1);
   });
 
   it("uses Anthropic client when ANTHROPIC_API_KEY is set", async () => {
@@ -791,5 +818,255 @@ describe("GET /api/tick", () => {
     expect(body.ok).toBe(true);
     expect(body.agentsRan).toBe(0);
     expect(body.timestamp).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Play-by-play trace persistence (server/trace sink wired into the route)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/tick — play-by-play trace", () => {
+  /** Insert batches that look like trace rows (arrays of {type, tickId, seq}). */
+  function traceBatches(): Array<Array<Record<string, unknown>>> {
+    return mockInsertValues.mock.calls
+      .map((c) => c[0])
+      .filter(
+        (arg): arg is Array<Record<string, unknown>> =>
+          Array.isArray(arg) && arg.length > 0 && typeof arg[0]?.tickId === "string",
+      );
+  }
+
+  it("persists runner trace steps emitted during a successful run", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    mockApproveAgentTick.mockReturnValue({ allowed: true });
+    mockRunAgent.mockImplementationOnce(async (cfg: { trace?: (s: unknown) => void }) => {
+      cfg.trace?.({ type: "tick_started", data: { mode: "fresh", round: 0 } });
+      cfg.trace?.({ type: "tick_finished", data: { actionType: "research" } });
+      return { actionType: "research", payload: { summary: "done" } };
+    });
+
+    await POST(tickReq());
+
+    const rows = traceBatches().flat();
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    expect(rows.map((r) => r.type)).toEqual(
+      expect.arrayContaining(["tick_started", "tick_finished"]),
+    );
+    // All steps of one run share a tickId and identify the agent.
+    const tickIds = new Set(rows.map((r) => r.tickId));
+    expect(tickIds.size).toBe(1);
+    expect(rows[0].agentId).toBe("agent-1");
+    expect(rows[0].teamId).toBe(TEAM_ID);
+  });
+
+  it("records a tick_failed step when the run throws", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    mockApproveAgentTick.mockReturnValue({ allowed: true });
+    mockRunAgent.mockRejectedValueOnce(new Error("LLM exploded"));
+
+    await POST(tickReq());
+
+    const rows = traceBatches().flat();
+    const failed = rows.find((r) => r.type === "tick_failed");
+    expect(failed).toBeDefined();
+    expect((failed?.data as Record<string, unknown>)?.error).toContain("LLM exploded");
+  });
+
+  it("resume reuses the trace tickId parked with the suspension", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+
+    const parkedTickId = "11111111-2222-4333-8444-555555555555";
+    const parked = makeDueAgent({
+      status: "awaiting_approval",
+      conversationState: {
+        messages: [{ role: "assistant", content: null, tool_calls: [] }],
+        pending: [{ id: "call_w", name: "write_file", arguments: "{}" }],
+        actions: [],
+        round: 0,
+        traceTickId: parkedTickId,
+      },
+    });
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
+    mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "awaiting_approval" });
+    mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
+      { toolCallId: "call_w", status: "approved", decisionNote: null },
+    ]);
+    mockRunAgent.mockImplementationOnce(async (cfg: { trace?: (s: unknown) => void }) => {
+      cfg.trace?.({ type: "tick_started", data: { mode: "resume", round: 0 } });
+      return { actionType: "file_written", payload: {} };
+    });
+
+    await POST(tickReq());
+
+    const rows = traceBatches().flat();
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    expect(rows[0].tickId).toBe(parkedTickId);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Engine mode: codex app-server harness routing
+// ---------------------------------------------------------------------------
+
+describe("POST /api/tick — codex app-server harness", () => {
+  it("routes fresh codex-provider runs through the harness, not the runner", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+
+    mockGetApiKeySource.mockReturnValue("codex");
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    mockApproveAgentTick.mockReturnValue({ allowed: true });
+    mockRunCodexAgentTick.mockResolvedValueOnce({
+      actionType: "research",
+      payload: { summary: "engine mode" },
+      usage: { inputTokens: 5000, outputTokens: 250 },
+    });
+
+    const res = await POST(tickReq());
+    const body = await res.json();
+
+    expect(body.agentsRan).toBe(1);
+    expect(mockRunCodexAgentTick).toHaveBeenCalledTimes(1);
+    expect(mockRunAgent).not.toHaveBeenCalled();
+
+    // Real token usage from the harness lands in the spend ledger (model
+    // comes from config — the default test config says o4-mini).
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ inputTokens: 5000, outputTokens: 250, model: "o4-mini" }),
+    );
+    // And the action was logged.
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ actionType: "research" }),
+    );
+  });
+
+  it("SH_CODEX_RUNTIME=exec opts out of the harness", async () => {
+    process.env.SH_CODEX_RUNTIME = "exec";
+    try {
+      const { POST } = await import("@/app/api/tick/route");
+
+      mockGetApiKeySource.mockReturnValue("codex");
+      mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+      mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+      mockApproveAgentTick.mockReturnValue({ allowed: true });
+      mockRunAgent.mockResolvedValueOnce({ actionType: "research", payload: {} });
+
+      await POST(tickReq());
+
+      expect(mockRunAgent).toHaveBeenCalledTimes(1);
+      expect(mockRunCodexAgentTick).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.SH_CODEX_RUNTIME;
+    }
+  });
+
+  it("parks a codex-thread suspension opaquely with the trace tickId riding along", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+
+    mockGetApiKeySource.mockReturnValue("codex");
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    mockApproveAgentTick.mockReturnValue({ allowed: true });
+    mockRunCodexAgentTick.mockResolvedValueOnce({
+      actionType: "suspended",
+      payload: { agent: "Researcher", pending: [{ id: "c9", name: "write_file" }] },
+      suspension: {
+        kind: "codex-thread",
+        threadId: "thr_abc",
+        pending: [{ id: "c9", name: "write_file", arguments: '{"path":"x"}' }],
+        actions: [],
+      },
+      usage: { inputTokens: 100, outputTokens: 10 },
+    });
+
+    await POST(tickReq());
+
+    expect(mockSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "awaiting_approval",
+        conversationState: expect.objectContaining({
+          kind: "codex-thread",
+          threadId: "thr_abc",
+          traceTickId: expect.any(String),
+        }),
+      }),
+    );
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ toolCallId: "c9", toolName: "write_file" }),
+      ]),
+    );
+  });
+
+  it("resumes a codex-thread suspension through the harness with the decisions", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+
+    const parked = makeDueAgent({
+      status: "awaiting_approval",
+      conversationState: {
+        kind: "codex-thread",
+        threadId: "thr_abc",
+        pending: [{ id: "c9", name: "write_file", arguments: "{}" }],
+        actions: [],
+      },
+    });
+    mockGetApiKeySource.mockReturnValue("codex");
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
+    mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "awaiting_approval" });
+    mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
+      { toolCallId: "c9", status: "approved", decisionNote: null },
+    ]);
+    mockRunCodexAgentTick.mockResolvedValueOnce({
+      actionType: "file_written",
+      payload: {},
+      usage: { inputTokens: 50, outputTokens: 5 },
+    });
+
+    await POST(tickReq());
+
+    expect(mockRunCodexAgentTick).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resume: expect.objectContaining({
+          suspension: expect.objectContaining({ threadId: "thr_abc" }),
+          decisions: [{ id: "c9", approved: true, note: undefined }],
+        }),
+      }),
+    );
+    expect(mockRunAgent).not.toHaveBeenCalled();
+  });
+
+  it("legacy message-based suspensions still resume through the runner under the codex provider", async () => {
+    const { POST } = await import("@/app/api/tick/route");
+
+    const parked = makeDueAgent({
+      status: "awaiting_approval",
+      conversationState: {
+        messages: [{ role: "assistant", content: null, tool_calls: [] }],
+        pending: [{ id: "call_w", name: "write_file", arguments: "{}" }],
+        actions: [],
+        round: 0,
+      },
+    });
+    mockGetApiKeySource.mockReturnValue("codex");
+    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
+    mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
+    mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "awaiting_approval" });
+    mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
+      { toolCallId: "call_w", status: "approved", decisionNote: null },
+    ]);
+    mockRunAgent.mockResolvedValueOnce({ actionType: "file_written", payload: {} });
+
+    await POST(tickReq());
+
+    expect(mockRunAgent).toHaveBeenCalledTimes(1);
+    expect(mockRunCodexAgentTick).not.toHaveBeenCalled();
   });
 });
