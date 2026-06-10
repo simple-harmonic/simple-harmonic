@@ -37,6 +37,7 @@ import type {
   ToolResult,
   ToolRunContext,
 } from "./tools";
+import type { TraceEventType, TraceSink } from "./trace";
 
 const FALLBACK_TOOL_NAMES = ["send_message", "broadcast", "report_action"];
 
@@ -132,6 +133,11 @@ export interface AgentConfig {
    * continues the loop instead of starting fresh.
    */
   resume?: ResumeState;
+  /**
+   * Optional play-by-play sink. Receives one step for every LLM round, tool
+   * call, approval pause, and tick boundary. Sink failures never break a tick.
+   */
+  trace?: TraceSink;
 }
 
 export interface AgentRunResult {
@@ -187,10 +193,68 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
     a2ax: config.a2ax,
   };
 
-  // --- Initialize or restore conversation state -----------------------------
+  // --- Conversation state (initialized or restored below) -------------------
   let messages: Array<Record<string, unknown>>;
   const actions: ToolResult[] = [];
   let startRound = 0;
+
+  // --- Play-by-play trace helpers --------------------------------------------
+  const tickStartedAt = Date.now();
+  const emit = (type: TraceEventType, data: Record<string, unknown>) => {
+    try {
+      config.trace?.({ type, data });
+    } catch {
+      // A buggy sink must never break a tick.
+    }
+  };
+  /** Run one tool call with tool_started/tool_finished steps around it. */
+  const tracedToolCall = async (call: PendingToolCall, round: number): Promise<RunToolOutcome> => {
+    emit("tool_started", {
+      round,
+      toolCallId: call.id,
+      tool: call.name,
+      args: parseToolArgs(call.arguments) ?? call.arguments,
+    });
+    const startedAt = Date.now();
+    try {
+      const outcome = await runToolCall(call, toolCtx, actions, registry);
+      emit("tool_finished", {
+        round,
+        toolCallId: call.id,
+        tool: call.name,
+        result: outcome.content,
+        durationMs: Date.now() - startedAt,
+      });
+      return outcome;
+    } catch (err) {
+      emit("tool_finished", {
+        round,
+        toolCallId: call.id,
+        tool: call.name,
+        error: err instanceof Error ? err.message : String(err),
+        durationMs: Date.now() - startedAt,
+      });
+      throw err;
+    }
+  };
+  /** Emit the terminal step for a completed (not suspended) tick. */
+  const finish = (result: AgentRunResult): AgentRunResult => {
+    emit("tick_finished", {
+      actionType: result.actionType,
+      actionCount: actions.length,
+      durationMs: Date.now() - tickStartedAt,
+      ...(result.validation
+        ? { validation: { valid: result.validation.valid, issues: result.validation.issues } }
+        : {}),
+    });
+    return result;
+  };
+
+  // --- Initialize or restore conversation state -----------------------------
+  emit("tick_started", {
+    mode: config.resume ? "resume" : "fresh",
+    round: config.resume ? config.resume.suspension.round : 0,
+  });
 
   if (config.resume) {
     // Resuming a suspended tick: restore the conversation and prior actions,
@@ -204,8 +268,14 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
     for (const { call, needsApproval } of orderedResumeCalls(suspension)) {
       if (needsApproval) {
         const decision = decisionById.get(call.id);
+        emit("decision_applied", {
+          toolCallId: call.id,
+          tool: call.name,
+          approved: decision?.approved ?? false,
+          ...(decision?.note ? { note: decision.note } : {}),
+        });
         if (decision?.approved) {
-          const execResult = await runToolCall(call, toolCtx, actions, registry);
+          const execResult = await tracedToolCall(call, suspension.round);
           messages.push(toolResultMessage(call.id, execResult));
         } else {
           const note = decision?.note ?? "The user rejected this action.";
@@ -217,7 +287,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
           );
         }
       } else {
-        const execResult = await runToolCall(call, toolCtx, actions, registry);
+        const execResult = await tracedToolCall(call, suspension.round);
         messages.push(toolResultMessage(call.id, execResult));
       }
     }
@@ -232,6 +302,12 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
 
   // --- Multi-round tool-use loop --------------------------------------------
   for (let round = startRound; round < MAX_TOOL_ROUNDS; round++) {
+    emit("llm_request", {
+      round,
+      model: config.model || "o4-mini",
+      messageCount: messages.length,
+    });
+    const llmStartedAt = Date.now();
     const response = await config.llm.chat.completions.create({
       model: config.model || "o4-mini",
       messages,
@@ -244,14 +320,24 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
     if (!choice) break;
 
     const msg = choice.message;
+    emit("llm_response", {
+      round,
+      thought: msg.content ?? null,
+      toolCalls: (msg.tool_calls ?? []).map((tc) => ({
+        toolCallId: tc.id,
+        tool: tc.function.name,
+      })),
+      finishReason: choice.finish_reason,
+      durationMs: Date.now() - llmStartedAt,
+    });
 
     // LLM returned text only (no tool calls): we're done this tick.
     if (!msg.tool_calls || msg.tool_calls.length === 0) {
       if (actions.length === 0) {
-        return {
+        return finish({
           actionType: "agent_thought",
           payload: { agent: config.name, thought: msg.content ?? "no output" },
-        };
+        });
       }
       break;
     }
@@ -274,6 +360,15 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
     const destructive = calls.filter((tc) => isDestructive(tc.name, parseToolArgs(tc.arguments)));
     if (destructive.length > 0) {
       const destructiveIds = new Set(destructive.map((tc) => tc.id));
+      emit("approval_requested", {
+        round,
+        pending: destructive.map((tc) => ({
+          toolCallId: tc.id,
+          tool: tc.name,
+          args: parseToolArgs(tc.arguments) ?? tc.arguments,
+        })),
+        deferredSafeCount: calls.length - destructive.length,
+      });
       return {
         actionType: "suspended",
         payload: {
@@ -297,7 +392,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
 
     // No destructive calls this round: execute them all inline.
     for (const call of calls) {
-      const execResult = await runToolCall(call, toolCtx, actions, registry);
+      const execResult = await tracedToolCall(call, round);
       messages.push(toolResultMessage(call.id, execResult));
     }
 
@@ -310,7 +405,7 @@ export async function runAgent(config: AgentConfig): Promise<AgentRunResult> {
     result.validation = validateContract(result.payload, config.outputContract);
   }
 
-  return result;
+  return finish(result);
 }
 
 // ---------------------------------------------------------------------------
@@ -349,7 +444,8 @@ async function runToolCall(
   return { content: result.result };
 }
 
-function toolAllowlist(tools: string[]): string[] {
+/** Shared with the codex app-server harness. */
+export function toolAllowlist(tools: string[]): string[] {
   return [...new Set([...FALLBACK_TOOL_NAMES, ...tools])];
 }
 
@@ -417,8 +513,9 @@ function toolMessage(toolCallId: string, content: string): Record<string, unknow
   return { role: "tool", tool_call_id: toolCallId, content };
 }
 
-/** Collapse accumulated actions into the tick's return value. */
-function summarize(agentName: string, actions: ToolResult[]): AgentRunResult {
+/** Collapse accumulated actions into the tick's return value.
+ *  Shared with the codex app-server harness (codex-harness.ts). */
+export function summarize(agentName: string, actions: ToolResult[]): AgentRunResult {
   if (actions.length === 0) {
     return { actionType: "noop", payload: { agent: agentName } };
   }
@@ -458,7 +555,26 @@ You have access to a project codebase via your tools. Guidelines:
 - Report your findings and actions clearly so the team can follow your work.
 - Browse .simple-harmonic/skills/ for custom API tools and .simple-harmonic/connectors/ for configured credentials.`;
 
-function buildSystemPrompt(config: AgentConfig, tools: Array<{ name: string; description: string }>): string {
+/** The subset of AgentConfig the prompt builders read. The codex app-server
+ *  harness satisfies this without constructing an LLM client. */
+export type AgentPromptConfig = Pick<
+  AgentConfig,
+  | "name"
+  | "archetype"
+  | "tools"
+  | "initialPrompt"
+  | "peers"
+  | "teamGoal"
+  | "recentHistory"
+  | "recentValidations"
+  | "outputContract"
+  | "a2axContext"
+  | "appHealthContext"
+>;
+
+/** Shared with the codex app-server harness, which injects this as the
+ *  thread's developerInstructions instead of an OpenAI system message. */
+export function buildSystemPrompt(config: AgentPromptConfig, tools: Array<{ name: string; description: string }>): string {
   const peerList = config.peers.map((p) => `- ${p.name} (${p.role})`).join("\n");
   const toolList = tools
     .map((t) => `- ${t.name}: ${t.description}`)
@@ -487,7 +603,8 @@ Improvement levels (how to respond to issues you discover):
 When reporting issues, be specific: what broke, what you tried, what the error said. Vague reports waste everyone's time.`;
 }
 
-function buildTickPrompt(config: AgentConfig): string {
+/** Shared with the codex app-server harness (turn/start input text). */
+export function buildTickPrompt(config: AgentPromptConfig): string {
   let prompt = "A new tick has fired. Do your job based on your role and system prompt.";
 
   if (config.teamGoal) {

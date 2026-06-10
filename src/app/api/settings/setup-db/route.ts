@@ -237,6 +237,24 @@ CREATE TABLE IF NOT EXISTS "platform_status" (
 );
 INSERT INTO "platform_status" ("id", "status") VALUES (1, 'healthy') ON CONFLICT ("id") DO NOTHING;
 
+-- Agent trace events (play-by-play, one row per agent step)
+CREATE TABLE IF NOT EXISTS "agent_trace_events" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- team_id/agent_id are NOT FKs: traces are telemetry and must never block
+  -- agent/team deletion; pruning clears orphans.
+  "team_id" uuid NOT NULL,
+  "agent_id" uuid NOT NULL,
+  "tick_id" uuid NOT NULL,
+  "seq" integer NOT NULL,
+  "type" text NOT NULL,
+  "data" jsonb NOT NULL,
+  "emitted_at" timestamp with time zone NOT NULL,
+  "created_at" timestamp with time zone NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS "agent_trace_team_emitted_idx" ON "agent_trace_events" ("team_id", "emitted_at");
+CREATE INDEX IF NOT EXISTS "agent_trace_agent_emitted_idx" ON "agent_trace_events" ("agent_id", "emitted_at");
+CREATE INDEX IF NOT EXISTS "agent_trace_tick_idx" ON "agent_trace_events" ("tick_id", "seq");
+
 CREATE TABLE IF NOT EXISTS "llm_spend" (
   "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   "team_id" uuid,

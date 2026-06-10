@@ -4,6 +4,7 @@ export type { ContractIssue, ValidationResult } from "./contract";
 export { DEFAULT_META_AGENT_PROMPT, plannerStream } from "./planner";
 export { runAgent } from "./runner";
 export type { AgentConfig, AgentRunResult, LLMClient } from "./runner";
+export type { TraceEventType, TraceSink, TraceStep } from "./trace";
 export { AGENT_TOOL_DEFS, executeTool } from "./tools";
 export type {
   A2AXSender,
