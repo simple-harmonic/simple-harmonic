@@ -7,6 +7,8 @@
   ],
   "scripts": {
     "dev": "NODE_OPTIONS='--disable-warning=DEP0205' next dev",
+    "dev:backend": "tsx packages/backend/src/server/standalone/main.ts",
+    "db:setup": "tsx packages/backend/src/server/standalone/setup-db-cli.ts",
     "build": "next build",
     "start": "next start",
     "lint": "biome check --write .",
@@ -61,6 +63,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^17.0.7",
     "tailwindcss": "^4",
+    "tsx": "^4.19.0",
     "typescript": "^5",
     "vitest": "^4.1.6"
   }

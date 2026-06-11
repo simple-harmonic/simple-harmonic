@@ -28,7 +28,7 @@ vi.mock("@/server/config", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { POST } from "@/app/api/settings/test-db/route";
+import { POST } from "@/server/api/settings/test-db";
 
 // ---------------------------------------------------------------------------
 // Tests

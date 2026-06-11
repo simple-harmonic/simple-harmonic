@@ -69,9 +69,9 @@ describe("POST /api/settings/codex-login", () => {
   it("returns already_authenticated when auth exists and not force", async () => {
     mockGetCodexAuthStatus.mockReturnValue({ found: true, hasAccessToken: true });
 
-    const { POST } = await import("@/app/api/settings/codex-login/route");
+    const { POST } = await import("@/server/api/settings/codex-login");
     const res = await POST(makePostRequest(false));
-    const body = await res.json();
+    const body = (await res.json()) as { status: string };
 
     expect(res.status).toBe(200);
     expect(body.status).toBe("already_authenticated");
@@ -82,16 +82,16 @@ describe("POST /api/settings/codex-login", () => {
     const fakeProc = makeFakeProcess();
     mockSpawn.mockReturnValue(fakeProc);
 
-    const { POST } = await import("@/app/api/settings/codex-login/route");
+    const { POST } = await import("@/server/api/settings/codex-login");
 
     // First call starts the login
     const res1 = await POST(makePostRequest());
-    const body1 = await res1.json();
+    const body1 = (await res1.json()) as { status: string };
     expect(body1.status).toBe("started");
 
     // Second call sees already_running
     const res2 = await POST(makePostRequest());
-    const body2 = await res2.json();
+    const body2 = (await res2.json()) as { status: string };
     expect(body2.status).toBe("already_running");
   });
 
@@ -100,9 +100,9 @@ describe("POST /api/settings/codex-login", () => {
     const fakeProc = makeFakeProcess();
     mockSpawn.mockReturnValue(fakeProc);
 
-    const { POST } = await import("@/app/api/settings/codex-login/route");
+    const { POST } = await import("@/server/api/settings/codex-login");
     const res = await POST(makePostRequest(true));
-    const body = await res.json();
+    const body = (await res.json()) as { status: string };
 
     expect(body.status).toBe("started");
     expect(mockExistsSync).toHaveBeenCalled();
@@ -113,9 +113,9 @@ describe("POST /api/settings/codex-login", () => {
     const fakeProc = makeFakeProcess();
     mockSpawn.mockReturnValue(fakeProc);
 
-    const { POST } = await import("@/app/api/settings/codex-login/route");
+    const { POST } = await import("@/server/api/settings/codex-login");
     const res = await POST(makePostRequest());
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; status: string };
 
     expect(res.status).toBe(200);
     expect(body.ok).toBe(true);
@@ -132,9 +132,9 @@ describe("POST /api/settings/codex-login", () => {
       throw new Error("ENOENT");
     });
 
-    const { POST } = await import("@/app/api/settings/codex-login/route");
+    const { POST } = await import("@/server/api/settings/codex-login");
     const res = await POST(makePostRequest());
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; error: string };
 
     expect(res.status).toBe(500);
     expect(body.ok).toBe(false);
@@ -145,7 +145,7 @@ describe("POST /api/settings/codex-login", () => {
     const fakeProc1 = makeFakeProcess();
     mockSpawn.mockReturnValue(fakeProc1);
 
-    const { POST } = await import("@/app/api/settings/codex-login/route");
+    const { POST } = await import("@/server/api/settings/codex-login");
 
     // Start first login
     await POST(makePostRequest());
@@ -159,7 +159,7 @@ describe("POST /api/settings/codex-login", () => {
     mockSpawn.mockReturnValue(fakeProc2);
 
     const res = await POST(makePostRequest());
-    const body = await res.json();
+    const body = (await res.json()) as { status: string };
 
     expect(fakeProc1.kill).toHaveBeenCalled();
     expect(body.status).toBe("started");
@@ -173,9 +173,9 @@ describe("POST /api/settings/codex-login", () => {
     const fakeProc = makeFakeProcess();
     mockSpawn.mockReturnValue(fakeProc);
 
-    const { POST } = await import("@/app/api/settings/codex-login/route");
+    const { POST } = await import("@/server/api/settings/codex-login");
     const res = await POST(makePostRequest(true));
-    const body = await res.json();
+    const body = (await res.json()) as { status: string };
 
     expect(body.status).toBe("started");
     expect(mockSpawn).toHaveBeenCalled();
@@ -191,9 +191,9 @@ describe("GET /api/settings/codex-login", () => {
   it("returns authenticated=true when codex auth is valid", async () => {
     mockGetCodexAuthStatus.mockReturnValue({ found: true, hasAccessToken: true });
 
-    const { GET } = await import("@/app/api/settings/codex-login/route");
+    const { GET } = await import("@/server/api/settings/codex-login");
     const res = await GET();
-    const body = await res.json();
+    const body = (await res.json()) as { authenticated: boolean };
 
     expect(body.authenticated).toBe(true);
   });
@@ -201,9 +201,9 @@ describe("GET /api/settings/codex-login", () => {
   it("returns authenticated=false when no auth exists", async () => {
     mockGetCodexAuthStatus.mockReturnValue({ found: false, hasAccessToken: false });
 
-    const { GET } = await import("@/app/api/settings/codex-login/route");
+    const { GET } = await import("@/server/api/settings/codex-login");
     const res = await GET();
-    const body = await res.json();
+    const body = (await res.json()) as { authenticated: boolean; loginRunning: boolean };
 
     expect(body.authenticated).toBe(false);
     expect(body.loginRunning).toBe(false);
@@ -214,14 +214,14 @@ describe("GET /api/settings/codex-login", () => {
     const fakeProc = makeFakeProcess();
     mockSpawn.mockReturnValue(fakeProc);
 
-    const mod = await import("@/app/api/settings/codex-login/route");
+    const mod = await import("@/server/api/settings/codex-login");
 
     // Start a login first
     await mod.POST(makePostRequest());
 
     // Now GET should show loginRunning=true
     const res = await mod.GET();
-    const body = await res.json();
+    const body = (await res.json()) as { loginRunning: boolean };
 
     expect(body.loginRunning).toBe(true);
   });

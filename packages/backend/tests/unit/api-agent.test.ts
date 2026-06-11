@@ -41,8 +41,8 @@ vi.mock("@/server/db/schema", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { PATCH } from "@/app/api/agent/[id]/route";
-import { POST } from "@/app/api/spawn/route";
+import { PATCH } from "@/server/api/agent/id";
+import { POST } from "@/server/api/spawn";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -78,7 +78,7 @@ describe("PATCH /api/agent/[id]", () => {
     );
 
     expect(res.status).toBe(200);
-    const json = await res.json();
+    const json = (await res.json()) as { name?: string };
     expect(json.name).toBe("renamed");
     expect(mockSet).toHaveBeenCalledWith({ name: "renamed" });
     expect(mockWhere).toHaveBeenCalledWith({ col: "agents.id", val: "agent-1" });
@@ -123,7 +123,7 @@ describe("PATCH /api/agent/[id]", () => {
     );
 
     expect(res.status).toBe(400);
-    const json = await res.json();
+    const json = (await res.json()) as { error?: string };
     expect(json.error).toBe("no valid fields");
     expect(mockUpdate).not.toHaveBeenCalled();
   });
@@ -163,7 +163,7 @@ describe("PATCH /api/agent/[id]", () => {
     );
 
     expect(res.status).toBe(404);
-    const json = await res.json();
+    const json = (await res.json()) as { error?: string };
     expect(json.error).toBe("not found");
     expect(mockUpdate).not.toHaveBeenCalled();
   });
@@ -205,7 +205,7 @@ describe("POST /api/spawn", () => {
     );
 
     expect(res.status).toBe(200);
-    const json = await res.json();
+    const json = (await res.json()) as { teamId?: string };
     expect(json.teamId).toBe("team-abc");
 
     // insert called 3 times: teams, chatSessions, agents
@@ -216,7 +216,7 @@ describe("POST /api/spawn", () => {
     const res = await POST(makeRequest({}));
 
     expect(res.status).toBe(400);
-    const json = await res.json();
+    const json = (await res.json()) as { error?: string };
     expect(json.error).toBe("agents required");
   });
 
@@ -224,7 +224,7 @@ describe("POST /api/spawn", () => {
     const res = await POST(makeRequest({ agents: [] }));
 
     expect(res.status).toBe(400);
-    const json = await res.json();
+    const json = (await res.json()) as { error?: string };
     expect(json.error).toBe("agents required");
   });
 

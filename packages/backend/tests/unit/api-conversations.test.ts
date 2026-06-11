@@ -92,6 +92,31 @@ function makeMsg(overrides: Record<string, unknown>) {
 }
 
 // ---------------------------------------------------------------------------
+// Response body shape (only the properties the assertions read)
+// ---------------------------------------------------------------------------
+
+type ConversationMessage = {
+  id: string;
+  isSelf: boolean;
+  fromAgentName: string;
+  createdAt: string;
+};
+
+type ConversationThread = {
+  channelType: string;
+  peerAgentId: string;
+  peerAgentName: string;
+  messages: ConversationMessage[];
+};
+
+type ConversationsBody = {
+  error?: string;
+  agentId: string;
+  agentName: string;
+  threads: ConversationThread[];
+};
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -152,11 +177,11 @@ beforeEach(() => {
 describe("GET /api/team/[id]/conversations", () => {
   it("returns 400 when agentId is missing", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
 
     const res = await GET(makeReq(), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("agentId query param required");
@@ -164,14 +189,14 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("returns empty threads when no messages exist", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
     setupSelectChains([], []);
 
     const res = await GET(makeReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(res.status).toBe(200);
     expect(body.agentId).toBe(AGENT_A_ID);
@@ -180,7 +205,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("translates 'cofounder' agentId to COFOUNDER_AGENT_ID", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -193,7 +218,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg], []);
 
     const res = await GET(makeReq("cofounder"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(res.status).toBe(200);
     expect(body.agentId).toBe("cofounder");
@@ -205,7 +230,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("translates 'user' agentId to USER_AGENT_ID", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -218,7 +243,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg], []);
 
     const res = await GET(makeReq("user"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(res.status).toBe(200);
     expect(body.agentName).toBe("You");
@@ -228,7 +253,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("'team' agentId shows all messages (team overview)", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -248,7 +273,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg1, msg2], []);
 
     const res = await GET(makeReq("team"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(res.status).toBe(200);
     expect(body.agentName).toBe("Team Overview");
@@ -263,7 +288,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("team overview shows both names for direct channels", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -276,7 +301,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg], []);
 
     const res = await GET(makeReq("team"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     const thread = body.threads[0];
     expect(thread.peerAgentName).toBe("Researcher ↔ Writer");
@@ -284,7 +309,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("specific agent sees peer name in direct channels", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -297,7 +322,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg], []);
 
     const res = await GET(makeReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     const thread = body.threads[0];
     // AGENT_A is the participant, so peer should be AGENT_B
@@ -307,7 +332,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("broadcast messages have peerAgentName 'Team Broadcast'", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -321,7 +346,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
     // Broadcast is always visible to any participant
     const res = await GET(makeReq(AGENT_B_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(body.threads).toHaveLength(1);
     expect(body.threads[0].peerAgentName).toBe("Team Broadcast");
@@ -330,7 +355,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("group messages have peerAgentName 'Group Chat'", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -343,7 +368,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg], []);
 
     const res = await GET(makeReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(body.threads).toHaveLength(1);
     expect(body.threads[0].peerAgentName).toBe("Group Chat");
@@ -352,7 +377,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("task channels resolve to task title", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -366,7 +391,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg], [{ id: taskId, title: "Research Q4 trends" }]);
 
     const res = await GET(makeReq("team"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(body.threads).toHaveLength(1);
     expect(body.threads[0].peerAgentName).toBe("Research Q4 trends");
@@ -374,7 +399,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("task channel falls back to channelId when no title found", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -387,14 +412,14 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg], []);
 
     const res = await GET(makeReq("team"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(body.threads[0].peerAgentName).toBe("task:unknown-task-id");
   });
 
   it("filters messages for a specific agent (non-team)", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -425,7 +450,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg1, msg2, msg3], []);
 
     const res = await GET(makeReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     // A should see: broadcast + direct with A. NOT C-B direct.
     expect(body.threads).toHaveLength(2);
@@ -438,7 +463,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("groups multiple messages into the same thread by channelId", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -459,7 +484,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg1, msg2], []);
 
     const res = await GET(makeReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(body.threads).toHaveLength(1);
     expect(body.threads[0].messages).toHaveLength(2);
@@ -469,7 +494,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("sorts threads by last message timestamp descending", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -490,7 +515,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([olderMsg, newerMsg], []);
 
     const res = await GET(makeReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(body.threads).toHaveLength(2);
     // Newer thread should come first
@@ -500,7 +525,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("isSelf flag is true when the message is from the participant", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -519,7 +544,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([fromSelf, fromPeer], []);
 
     const res = await GET(makeReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     const msgs = body.threads[0].messages;
     expect(msgs[0].isSelf).toBe(true);
@@ -528,7 +553,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("resolves fromAgentName from nameMap", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -541,14 +566,14 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg], []);
 
     const res = await GET(makeReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(body.threads[0].messages[0].fromAgentName).toBe("Researcher");
   });
 
   it("falls back to raw fromAgentId if name unknown", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -562,14 +587,14 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg], []);
 
     const res = await GET(makeReq("team"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(body.threads[0].messages[0].fromAgentName).toBe(unknownId);
   });
 
   it("uses custom cofounder name from team row", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce({
@@ -585,7 +610,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg], []);
 
     const res = await GET(makeReq("cofounder"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(body.agentName).toBe("Ada");
     expect(body.threads[0].messages[0].fromAgentName).toBe("Ada");
@@ -593,7 +618,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("message createdAt is serialized as ISO string", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -606,7 +631,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg], []);
 
     const res = await GET(makeReq("team"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(body.threads[0].messages[0].createdAt).toBe(
       "2026-05-20T15:30:00.000Z",
@@ -615,7 +640,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("agent filters include task channel messages containing participantId", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -629,7 +654,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([msg], []);
 
     const res = await GET(makeReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     expect(body.threads).toHaveLength(1);
     expect(body.threads[0].channelType).toBe("task");
@@ -637,7 +662,7 @@ describe("GET /api/team/[id]/conversations", () => {
 
   it("displayName falls back to participantId when not in nameMap", async () => {
     const { GET } = await import(
-      "@/app/api/team/[id]/conversations/route"
+      "@/server/api/team/id/conversations"
     );
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -646,7 +671,7 @@ describe("GET /api/team/[id]/conversations", () => {
     setupSelectChains([], []);
 
     const res = await GET(makeReq(unknownAgentId), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as ConversationsBody;
 
     // The participant is not in nameMap (aside from sentinel IDs), so displayName = participantId
     expect(body.agentName).toBe(unknownAgentId);

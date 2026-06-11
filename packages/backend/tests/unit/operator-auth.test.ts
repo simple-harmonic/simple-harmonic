@@ -59,8 +59,15 @@ describe("operator-auth", () => {
   });
 
   describe("isCronAuthorized", () => {
-    it("accepts the x-vercel-cron header", () => {
-      expect(isCronAuthorized(req({ "x-vercel-cron": "1" }), "secret")).toBe(true);
+    it("accepts the x-vercel-cron header only on Vercel", () => {
+      process.env.VERCEL = "1";
+      try {
+        expect(isCronAuthorized(req({ "x-vercel-cron": "1" }), "secret")).toBe(true);
+      } finally {
+        delete process.env.VERCEL;
+      }
+      // Off Vercel the header is client-spoofable and must be ignored.
+      expect(isCronAuthorized(req({ "x-vercel-cron": "1" }), "secret")).toBe(false);
     });
 
     it("accepts a matching Bearer CRON_SECRET, rejects a wrong one", () => {

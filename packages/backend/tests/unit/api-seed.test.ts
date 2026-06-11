@@ -97,9 +97,9 @@ describe("POST /api/seed", () => {
     const existingTeam = { id: "existing-team-id", name: "Simple Harmonic v0.0 Launch" };
     mockFindFirst.mockResolvedValue(existingTeam);
 
-    const { POST } = await import("@/app/api/seed/route");
+    const { POST } = await import("@/server/api/seed");
     const res = await POST();
-    const body = await res.json();
+    const body = (await res.json()) as { error: string; teamId: string };
 
     expect(res.status).toBe(409);
     expect(body.error).toBe("Mock team already exists");
@@ -123,9 +123,14 @@ describe("POST /api/seed", () => {
     insertReturns.push([]);                 // chatSession (unused)
     insertReturns.push(insertedAgents);     // agents
 
-    const { POST } = await import("@/app/api/seed/route");
+    const { POST } = await import("@/server/api/seed");
     const res = await POST();
-    const body = await res.json();
+    const body = (await res.json()) as {
+      teamId: string;
+      agents: unknown[];
+      messageCount: number;
+      taskCount: number;
+    };
 
     expect(res.status).toBe(200);
     expect(body.teamId).toBe(TEAM_ID);
@@ -151,9 +156,9 @@ describe("POST /api/seed", () => {
     insertReturns.push([]);
     insertReturns.push(insertedAgents);
 
-    const { POST } = await import("@/app/api/seed/route");
+    const { POST } = await import("@/server/api/seed");
     const res = await POST();
-    const body = await res.json();
+    const body = (await res.json()) as { agents: Array<{ name: string }> };
 
     const names = body.agents.map((a: { name: string }) => a.name);
     expect(names).toEqual(["Scout", "Relay", "Chisel", "Pulse"]);
@@ -173,7 +178,7 @@ describe("POST /api/seed", () => {
     insertReturns.push([]);
     insertReturns.push(insertedAgents);
 
-    const { POST } = await import("@/app/api/seed/route");
+    const { POST } = await import("@/server/api/seed");
     await POST();
 
     // The route sends 30 direct messages and 2 broadcasts = 32 actual calls.
@@ -198,7 +203,7 @@ describe("POST /api/seed", () => {
     insertReturns.push([]);
     insertReturns.push(insertedAgents);
 
-    const { POST } = await import("@/app/api/seed/route");
+    const { POST } = await import("@/server/api/seed");
     await POST();
 
     expect(mockCreateTask).toHaveBeenCalledTimes(9);
