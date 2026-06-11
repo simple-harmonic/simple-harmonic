@@ -22,7 +22,7 @@ import subprocess
 import sys
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SQL_PATH = os.path.join(REPO_ROOT, "src/app/api/settings/setup-db/route.ts")
+SQL_PATH = os.path.join(REPO_ROOT, "packages/backend/src/server/api/settings/setup-db.ts")
 
 
 def resolve_target() -> str:
@@ -114,6 +114,13 @@ def main() -> None:
     target = resolve_target()
     with open(SQL_PATH) as f:
         sql_tables, sql_indexes, sql_enums = parse_sql(f.read())
+    # Mirrors the schema-sync test's sanity floor: a near-empty parse means the
+    # setup-db SQL moved or changed shape, not that the schema shrank.
+    if len(sql_tables) < 10:
+        sys.exit(
+            f"parsed only {len(sql_tables)} tables from {SQL_PATH}; "
+            "the setup-db SQL likely moved — update SQL_PATH"
+        )
 
     live_cols: dict[str, dict[str, dict]] = {}
     for table, col, data_type, udt, nullable in psql(
