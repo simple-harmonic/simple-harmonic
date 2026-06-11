@@ -69,7 +69,7 @@ beforeEach(() => {
 
 describe("GET /api/team/[id]/approvals", () => {
   it("returns the team's pending approvals", async () => {
-    const { GET } = await import("@/app/api/team/[id]/approvals/route");
+    const { GET } = await import("@/server/api/team/id/approvals");
     mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
       {
         id: "ap-1",
@@ -81,7 +81,7 @@ describe("GET /api/team/[id]/approvals", () => {
     ]);
 
     const res = await GET(new Request("http://localhost"), { params });
-    const body = await res.json();
+    const body = (await res.json()) as { approvals: unknown[] };
 
     expect(body.approvals).toHaveLength(1);
     expect(body.approvals[0]).toMatchObject({
@@ -98,20 +98,20 @@ describe("GET /api/team/[id]/approvals", () => {
 
 describe("POST /api/team/[id]/approvals", () => {
   it("400s on a missing/invalid decision", async () => {
-    const { POST } = await import("@/app/api/team/[id]/approvals/route");
+    const { POST } = await import("@/server/api/team/id/approvals");
     const res = await POST(makeReq({ approvalId: "ap-1", decision: "maybe" }), { params });
     expect(res.status).toBe(400);
   });
 
   it("404s when the approval doesn't exist for the team", async () => {
-    const { POST } = await import("@/app/api/team/[id]/approvals/route");
+    const { POST } = await import("@/server/api/team/id/approvals");
     mockDb.query.pendingApprovals.findFirst.mockResolvedValueOnce(undefined);
     const res = await POST(makeReq({ approvalId: "ap-x", decision: "approved" }), { params });
     expect(res.status).toBe(404);
   });
 
   it("409s when the approval is already resolved", async () => {
-    const { POST } = await import("@/app/api/team/[id]/approvals/route");
+    const { POST } = await import("@/server/api/team/id/approvals");
     mockDb.query.pendingApprovals.findFirst.mockResolvedValueOnce({
       id: "ap-1",
       agentId: "agent-1",
@@ -123,7 +123,7 @@ describe("POST /api/team/[id]/approvals", () => {
   });
 
   it("approves a pending row and sets status + resolvedAt", async () => {
-    const { POST } = await import("@/app/api/team/[id]/approvals/route");
+    const { POST } = await import("@/server/api/team/id/approvals");
     mockDb.query.pendingApprovals.findFirst.mockResolvedValueOnce({
       id: "ap-1",
       agentId: "agent-1",
@@ -142,7 +142,7 @@ describe("POST /api/team/[id]/approvals", () => {
   });
 
   it("stores the rejection note", async () => {
-    const { POST } = await import("@/app/api/team/[id]/approvals/route");
+    const { POST } = await import("@/server/api/team/id/approvals");
     mockDb.query.pendingApprovals.findFirst.mockResolvedValueOnce({
       id: "ap-1",
       agentId: "agent-1",
@@ -161,7 +161,7 @@ describe("POST /api/team/[id]/approvals", () => {
   });
 
   it("409s when the pending row is resolved concurrently", async () => {
-    const { POST } = await import("@/app/api/team/[id]/approvals/route");
+    const { POST } = await import("@/server/api/team/id/approvals");
     mockDb.query.pendingApprovals.findFirst.mockResolvedValueOnce({
       id: "ap-1",
       agentId: "agent-1",

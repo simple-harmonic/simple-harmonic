@@ -19,7 +19,7 @@ import * as schema from "../../src/server/db/schema";
 // drift purposes, and the SQL intentionally carries ON DELETE behavior the
 // drizzle schema doesn't model.
 
-const routePath = join(__dirname, "../../../../src/app/api/settings/setup-db/route.ts");
+const routePath = join(__dirname, "../../src/server/api/settings/setup-db.ts");
 const sqlText = readFileSync(routePath, "utf8");
 
 // ---------------------------------------------------------------------------

@@ -21,7 +21,7 @@ vi.mock("@/lib/meta-agent/identity", () => ({
   resolveCofounderName: (name: string | null) => name?.trim() || "Harmon",
 }));
 
-import { GET } from "@/app/api/team/[id]/agent-hub/route";
+import { GET } from "@/server/api/team/id/agent-hub";
 
 function makeReq(agentId?: string): Request {
   const url = agentId
@@ -38,7 +38,7 @@ describe("GET /api/team/[id]/agent-hub", () => {
   it("returns 400 when agentId is missing", async () => {
     const res = await GET(makeReq(), makeParams());
     expect(res.status).toBe(400);
-    const data = await res.json();
+    const data = (await res.json()) as { error?: string };
     expect(data.error).toContain("agentId");
   });
 
@@ -81,7 +81,16 @@ describe("GET /api/team/[id]/agent-hub", () => {
     const res = await GET(makeReq("agent-1"), makeParams());
     expect(res.status).toBe(200);
 
-    const data = await res.json();
+    const data = (await res.json()) as {
+      agentId: string;
+      agentName: string;
+      agentRole: string;
+      agentStatus: string;
+      agentSchedule: number;
+      nextRunAt: string | null;
+      inFlight: boolean;
+      timeline: unknown[];
+    };
     expect(data.agentId).toBe("agent-1");
     expect(data.agentName).toBe("ops-monitor");
     expect(data.agentRole).toBe("Monitors ops");
@@ -111,7 +120,7 @@ describe("GET /api/team/[id]/agent-hub", () => {
     });
 
     const res = await GET(makeReq("agent-1"), makeParams());
-    const data = await res.json();
+    const data = (await res.json()) as { timeline: Array<{ type: string; content?: string }> };
 
     // Only the broadcast from agent-2 should appear (self messages filtered out)
     const receivedMsgs = data.timeline.filter((t: { type: string }) => t.type === "received");
@@ -138,7 +147,7 @@ describe("GET /api/team/[id]/agent-hub", () => {
     });
 
     const res = await GET(makeReq("agent-1"), makeParams());
-    const data = await res.json();
+    const data = (await res.json()) as { timeline: Array<{ type: string; content?: string }> };
 
     const received = data.timeline.filter((t: { type: string }) => t.type === "received");
     expect(received).toHaveLength(1);
@@ -164,7 +173,7 @@ describe("GET /api/team/[id]/agent-hub", () => {
     });
 
     const res = await GET(makeReq("agent-1"), makeParams());
-    const data = await res.json();
+    const data = (await res.json()) as { timeline: Array<{ type: string; fromName?: string }> };
 
     const received = data.timeline.filter((t: { type: string }) => t.type === "received");
     expect(received[0].fromName).toBe("Atlas");
@@ -195,7 +204,7 @@ describe("GET /api/team/[id]/agent-hub", () => {
     });
 
     const res = await GET(makeReq("agent-1"), makeParams());
-    const data = await res.json();
+    const data = (await res.json()) as { timeline: Array<{ timestamp: string }> };
 
     expect(data.timeline).toHaveLength(3);
     expect(data.timeline[0].timestamp).toBe(t1);
@@ -218,7 +227,7 @@ describe("GET /api/team/[id]/agent-hub", () => {
     });
 
     const res = await GET(makeReq("agent-1"), makeParams());
-    const data = await res.json();
+    const data = (await res.json()) as { nextRunAt: string | null };
     expect(data.nextRunAt).toBeNull();
   });
 });

@@ -4,7 +4,6 @@ import { defineProject } from "vitest/config";
 export default defineProject({
   resolve: {
     alias: {
-      "@/app/": resolve(__dirname, "../../src/app") + "/",
       "@/": resolve(__dirname, "src") + "/",
       "@simple-harmonic/backend/": resolve(__dirname, "src") + "/",
       "@simple-harmonic/frontend/": resolve(__dirname, "../frontend/src") + "/",

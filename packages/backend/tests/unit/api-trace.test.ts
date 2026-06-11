@@ -95,7 +95,7 @@ beforeEach(() => {
 
 describe("GET /api/team/[id]/trace", () => {
   it("returns SSE headers", async () => {
-    const { GET } = await import("@/app/api/team/[id]/trace/route");
+    const { GET } = await import("@/server/api/team/id/trace");
 
     const res = await GET(new Request("http://localhost/api/team/team-1/trace"), makeParams(TEAM_ID));
 
@@ -106,7 +106,7 @@ describe("GET /api/team/[id]/trace", () => {
   });
 
   it("emits a history event with entries reversed to chronological order", async () => {
-    const { GET } = await import("@/app/api/team/[id]/trace/route");
+    const { GET } = await import("@/server/api/team/id/trace");
 
     const e1 = traceRow({ id: "evt-1", seq: 0, emittedAt: new Date("2026-06-10T10:00:00Z") });
     const e2 = traceRow({
@@ -131,7 +131,7 @@ describe("GET /api/team/[id]/trace", () => {
   });
 
   it("emits an empty history when there are no trace events", async () => {
-    const { GET } = await import("@/app/api/team/[id]/trace/route");
+    const { GET } = await import("@/server/api/team/id/trace");
     mockDb.query.agentTraceEvents.findMany.mockResolvedValueOnce([]);
 
     const res = await GET(new Request("http://localhost/api/team/team-1/trace"), makeParams(TEAM_ID));
@@ -141,7 +141,7 @@ describe("GET /api/team/[id]/trace", () => {
   });
 
   it("applies agentId and tickId filters from the query string", async () => {
-    const { GET } = await import("@/app/api/team/[id]/trace/route");
+    const { GET } = await import("@/server/api/team/id/trace");
     mockDb.query.agentTraceEvents.findMany.mockResolvedValueOnce([]);
 
     const res = await GET(

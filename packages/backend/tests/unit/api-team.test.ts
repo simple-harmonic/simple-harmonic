@@ -110,12 +110,12 @@ beforeEach(() => {
 
 describe("GET /api/teams", () => {
   it("returns all teams ordered by createdAt desc", async () => {
-    const { GET } = await import("@/app/api/teams/route");
+    const { GET } = await import("@/server/api/teams");
     const teamsList = [sampleTeam, { ...sampleTeam, id: "team-2", name: "Second" }];
     mockDb.orderBy.mockResolvedValueOnce(teamsList);
 
     const res = await GET();
-    const body = await res.json();
+    const body = (await res.json()) as Array<{ id: string }>;
 
     expect(res.status).toBe(200);
     expect(body).toHaveLength(2);
@@ -126,7 +126,7 @@ describe("GET /api/teams", () => {
   });
 
   it("returns empty array when no teams exist", async () => {
-    const { GET } = await import("@/app/api/teams/route");
+    const { GET } = await import("@/server/api/teams");
     mockDb.orderBy.mockResolvedValueOnce([]);
 
     const res = await GET();
@@ -143,14 +143,19 @@ describe("GET /api/teams", () => {
 
 describe("GET /api/team/[id]", () => {
   it("returns team and agents when team exists", async () => {
-    const { GET } = await import("@/app/api/team/[id]/route");
+    const { GET } = await import("@/server/api/team/id/index");
     mockDb.query.teams.findFirst.mockResolvedValueOnce(sampleTeam);
     mockDb.query.agents.findMany.mockResolvedValueOnce([sampleAgent]);
     // allTeams query for sub-tree (no children)
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
 
     const res = await GET(new Request("http://localhost"), makeParams(TEAM_ID));
-    const body = await res.json();
+    const body = (await res.json()) as {
+      team: { id: string };
+      agents: Array<{ id: string }>;
+      childTeams: unknown;
+      childAgents: unknown;
+    };
 
     expect(res.status).toBe(200);
     expect(body.team.id).toBe(TEAM_ID);
@@ -161,13 +166,17 @@ describe("GET /api/team/[id]", () => {
   });
 
   it("returns team with empty agents array", async () => {
-    const { GET } = await import("@/app/api/team/[id]/route");
+    const { GET } = await import("@/server/api/team/id/index");
     mockDb.query.teams.findFirst.mockResolvedValueOnce(sampleTeam);
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
 
     const res = await GET(new Request("http://localhost"), makeParams(TEAM_ID));
-    const body = await res.json();
+    const body = (await res.json()) as {
+      team: { id: string };
+      agents: unknown;
+      childTeams: unknown;
+    };
 
     expect(res.status).toBe(200);
     expect(body.team.id).toBe(TEAM_ID);
@@ -176,12 +185,12 @@ describe("GET /api/team/[id]", () => {
   });
 
   it("returns 404 when team not found", async () => {
-    const { GET } = await import("@/app/api/team/[id]/route");
+    const { GET } = await import("@/server/api/team/id/index");
     mockDb.query.teams.findFirst.mockResolvedValueOnce(undefined);
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
 
     const res = await GET(new Request("http://localhost"), makeParams("nonexistent"));
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(404);
     expect(body.error).toBe("not found");
@@ -194,7 +203,7 @@ describe("GET /api/team/[id]", () => {
 
 describe("PATCH /api/team/[id]", () => {
   it("updates name field and returns updated team", async () => {
-    const { PATCH } = await import("@/app/api/team/[id]/route");
+    const { PATCH } = await import("@/server/api/team/id/index");
     const updated = { ...sampleTeam, name: "Renamed" };
     mockReturning.mockResolvedValueOnce([updated]);
 
@@ -202,7 +211,7 @@ describe("PATCH /api/team/[id]", () => {
       makeRequest({ name: "Renamed" }),
       makeParams(TEAM_ID),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { name?: string };
 
     expect(res.status).toBe(200);
     expect(body.name).toBe("Renamed");
@@ -210,7 +219,7 @@ describe("PATCH /api/team/[id]", () => {
   });
 
   it("updates metaAgentPrompt field", async () => {
-    const { PATCH } = await import("@/app/api/team/[id]/route");
+    const { PATCH } = await import("@/server/api/team/id/index");
     const updated = { ...sampleTeam, metaAgentPrompt: "New prompt" };
     mockReturning.mockResolvedValueOnce([updated]);
 
@@ -218,7 +227,7 @@ describe("PATCH /api/team/[id]", () => {
       makeRequest({ metaAgentPrompt: "New prompt" }),
       makeParams(TEAM_ID),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { metaAgentPrompt?: string };
 
     expect(res.status).toBe(200);
     expect(body.metaAgentPrompt).toBe("New prompt");
@@ -226,7 +235,7 @@ describe("PATCH /api/team/[id]", () => {
   });
 
   it("updates cofounderName field", async () => {
-    const { PATCH } = await import("@/app/api/team/[id]/route");
+    const { PATCH } = await import("@/server/api/team/id/index");
     const updated = { ...sampleTeam, cofounderName: "Ada" };
     mockReturning.mockResolvedValueOnce([updated]);
 
@@ -234,7 +243,7 @@ describe("PATCH /api/team/[id]", () => {
       makeRequest({ cofounderName: "Ada" }),
       makeParams(TEAM_ID),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { cofounderName?: string };
 
     expect(res.status).toBe(200);
     expect(body.cofounderName).toBe("Ada");
@@ -242,7 +251,7 @@ describe("PATCH /api/team/[id]", () => {
   });
 
   it("updates multiple allowed fields at once", async () => {
-    const { PATCH } = await import("@/app/api/team/[id]/route");
+    const { PATCH } = await import("@/server/api/team/id/index");
     const updated = { ...sampleTeam, name: "New", cofounderName: "Eve" };
     mockReturning.mockResolvedValueOnce([updated]);
 
@@ -250,7 +259,7 @@ describe("PATCH /api/team/[id]", () => {
       makeRequest({ name: "New", cofounderName: "Eve" }),
       makeParams(TEAM_ID),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { name?: string; cofounderName?: string };
 
     expect(res.status).toBe(200);
     expect(body.name).toBe("New");
@@ -259,7 +268,7 @@ describe("PATCH /api/team/[id]", () => {
   });
 
   it("ignores disallowed fields and only applies allowed ones", async () => {
-    const { PATCH } = await import("@/app/api/team/[id]/route");
+    const { PATCH } = await import("@/server/api/team/id/index");
     const updated = { ...sampleTeam, name: "Good" };
     mockReturning.mockResolvedValueOnce([updated]);
 
@@ -274,13 +283,13 @@ describe("PATCH /api/team/[id]", () => {
   });
 
   it("returns 400 when no valid fields provided", async () => {
-    const { PATCH } = await import("@/app/api/team/[id]/route");
+    const { PATCH } = await import("@/server/api/team/id/index");
 
     const res = await PATCH(
       makeRequest({ paused: true, tickCount: 5 }),
       makeParams(TEAM_ID),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("no valid fields");
@@ -288,24 +297,24 @@ describe("PATCH /api/team/[id]", () => {
   });
 
   it("returns 400 for empty body (no fields)", async () => {
-    const { PATCH } = await import("@/app/api/team/[id]/route");
+    const { PATCH } = await import("@/server/api/team/id/index");
 
     const res = await PATCH(makeRequest({}), makeParams(TEAM_ID));
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("no valid fields");
   });
 
   it("returns 404 when team to update not found", async () => {
-    const { PATCH } = await import("@/app/api/team/[id]/route");
+    const { PATCH } = await import("@/server/api/team/id/index");
     mockReturning.mockResolvedValueOnce([]);
 
     const res = await PATCH(
       makeRequest({ name: "Ghost" }),
       makeParams("nonexistent"),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(404);
     expect(body.error).toBe("not found");
@@ -318,7 +327,7 @@ describe("PATCH /api/team/[id]", () => {
 
 describe("POST /api/team/[id]/heartbeat", () => {
   it("updates lastUserActiveAt and returns ok", async () => {
-    const { POST } = await import("@/app/api/team/[id]/heartbeat/route");
+    const { POST } = await import("@/server/api/team/id/heartbeat");
 
     const res = await POST(new Request("http://localhost", { method: "POST" }), makeParams(TEAM_ID));
     const body = await res.json();
@@ -332,7 +341,7 @@ describe("POST /api/team/[id]/heartbeat", () => {
   });
 
   it("calls update with the correct team id", async () => {
-    const { POST } = await import("@/app/api/team/[id]/heartbeat/route");
+    const { POST } = await import("@/server/api/team/id/heartbeat");
 
     await POST(new Request("http://localhost", { method: "POST" }), makeParams("team-99"));
 
@@ -346,11 +355,11 @@ describe("POST /api/team/[id]/heartbeat", () => {
 
 describe("POST /api/team/[id]/pause", () => {
   it("toggles paused from false to true", async () => {
-    const { POST } = await import("@/app/api/team/[id]/pause/route");
+    const { POST } = await import("@/server/api/team/id/pause");
     mockDb.query.teams.findFirst.mockResolvedValueOnce({ ...sampleTeam, paused: false });
 
     const res = await POST(new Request("http://localhost", { method: "POST" }), makeParams(TEAM_ID));
-    const body = await res.json();
+    const body = (await res.json()) as { paused?: boolean };
 
     expect(res.status).toBe(200);
     expect(body.paused).toBe(true);
@@ -358,11 +367,11 @@ describe("POST /api/team/[id]/pause", () => {
   });
 
   it("toggles paused from true to false", async () => {
-    const { POST } = await import("@/app/api/team/[id]/pause/route");
+    const { POST } = await import("@/server/api/team/id/pause");
     mockDb.query.teams.findFirst.mockResolvedValueOnce({ ...sampleTeam, paused: true });
 
     const res = await POST(new Request("http://localhost", { method: "POST" }), makeParams(TEAM_ID));
-    const body = await res.json();
+    const body = (await res.json()) as { paused?: boolean };
 
     expect(res.status).toBe(200);
     expect(body.paused).toBe(false);
@@ -370,11 +379,11 @@ describe("POST /api/team/[id]/pause", () => {
   });
 
   it("returns 404 when team not found", async () => {
-    const { POST } = await import("@/app/api/team/[id]/pause/route");
+    const { POST } = await import("@/server/api/team/id/pause");
     mockDb.query.teams.findFirst.mockResolvedValueOnce(undefined);
 
     const res = await POST(new Request("http://localhost", { method: "POST" }), makeParams("ghost"));
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(404);
     expect(body.error).toBe("not found");

@@ -69,14 +69,18 @@ export async function isOperatorAuthorized(
 
 /**
  * Is the tick request authorized? Accepts the Vercel platform cron header
- * (x-vercel-cron) or a Bearer CRON_SECRET. When CRON_SECRET is unset, allows in
- * local dev and fails closed in production.
+ * (x-vercel-cron, trusted only when running on Vercel) or a Bearer
+ * CRON_SECRET. When CRON_SECRET is unset, allows in local dev and fails
+ * closed in production.
  */
 export function isCronAuthorized(
   req: Request,
   cronSecret: string | undefined,
 ): boolean {
-  if (req.headers.get("x-vercel-cron")) return true;
+  // Trust the platform cron header only when actually running on Vercel,
+  // where the edge strips client-supplied copies. On any other host (e.g.
+  // the standalone server) it would be trivially spoofable.
+  if (process.env.VERCEL && req.headers.get("x-vercel-cron")) return true;
   if (cronSecret) {
     const tok = bearerToken(req);
     return !!tok && constantTimeEqual(tok, cronSecret);

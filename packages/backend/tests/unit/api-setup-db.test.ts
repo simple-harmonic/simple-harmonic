@@ -69,9 +69,9 @@ describe("POST /api/settings/setup-db", () => {
   it("returns error when no database URL is available", async () => {
     mockGetConfig.mockReturnValue({ databaseUrl: "" });
 
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({}));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; error?: string };
 
     expect(body.ok).toBe(false);
     expect(body.error).toBe("No database URL provided");
@@ -81,9 +81,9 @@ describe("POST /api/settings/setup-db", () => {
     const dbUrl = "postgresql://localhost:5432/test_db";
     makeMockClient({ pgDatabase: { rowCount: 1 } });
 
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({ databaseUrl: dbUrl }));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; steps?: string[] };
 
     expect(body.ok).toBe(true);
     expect(mockSetConfig).toHaveBeenCalledWith({ databaseUrl: dbUrl });
@@ -95,27 +95,27 @@ describe("POST /api/settings/setup-db", () => {
     mockGetConfig.mockReturnValue({ databaseUrl: dbUrl });
     makeMockClient({ pgDatabase: { rowCount: 1 } });
 
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({}));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean };
 
     expect(body.ok).toBe(true);
     expect(mockSetConfig).not.toHaveBeenCalled();
   });
 
   it("returns error on invalid URL", async () => {
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({ databaseUrl: "not-a-valid-url" }));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; error?: string };
 
     expect(body.ok).toBe(false);
     expect(body.error).toBe("Invalid database URL");
   });
 
   it("returns error when URL has no database name", async () => {
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({ databaseUrl: "postgresql://localhost:5432/" }));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; error?: string };
 
     expect(body.ok).toBe(false);
     expect(body.error).toBe("No database name in URL");
@@ -124,9 +124,9 @@ describe("POST /api/settings/setup-db", () => {
   it("creates database when it does not exist", async () => {
     makeMockClient({ pgDatabase: { rowCount: 0 } });
 
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({ databaseUrl: "postgresql://localhost:5432/new_db" }));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; steps?: string[] };
 
     expect(body.ok).toBe(true);
     const createDbCall = mockClientQuery.mock.calls.find(
@@ -139,9 +139,9 @@ describe("POST /api/settings/setup-db", () => {
   it("skips creation when database already exists", async () => {
     makeMockClient({ pgDatabase: { rowCount: 1 } });
 
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({ databaseUrl: "postgresql://localhost:5432/existing_db" }));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; steps?: string[] };
 
     expect(body.ok).toBe(true);
     const createDbCall = mockClientQuery.mock.calls.find(
@@ -154,9 +154,9 @@ describe("POST /api/settings/setup-db", () => {
   it("applies schema SQL after db creation", async () => {
     makeMockClient({ pgDatabase: { rowCount: 1 } });
 
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({ databaseUrl: "postgresql://localhost:5432/test_db" }));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; steps?: string[] };
 
     expect(body.ok).toBe(true);
     // The schema SQL creates tables via the second pool connection
@@ -170,9 +170,9 @@ describe("POST /api/settings/setup-db", () => {
   it("returns error when pg connection fails", async () => {
     mockPoolConnect.mockRejectedValue({ code: "ECONNREFUSED" });
 
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({ databaseUrl: "postgresql://localhost:5432/test_db" }));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; error?: string };
 
     expect(body.ok).toBe(false);
     expect(body.error).toContain("Connection refused");
@@ -197,9 +197,9 @@ describe("POST /api/settings/setup-db", () => {
       return { rows: [], rowCount: 0 };
     });
 
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({ databaseUrl: "postgresql://localhost:5432/test_db" }));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; error?: string };
 
     expect(body.ok).toBe(false);
     expect(body.error).toContain("Schema setup failed");
@@ -211,9 +211,9 @@ describe("POST /api/settings/setup-db", () => {
       pgTables: { rows: [{ tablename: "teams" }, { tablename: "agents" }, { tablename: "tasks" }] },
     });
 
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({ databaseUrl: "postgresql://localhost:5432/test_db" }));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; steps?: string[] };
 
     expect(body.ok).toBe(true);
     expect(body.steps).toContainEqual(expect.stringContaining("Tables:"));
@@ -223,9 +223,9 @@ describe("POST /api/settings/setup-db", () => {
   it("handles ENOTFOUND pg error", async () => {
     mockPoolConnect.mockRejectedValue({ code: "ENOTFOUND" });
 
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({ databaseUrl: "postgresql://badhost:5432/test_db" }));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; error?: string };
 
     expect(body.ok).toBe(false);
     expect(body.error).toContain("Host not found");
@@ -234,9 +234,9 @@ describe("POST /api/settings/setup-db", () => {
   it("handles ETIMEDOUT pg error", async () => {
     mockPoolConnect.mockRejectedValue({ code: "ETIMEDOUT" });
 
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({ databaseUrl: "postgresql://slowhost:5432/test_db" }));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; error?: string };
 
     expect(body.ok).toBe(false);
     expect(body.error).toContain("Connection timed out");
@@ -247,7 +247,7 @@ describe("POST /api/settings/setup-db", () => {
     mockGetConfig.mockReturnValue({ databaseUrl: dbUrl });
     makeMockClient({ pgDatabase: { rowCount: 1 } });
 
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     await POST(makeRequest({}));
     expect(mockSetConfig).not.toHaveBeenCalled();
   });
@@ -266,9 +266,9 @@ describe("POST /api/settings/setup-db", () => {
       return { rows: [], rowCount: 0 };
     });
 
-    const { POST } = await import("@/app/api/settings/setup-db/route");
+    const { POST } = await import("@/server/api/settings/setup-db");
     const res = await POST(makeRequest({ databaseUrl: "postgresql://localhost:5432/test_db" }));
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; steps?: string[] };
 
     expect(body.ok).toBe(true);
     expect(body.steps).toContainEqual(expect.stringContaining("Warning"));

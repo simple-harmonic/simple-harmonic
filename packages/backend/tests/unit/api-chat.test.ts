@@ -7,7 +7,7 @@ vi.mock("@/lib/meta-agent", () => ({
 
 // Import after mock setup
 import { plannerStream } from "@/lib/meta-agent";
-import { POST } from "@/app/api/chat/route";
+import { POST } from "@/server/api/chat";
 
 const mockPlannerStream = vi.mocked(plannerStream);
 
@@ -44,7 +44,7 @@ describe("POST /api/chat", () => {
   it("returns 400 when messages is missing", async () => {
     const res = await POST(makeReq({}));
     expect(res.status).toBe(400);
-    const data = await res.json();
+    const data = (await res.json()) as { error?: string };
     expect(data.error).toContain("messages required");
   });
 

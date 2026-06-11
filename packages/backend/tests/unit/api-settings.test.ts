@@ -53,7 +53,7 @@ describe("GET /api/settings", () => {
     };
     mockGetSafeConfig.mockReturnValue(safeConfig);
 
-    const { GET } = await import("@/app/api/settings/route");
+    const { GET } = await import("@/server/api/settings/index");
     const res = await GET();
 
     expect(res.status).toBe(200);
@@ -80,7 +80,7 @@ describe("POST /api/settings", () => {
     mockSetConfig.mockReturnValue(undefined);
     mockGetSafeConfig.mockReturnValue(updatedSafe);
 
-    const { POST } = await import("@/app/api/settings/route");
+    const { POST } = await import("@/server/api/settings/index");
     const req = jsonRequest("http://localhost/api/settings", {
       openaiApiKey: "sk-new-key-wxyz",
       openaiBaseUrl: "https://custom.api.com/v1",
@@ -103,7 +103,7 @@ describe("POST /api/settings", () => {
     mockSetConfig.mockReturnValue(undefined);
     mockGetSafeConfig.mockReturnValue(updatedSafe);
 
-    const { POST } = await import("@/app/api/settings/route");
+    const { POST } = await import("@/server/api/settings/index");
     const req = jsonRequest("http://localhost/api/settings", {
       model: "gpt-5",
     });
@@ -117,7 +117,7 @@ describe("POST /api/settings", () => {
     mockSetConfig.mockReturnValue(undefined);
     mockGetSafeConfig.mockReturnValue({});
 
-    const { POST } = await import("@/app/api/settings/route");
+    const { POST } = await import("@/server/api/settings/index");
     const req = jsonRequest("http://localhost/api/settings", {
       databaseUrl: "postgresql://new:5432/db",
     });
@@ -130,7 +130,7 @@ describe("POST /api/settings", () => {
   });
 
   it("returns 400 when body has no valid fields", async () => {
-    const { POST } = await import("@/app/api/settings/route");
+    const { POST } = await import("@/server/api/settings/index");
     const req = jsonRequest("http://localhost/api/settings", {});
     const res = await POST(req);
 
@@ -140,7 +140,7 @@ describe("POST /api/settings", () => {
   });
 
   it("returns 400 when body only has disallowed fields", async () => {
-    const { POST } = await import("@/app/api/settings/route");
+    const { POST } = await import("@/server/api/settings/index");
     const req = jsonRequest("http://localhost/api/settings", {
       secretField: "should-be-ignored",
       adminPassword: "nope",
@@ -156,7 +156,7 @@ describe("POST /api/settings", () => {
     mockSetConfig.mockReturnValue(undefined);
     mockGetSafeConfig.mockReturnValue({});
 
-    const { POST } = await import("@/app/api/settings/route");
+    const { POST } = await import("@/server/api/settings/index");
     const req = jsonRequest("http://localhost/api/settings", {
       model: "gpt-5",
       secretField: "ignored",
@@ -172,7 +172,7 @@ describe("POST /api/settings", () => {
     mockSetConfig.mockReturnValue(undefined);
     mockGetSafeConfig.mockReturnValue({});
 
-    const { POST } = await import("@/app/api/settings/route");
+    const { POST } = await import("@/server/api/settings/index");
     const req = jsonRequest("http://localhost/api/settings", {
       model: 42,
       openaiApiKey: true,
@@ -188,7 +188,7 @@ describe("POST /api/settings", () => {
   });
 
   it("ignores empty string values", async () => {
-    const { POST } = await import("@/app/api/settings/route");
+    const { POST } = await import("@/server/api/settings/index");
     const req = jsonRequest("http://localhost/api/settings", {
       model: "",
       openaiApiKey: "",
@@ -201,7 +201,7 @@ describe("POST /api/settings", () => {
   });
 
   it("returns 400 when all allowed fields are empty strings", async () => {
-    const { POST } = await import("@/app/api/settings/route");
+    const { POST } = await import("@/server/api/settings/index");
     const req = jsonRequest("http://localhost/api/settings", {
       openaiApiKey: "",
       openaiBaseUrl: "",
@@ -245,11 +245,17 @@ describe("GET /api/settings/codex", () => {
     mockGetCodexAuthStatus.mockReturnValue(authStatus);
     mockGetCodexModels.mockReturnValue(models);
 
-    const { GET } = await import("@/app/api/settings/codex/route");
+    const { GET } = await import("@/server/api/settings/codex");
     const res = await GET();
 
     expect(res.status).toBe(200);
-    const json = await res.json();
+    const json = (await res.json()) as {
+      found: boolean;
+      email: string;
+      plan: string;
+      hasAccessToken: boolean;
+      models: unknown;
+    };
     expect(json.found).toBe(true);
     expect(json.email).toBe("user@example.com");
     expect(json.plan).toBe("plus");
@@ -272,11 +278,15 @@ describe("GET /api/settings/codex", () => {
     });
     mockGetCodexModels.mockReturnValue([]);
 
-    const { GET } = await import("@/app/api/settings/codex/route");
+    const { GET } = await import("@/server/api/settings/codex");
     const res = await GET();
 
     expect(res.status).toBe(200);
-    const json = await res.json();
+    const json = (await res.json()) as {
+      found: boolean;
+      hasAccessToken: boolean;
+      models: unknown;
+    };
     expect(json.found).toBe(false);
     expect(json.hasAccessToken).toBe(false);
     expect(json.models).toEqual([]);
@@ -295,7 +305,7 @@ describe("POST /api/settings/codex", () => {
     };
     mockRefreshCodexToken.mockResolvedValue(refreshResult);
 
-    const { POST } = await import("@/app/api/settings/codex/route");
+    const { POST } = await import("@/server/api/settings/codex");
     const res = await POST();
 
     expect(res.status).toBe(200);
@@ -310,11 +320,11 @@ describe("POST /api/settings/codex", () => {
     };
     mockRefreshCodexToken.mockResolvedValue(refreshResult);
 
-    const { POST } = await import("@/app/api/settings/codex/route");
+    const { POST } = await import("@/server/api/settings/codex");
     const res = await POST();
 
     expect(res.status).toBe(200);
-    const json = await res.json();
+    const json = (await res.json()) as { ok: boolean; error: string };
     expect(json.ok).toBe(false);
     expect(json.error).toBe("No Codex refresh token found");
   });
@@ -326,11 +336,11 @@ describe("POST /api/settings/codex", () => {
     };
     mockRefreshCodexToken.mockResolvedValue(refreshResult);
 
-    const { POST } = await import("@/app/api/settings/codex/route");
+    const { POST } = await import("@/server/api/settings/codex");
     const res = await POST();
 
     expect(res.status).toBe(200);
-    const json = await res.json();
+    const json = (await res.json()) as { ok: boolean; error: string };
     expect(json.ok).toBe(false);
     expect(json.error).toContain("401");
   });

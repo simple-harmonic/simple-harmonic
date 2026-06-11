@@ -54,15 +54,31 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Create the database tables (schema is in `packages/backend/src/server/db/schema.ts`):
+Create the database (and tables — schema is in `packages/backend/src/server/db/schema.ts`):
 ```bash
-npx tsx scripts/setup-db.ts
+npm run db:setup                      # uses the configured DATABASE_URL
+npm run db:setup -- postgresql://...  # or pass a URL (persisted to simple-harmonic.config.json)
 ```
 
 Seed a demo team:
 ```bash
 npx tsx scripts/seed-demo.ts
 ```
+
+### Backend without the frontend
+
+The whole agent platform (API + tick loop) also runs headless — no Next.js:
+
+```bash
+npm run dev:backend
+```
+
+This serves the same `/api/*` surface on port 3001 (`SH_BACKEND_PORT` overrides), loads Apollo
+secrets, enforces the same operator gate (`OPERATOR_PASSWORD`), and ticks agents every 10s
+(`SH_TICK_LOOP=0` to disable, e.g. when an external cron POSTs `/api/tick` with `CRON_SECRET`).
+Run it from the repo root so `simple-harmonic.config.json` and `.apollo/` resolve. The Next.js
+routes under `src/app/api/` are thin re-exports of the same handlers in
+`packages/backend/src/server/api/` — a parity test keeps the two surfaces in sync.
 
 Enable agent tools for dogfooding:
 ```bash
@@ -75,11 +91,13 @@ SH_TOOLS_CWD=/path/to/your/project
 
 ```
 simple-harmonic/
-  src/app/                    # Next.js app (pages, API routes)
+  src/app/                    # Next.js app (pages; API routes re-export backend handlers)
   packages/
     backend/
       src/lib/meta-agent/     # Framework-shaped library (planner, runner, registry, contracts)
       src/server/             # App-specific (DB, tools, connectors, team-tree)
+      src/server/api/         # Transport-agnostic HTTP handlers (Request → Response)
+      src/server/standalone/  # node:http host: run the backend without Next.js
     frontend/
       src/components/         # React components (sidebar, team dashboard, narration)
     a2ax/                     # Agent-to-agent communication protocol

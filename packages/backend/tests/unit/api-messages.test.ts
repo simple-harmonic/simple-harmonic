@@ -110,17 +110,17 @@ beforeEach(() => {
 
 describe("GET /api/team/[id]/messages", () => {
   it("returns 400 when agentId is missing", async () => {
-    const { GET } = await import("@/app/api/team/[id]/messages/route");
+    const { GET } = await import("@/server/api/team/id/messages");
 
     const res = await GET(makeGetReq(), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("agentId query param required");
   });
 
   it("returns enriched messages with agent names", async () => {
-    const { GET } = await import("@/app/api/team/[id]/messages/route");
+    const { GET } = await import("@/server/api/team/id/messages");
 
     const msgs = [
       makeMessage({ id: "m1", fromAgentId: AGENT_A_ID }),
@@ -130,7 +130,7 @@ describe("GET /api/team/[id]/messages", () => {
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
 
     const res = await GET(makeGetReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{ fromAgentName?: string }>;
 
     expect(res.status).toBe(200);
     expect(body).toHaveLength(2);
@@ -139,7 +139,7 @@ describe("GET /api/team/[id]/messages", () => {
   });
 
   it("falls back to fromAgentId when name not found", async () => {
-    const { GET } = await import("@/app/api/team/[id]/messages/route");
+    const { GET } = await import("@/server/api/team/id/messages");
 
     const unknownId = "unknown-agent-xyz";
     const msgs = [makeMessage({ fromAgentId: unknownId })];
@@ -147,13 +147,13 @@ describe("GET /api/team/[id]/messages", () => {
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
 
     const res = await GET(makeGetReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{ fromAgentName?: string }>;
 
     expect(body[0].fromAgentName).toBe(unknownId);
   });
 
   it("passes agentId to getAgentContext", async () => {
-    const { GET } = await import("@/app/api/team/[id]/messages/route");
+    const { GET } = await import("@/server/api/team/id/messages");
 
     mockGetAgentContext.mockResolvedValueOnce({ messages: [] });
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
@@ -164,7 +164,7 @@ describe("GET /api/team/[id]/messages", () => {
   });
 
   it("serializes createdAt as ISO string", async () => {
-    const { GET } = await import("@/app/api/team/[id]/messages/route");
+    const { GET } = await import("@/server/api/team/id/messages");
 
     const msgs = [
       makeMessage({ createdAt: new Date("2026-05-20T15:30:00Z") }),
@@ -173,13 +173,13 @@ describe("GET /api/team/[id]/messages", () => {
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
 
     const res = await GET(makeGetReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{ createdAt?: string }>;
 
     expect(body[0].createdAt).toBe("2026-05-20T15:30:00.000Z");
   });
 
   it("returns empty array when no messages", async () => {
-    const { GET } = await import("@/app/api/team/[id]/messages/route");
+    const { GET } = await import("@/server/api/team/id/messages");
 
     mockGetAgentContext.mockResolvedValueOnce({ messages: [] });
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
@@ -192,7 +192,7 @@ describe("GET /api/team/[id]/messages", () => {
   });
 
   it("includes all expected message fields in enriched output", async () => {
-    const { GET } = await import("@/app/api/team/[id]/messages/route");
+    const { GET } = await import("@/server/api/team/id/messages");
 
     const msgs = [
       makeMessage({
@@ -209,7 +209,15 @@ describe("GET /api/team/[id]/messages", () => {
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
 
     const res = await GET(makeGetReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{
+      id?: string;
+      channelType?: string;
+      channelId?: string;
+      kind?: string;
+      content?: string;
+      status?: string;
+      urgent?: boolean;
+    }>;
 
     const m = body[0];
     expect(m.id).toBe("m-full");
@@ -228,43 +236,43 @@ describe("GET /api/team/[id]/messages", () => {
 
 describe("POST /api/team/[id]/messages", () => {
   it("returns 400 when fromAgentId is missing", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const res = await POST(
       makePostReq({ content: "hello" }),
       makeParams(),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("fromAgentId and content required");
   });
 
   it("returns 400 when content is missing", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const res = await POST(
       makePostReq({ fromAgentId: AGENT_A_ID }),
       makeParams(),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("fromAgentId and content required");
   });
 
   it("returns 400 when both fromAgentId and content are missing", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const res = await POST(makePostReq({}), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("fromAgentId and content required");
   });
 
   it("sends broadcast message", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const sentMsg = makeMessage({ channelType: "broadcast" });
     mockBroadcast.mockResolvedValueOnce(sentMsg);
@@ -277,7 +285,7 @@ describe("POST /api/team/[id]/messages", () => {
       }),
       makeParams(),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { channelType?: string };
 
     expect(res.status).toBe(201);
     expect(mockBroadcast).toHaveBeenCalledWith(
@@ -289,7 +297,7 @@ describe("POST /api/team/[id]/messages", () => {
   });
 
   it("sends group message with channelId", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const sentMsg = makeMessage({ channelType: "group" });
     mockSendToGroup.mockResolvedValueOnce(sentMsg);
@@ -303,7 +311,7 @@ describe("POST /api/team/[id]/messages", () => {
       }),
       makeParams(),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { channelType?: string };
 
     expect(res.status).toBe(201);
     expect(mockSendToGroup).toHaveBeenCalledWith(
@@ -316,7 +324,7 @@ describe("POST /api/team/[id]/messages", () => {
   });
 
   it("returns 400 for group message without channelId", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const res = await POST(
       makePostReq({
@@ -326,14 +334,14 @@ describe("POST /api/team/[id]/messages", () => {
       }),
       makeParams(),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("channelId required for group messages");
   });
 
   it("sends direct message with toAgentId", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const sentMsg = makeMessage({ channelType: "direct" });
     mockSendDirect.mockResolvedValueOnce(sentMsg);
@@ -347,7 +355,7 @@ describe("POST /api/team/[id]/messages", () => {
       }),
       makeParams(),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { channelType?: string };
 
     expect(res.status).toBe(201);
     expect(mockSendDirect).toHaveBeenCalledWith(
@@ -360,7 +368,7 @@ describe("POST /api/team/[id]/messages", () => {
   });
 
   it("returns 400 for direct message without toAgentId", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const res = await POST(
       makePostReq({
@@ -370,14 +378,14 @@ describe("POST /api/team/[id]/messages", () => {
       }),
       makeParams(),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("toAgentId required for direct messages");
   });
 
   it("defaults to direct when channelType is not specified", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const sentMsg = makeMessage();
     mockSendDirect.mockResolvedValueOnce(sentMsg);
@@ -401,7 +409,7 @@ describe("POST /api/team/[id]/messages", () => {
   });
 
   it("returns 400 when default direct is used without toAgentId", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const res = await POST(
       makePostReq({
@@ -411,14 +419,14 @@ describe("POST /api/team/[id]/messages", () => {
       }),
       makeParams(),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("toAgentId required for direct messages");
   });
 
   it("translates 'cofounder' POV sentinel to COFOUNDER_AGENT_ID", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const sentMsg = makeMessage();
     mockSendDirect.mockResolvedValueOnce(sentMsg);
@@ -443,7 +451,7 @@ describe("POST /api/team/[id]/messages", () => {
   });
 
   it("translates 'user' POV sentinel to USER_AGENT_ID", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const sentMsg = makeMessage();
     mockSendDirect.mockResolvedValueOnce(sentMsg);
@@ -468,7 +476,7 @@ describe("POST /api/team/[id]/messages", () => {
   });
 
   it("translates toAgentId POV sentinels as well", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const sentMsg = makeMessage();
     mockSendDirect.mockResolvedValueOnce(sentMsg);
@@ -493,7 +501,7 @@ describe("POST /api/team/[id]/messages", () => {
   });
 
   it("uses correct teamId from route params", async () => {
-    const { POST } = await import("@/app/api/team/[id]/messages/route");
+    const { POST } = await import("@/server/api/team/id/messages");
 
     const sentMsg = makeMessage();
     mockBroadcast.mockResolvedValueOnce(sentMsg);

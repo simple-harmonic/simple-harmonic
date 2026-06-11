@@ -127,17 +127,17 @@ beforeEach(() => {
 
 describe("GET /api/team/[id]/tasks", () => {
   it("returns 400 when agentId is missing", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     const res = await GET(makeReq(), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as { error: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("agentId query param required");
   });
 
   it("returns empty array when no tasks exist", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     mockDb.query.agents.findMany.mockResolvedValueOnce(agentRows);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);
@@ -151,7 +151,7 @@ describe("GET /api/team/[id]/tasks", () => {
   });
 
   it("'team' agentId returns all tasks for the team", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     const tasks = [
       makeTask({ id: "t1" }),
@@ -169,7 +169,7 @@ describe("GET /api/team/[id]/tasks", () => {
   });
 
   it("translates 'cofounder' agentId to COFOUNDER_AGENT_ID", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     const task = makeTask({
       requestorId: COFOUNDER_AGENT_ID,
@@ -180,7 +180,7 @@ describe("GET /api/team/[id]/tasks", () => {
     mockLimit.mockResolvedValueOnce([task]);
 
     const res = await GET(makeReq("cofounder"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{ requestorName: string }>;
 
     expect(res.status).toBe(200);
     expect(body).toHaveLength(1);
@@ -188,7 +188,7 @@ describe("GET /api/team/[id]/tasks", () => {
   });
 
   it("translates 'user' agentId to USER_AGENT_ID", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     const task = makeTask({
       requestorId: USER_AGENT_ID,
@@ -199,7 +199,7 @@ describe("GET /api/team/[id]/tasks", () => {
     mockLimit.mockResolvedValueOnce([task]);
 
     const res = await GET(makeReq("user"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{ requestorName: string }>;
 
     expect(res.status).toBe(200);
     expect(body).toHaveLength(1);
@@ -207,7 +207,7 @@ describe("GET /api/team/[id]/tasks", () => {
   });
 
   it("enriches tasks with requestorName and assigneeName", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     const task = makeTask({
       requestorId: AGENT_A_ID,
@@ -218,14 +218,14 @@ describe("GET /api/team/[id]/tasks", () => {
     mockLimit.mockResolvedValueOnce([task]);
 
     const res = await GET(makeReq("team"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{ requestorName: string; assigneeName: string }>;
 
     expect(body[0].requestorName).toBe("Researcher");
     expect(body[0].assigneeName).toBe("Writer");
   });
 
   it("falls back to raw ID when agent name is not in the name map", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     const unknownRequestorId = "unknown-req-xxx";
     const unknownAssigneeId = "unknown-asgn-yyy";
@@ -238,14 +238,14 @@ describe("GET /api/team/[id]/tasks", () => {
     mockLimit.mockResolvedValueOnce([task]);
 
     const res = await GET(makeReq("team"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{ requestorName: string; assigneeName: string }>;
 
     expect(body[0].requestorName).toBe(unknownRequestorId);
     expect(body[0].assigneeName).toBe(unknownAssigneeId);
   });
 
   it("includes all expected fields in enriched task", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     const task = makeTask({
       id: "task-full",
@@ -262,7 +262,18 @@ describe("GET /api/team/[id]/tasks", () => {
     mockLimit.mockResolvedValueOnce([task]);
 
     const res = await GET(makeReq("team"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{
+      id: string;
+      title: string;
+      description: string;
+      state: string;
+      requestorId: string;
+      requestorName: string;
+      assigneeId: string;
+      assigneeName: string;
+      createdAt: string;
+      updatedAt: string;
+    }>;
 
     const t = body[0];
     expect(t.id).toBe("task-full");
@@ -278,7 +289,7 @@ describe("GET /api/team/[id]/tasks", () => {
   });
 
   it("serializes createdAt and updatedAt as ISO strings", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     const task = makeTask({
       createdAt: new Date("2026-05-20T09:00:00Z"),
@@ -289,14 +300,14 @@ describe("GET /api/team/[id]/tasks", () => {
     mockLimit.mockResolvedValueOnce([task]);
 
     const res = await GET(makeReq("team"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{ createdAt: string; updatedAt: string }>;
 
     expect(body[0].createdAt).toBe("2026-05-20T09:00:00.000Z");
     expect(body[0].updatedAt).toBe("2026-05-21T18:30:00.000Z");
   });
 
   it("uses custom cofounder name from team row in the name map", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     const task = makeTask({
       requestorId: COFOUNDER_AGENT_ID,
@@ -310,13 +321,13 @@ describe("GET /api/team/[id]/tasks", () => {
     mockLimit.mockResolvedValueOnce([task]);
 
     const res = await GET(makeReq("team"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{ requestorName: string }>;
 
     expect(body[0].requestorName).toBe("Ada");
   });
 
   it("USER_AGENT_ID resolves to 'You' in the name map", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     const task = makeTask({
       requestorId: AGENT_A_ID,
@@ -327,13 +338,13 @@ describe("GET /api/team/[id]/tasks", () => {
     mockLimit.mockResolvedValueOnce([task]);
 
     const res = await GET(makeReq("team"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{ assigneeName: string }>;
 
     expect(body[0].assigneeName).toBe("You");
   });
 
   it("handles specific agent filtering (non-team, non-sentinel)", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     const task = makeTask({
       requestorId: AGENT_A_ID,
@@ -344,7 +355,7 @@ describe("GET /api/team/[id]/tasks", () => {
     mockLimit.mockResolvedValueOnce([task]);
 
     const res = await GET(makeReq(AGENT_A_ID), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{ requestorId: string }>;
 
     expect(res.status).toBe(200);
     expect(body).toHaveLength(1);
@@ -353,7 +364,7 @@ describe("GET /api/team/[id]/tasks", () => {
   });
 
   it("returns multiple enriched tasks", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     const tasks = [
       makeTask({
@@ -380,7 +391,7 @@ describe("GET /api/team/[id]/tasks", () => {
     mockLimit.mockResolvedValueOnce(tasks);
 
     const res = await GET(makeReq("team"), makeParams());
-    const body = await res.json();
+    const body = (await res.json()) as Array<{ requestorName: string; assigneeName: string }>;
 
     expect(body).toHaveLength(3);
     expect(body[0].requestorName).toBe("Researcher");
@@ -392,7 +403,7 @@ describe("GET /api/team/[id]/tasks", () => {
   });
 
   it("uses the correct teamId from route params", async () => {
-    const { GET } = await import("@/app/api/team/[id]/tasks/route");
+    const { GET } = await import("@/server/api/team/id/tasks");
 
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
     mockDb.query.teams.findFirst.mockResolvedValueOnce(teamRow);

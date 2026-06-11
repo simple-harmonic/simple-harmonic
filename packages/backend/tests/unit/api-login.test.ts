@@ -17,21 +17,21 @@ function loginReq(body: unknown): Request {
 describe("POST /api/login", () => {
   it("returns 503 when OPERATOR_PASSWORD is not configured", async () => {
     delete process.env.OPERATOR_PASSWORD;
-    const { POST } = await import("@/app/api/login/route");
+    const { POST } = await import("@/server/api/login");
     const res = await POST(loginReq({ password: "x" }));
     expect(res.status).toBe(503);
   });
 
   it("returns 401 for a wrong password", async () => {
     process.env.OPERATOR_PASSWORD = "correct-horse-battery";
-    const { POST } = await import("@/app/api/login/route");
+    const { POST } = await import("@/server/api/login");
     const res = await POST(loginReq({ password: "wrong" }));
     expect(res.status).toBe(401);
   });
 
   it("sets an httpOnly sh_operator cookie on the correct password", async () => {
     process.env.OPERATOR_PASSWORD = "correct-horse-battery";
-    const { POST } = await import("@/app/api/login/route");
+    const { POST } = await import("@/server/api/login");
     const res = await POST(loginReq({ password: "correct-horse-battery" }));
     expect(res.status).toBe(200);
     const setCookie = res.headers.get("set-cookie") || "";

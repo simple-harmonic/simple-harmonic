@@ -78,7 +78,7 @@ beforeEach(() => {
 
 describe("GET /api/team/[id]/narration", () => {
   it("returns SSE headers", async () => {
-    const { GET } = await import("@/app/api/team/[id]/narration/route");
+    const { GET } = await import("@/server/api/team/id/narration");
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
 
     const res = await GET(new Request("http://localhost"), makeParams(TEAM_ID));
@@ -90,7 +90,7 @@ describe("GET /api/team/[id]/narration", () => {
   });
 
   it("returns empty history event when team has no agents", async () => {
-    const { GET } = await import("@/app/api/team/[id]/narration/route");
+    const { GET } = await import("@/server/api/team/id/narration");
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
 
     const res = await GET(new Request("http://localhost"), makeParams(TEAM_ID));
@@ -100,7 +100,7 @@ describe("GET /api/team/[id]/narration", () => {
   });
 
   it("returns history event with entries in chronological order", async () => {
-    const { GET } = await import("@/app/api/team/[id]/narration/route");
+    const { GET } = await import("@/server/api/team/id/narration");
 
     const agentA = { id: "agent-1" };
     const agentB = { id: "agent-2" };
@@ -140,7 +140,7 @@ describe("GET /api/team/[id]/narration", () => {
   });
 
   it("returns empty entries array in history when agents exist but no logs", async () => {
-    const { GET } = await import("@/app/api/team/[id]/narration/route");
+    const { GET } = await import("@/server/api/team/id/narration");
 
     mockDb.query.agents.findMany.mockResolvedValueOnce([{ id: "agent-1" }]);
     mockDb.query.actionLog.findMany.mockResolvedValueOnce([]);
@@ -155,7 +155,7 @@ describe("GET /api/team/[id]/narration", () => {
   });
 
   it("queries agents filtered by teamId", async () => {
-    const { GET } = await import("@/app/api/team/[id]/narration/route");
+    const { GET } = await import("@/server/api/team/id/narration");
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
 
     await GET(new Request("http://localhost"), makeParams("my-team-42"));
@@ -168,7 +168,7 @@ describe("GET /api/team/[id]/narration", () => {
   });
 
   it("queries action log with limit 50", async () => {
-    const { GET } = await import("@/app/api/team/[id]/narration/route");
+    const { GET } = await import("@/server/api/team/id/narration");
     mockDb.query.agents.findMany.mockResolvedValueOnce([{ id: "a1" }]);
     mockDb.query.actionLog.findMany.mockResolvedValueOnce([]);
 
@@ -184,7 +184,7 @@ describe("GET /api/team/[id]/narration", () => {
   });
 
   it("no-agents response is plain Response (not streaming)", async () => {
-    const { GET } = await import("@/app/api/team/[id]/narration/route");
+    const { GET } = await import("@/server/api/team/id/narration");
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
 
     const res = await GET(new Request("http://localhost"), makeParams(TEAM_ID));

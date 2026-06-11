@@ -45,7 +45,7 @@ vi.mock("@/server/proxy-fetch", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { POST } from "@/app/api/settings/test-llm/route";
+import { POST } from "@/server/api/settings/test-llm";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -78,7 +78,7 @@ describe("POST /api/settings/test-llm", () => {
       mockGetApiKeySource.mockReturnValue("none");
 
       const res = await POST();
-      const json = await res.json();
+      const json = (await res.json()) as { ok: boolean; error: string };
 
       expect(json.ok).toBe(false);
       expect(json.error).toMatch(/No API key configured/);
@@ -114,7 +114,7 @@ describe("POST /api/settings/test-llm", () => {
       mockCreate.mockRejectedValueOnce(new Error("Connection refused"));
 
       const res = await POST();
-      const json = await res.json();
+      const json = (await res.json()) as { ok: boolean; error: string };
 
       expect(json.ok).toBe(false);
       expect(json.error).toBe("Connection refused");
@@ -139,7 +139,7 @@ describe("POST /api/settings/test-llm", () => {
       mockGetCodexAccessToken.mockReturnValue(null);
 
       const res = await POST();
-      const json = await res.json();
+      const json = (await res.json()) as { ok: boolean; error: string };
 
       expect(json.ok).toBe(false);
       expect(json.error).toMatch(/No Codex access token/);
@@ -150,7 +150,7 @@ describe("POST /api/settings/test-llm", () => {
       mockGetCodexAuthStatus.mockReturnValue({ accountId: "" });
 
       const res = await POST();
-      const json = await res.json();
+      const json = (await res.json()) as { ok: boolean; error: string };
 
       expect(json.ok).toBe(false);
       expect(json.error).toMatch(/no account_id/);
@@ -169,7 +169,7 @@ describe("POST /api/settings/test-llm", () => {
       mockProxyFetch.mockResolvedValueOnce(makeResponse(raw));
 
       const res = await POST();
-      const json = await res.json();
+      const json = (await res.json()) as { ok: boolean; model: string; response: string };
 
       expect(json.ok).toBe(true);
       expect(json.model).toBe("codex-mini-latest");
@@ -186,7 +186,7 @@ describe("POST /api/settings/test-llm", () => {
       mockProxyFetch.mockResolvedValueOnce(makeResponse(body));
 
       const res = await POST();
-      const json = await res.json();
+      const json = (await res.json()) as { ok: boolean; model: string; response: string };
 
       expect(json.ok).toBe(true);
       expect(json.model).toBe("codex-mini");
@@ -202,7 +202,7 @@ describe("POST /api/settings/test-llm", () => {
       );
 
       const res = await POST();
-      const json = await res.json();
+      const json = (await res.json()) as { ok: boolean; error: string };
 
       expect(json.ok).toBe(false);
       expect(json.error).toMatch(/Codex API 401/);
@@ -218,7 +218,7 @@ describe("POST /api/settings/test-llm", () => {
       mockProxyFetch.mockRejectedValueOnce(outer);
 
       const res = await POST();
-      const json = await res.json();
+      const json = (await res.json()) as { ok: boolean; error: string };
 
       expect(json.ok).toBe(false);
       expect(json.error).toBe("fetch failed · ECONNREFUSED");
@@ -243,7 +243,7 @@ describe("POST /api/settings/test-llm", () => {
       mockCreate.mockRejectedValueOnce("string-error");
 
       const res = await POST();
-      const json = await res.json();
+      const json = (await res.json()) as { ok: boolean; error: string };
 
       expect(json.ok).toBe(false);
       expect(json.error).toBe("Unknown error");
@@ -259,7 +259,7 @@ describe("POST /api/settings/test-llm", () => {
       mockCreate.mockRejectedValueOnce(top);
 
       const res = await POST();
-      const json = await res.json();
+      const json = (await res.json()) as { ok: boolean; error: string };
 
       expect(json.ok).toBe(false);
       expect(json.error).toBe("fetch failed · connect failed · ETIMEDOUT");
@@ -275,7 +275,7 @@ describe("POST /api/settings/test-llm", () => {
       mockCreate.mockRejectedValueOnce(err);
 
       const res = await POST();
-      const json = await res.json();
+      const json = (await res.json()) as { ok: boolean; error: string };
 
       expect(json.ok).toBe(false);
       expect(json.error).toBe(
@@ -291,7 +291,7 @@ describe("POST /api/settings/test-llm", () => {
       mockCreate.mockRejectedValueOnce(outer);
 
       const res = await POST();
-      const json = await res.json();
+      const json = (await res.json()) as { ok: boolean; error: string };
 
       expect(json.ok).toBe(false);
       // Deduplication collapses "fetch failed · fetch failed" into one

@@ -273,11 +273,11 @@ beforeEach(() => {
 
 describe("POST /api/tick", () => {
   it("returns 0 agentsRan when no active teams exist", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
     mockDb.query.teams.findMany.mockResolvedValueOnce([]);
 
     const res = await POST(tickReq());
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; agentsRan: number; timestamp: unknown };
 
     expect(body.ok).toBe(true);
     expect(body.agentsRan).toBe(0);
@@ -285,19 +285,19 @@ describe("POST /api/tick", () => {
   });
 
   it("returns 0 agentsRan when team has no agents", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
 
     const res = await POST(tickReq());
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; agentsRan: number };
 
     expect(body.ok).toBe(true);
     expect(body.agentsRan).toBe(0);
   });
 
   it("auto-recovers errored agents to running status", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     const erroredAgent = makeDueAgent({ status: "errored" });
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
@@ -315,7 +315,7 @@ describe("POST /api/tick", () => {
   });
 
   it("runs a due agent successfully and logs the action", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     const agent = makeDueAgent();
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
@@ -327,7 +327,7 @@ describe("POST /api/tick", () => {
     });
 
     const res = await POST(tickReq());
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; agentsRan: number };
 
     expect(body.ok).toBe(true);
     expect(body.agentsRan).toBe(1);
@@ -355,7 +355,7 @@ describe("POST /api/tick", () => {
   });
 
   it("sets agent to errored on failure", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     const agent = makeDueAgent();
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
@@ -364,7 +364,7 @@ describe("POST /api/tick", () => {
     mockRunAgent.mockRejectedValueOnce(new Error("LLM timeout"));
 
     const res = await POST(tickReq());
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; agentsRan: number };
 
     // Agent failed but tick still completes
     expect(body.ok).toBe(true);
@@ -377,7 +377,7 @@ describe("POST /api/tick", () => {
   });
 
   it("increments team tickCount", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
     mockDb.query.agents.findMany.mockResolvedValueOnce([]);
 
@@ -395,7 +395,7 @@ describe("POST /api/tick", () => {
   });
 
   it("skips agents that are not approved", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     const agent = makeDueAgent();
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
@@ -407,14 +407,14 @@ describe("POST /api/tick", () => {
     });
 
     const res = await POST(tickReq());
-    const body = await res.json();
+    const body = (await res.json()) as { agentsRan: number };
 
     expect(body.agentsRan).toBe(0);
     expect(mockRunAgent).not.toHaveBeenCalled();
   });
 
   it("builds peer list excluding the running agent", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     const agent1 = makeDueAgent({ id: "agent-1", name: "Alpha" });
     const agent2 = makeDueAgent({ id: "agent-2", name: "Beta", status: "paused" });
@@ -442,7 +442,7 @@ describe("POST /api/tick", () => {
   });
 
   it("fetches a2ax context and marks messages as read", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     const agent = makeDueAgent();
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
@@ -465,7 +465,7 @@ describe("POST /api/tick", () => {
   });
 
   it("handles multiple teams in a single tick", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     const team2 = { ...sampleTeam, id: "team-2", name: "Second", tickCount: 0 };
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam, team2]);
@@ -477,7 +477,7 @@ describe("POST /api/tick", () => {
     mockRunAgent.mockResolvedValueOnce({ actionType: "noop", payload: {} });
 
     const res = await POST(tickReq());
-    const body = await res.json();
+    const body = (await res.json()) as { agentsRan: number };
 
     expect(body.agentsRan).toBe(1);
     // Both teams should get tickCount incremented (two update calls for tickCount)
@@ -491,7 +491,7 @@ describe("POST /api/tick", () => {
     it("returns 401 in production when not an authorized cron caller", async () => {
       process.env.VERCEL = "1";
       try {
-        const { POST } = await import("@/app/api/tick/route");
+        const { POST } = await import("@/server/api/tick");
         const res = await POST(tickReq());
         expect(res.status).toBe(401);
       } finally {
@@ -502,7 +502,7 @@ describe("POST /api/tick", () => {
     it("proceeds with the x-vercel-cron header", async () => {
       process.env.VERCEL = "1";
       try {
-        const { POST } = await import("@/app/api/tick/route");
+        const { POST } = await import("@/server/api/tick");
         const res = await POST(tickReq({ "x-vercel-cron": "1" }));
         expect(res.status).toBe(200);
       } finally {
@@ -512,9 +512,9 @@ describe("POST /api/tick", () => {
 
     it("skips the tick when the daily spend cap is reached", async () => {
       mockSelectWhere.mockResolvedValueOnce([{ total: 999999 }]);
-      const { POST } = await import("@/app/api/tick/route");
+      const { POST } = await import("@/server/api/tick");
       const res = await POST(tickReq());
-      const body = await res.json();
+      const body = (await res.json()) as { skipped: string; agentsRan: number };
       expect(body.skipped).toBe("spend_cap");
       expect(body.agentsRan).toBe(0);
     });
@@ -534,7 +534,7 @@ describe("POST /api/tick — approval suspend/resume", () => {
   };
 
   it("parks an agent and creates pending_approvals when a run suspends", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
     mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
     mockApproveAgentTick.mockReturnValue({ allowed: true });
@@ -570,7 +570,7 @@ describe("POST /api/tick — approval suspend/resume", () => {
   });
 
   it("does not run a fresh tick for an awaiting_approval agent", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
     const parked = makeDueAgent({ status: "awaiting_approval", conversationState: suspension });
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
     mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
@@ -589,7 +589,7 @@ describe("POST /api/tick — approval suspend/resume", () => {
   });
 
   it("resumes with decisions once all approvals are resolved", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
     const parked = makeDueAgent({ status: "awaiting_approval", conversationState: suspension });
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
     mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
@@ -622,7 +622,7 @@ describe("POST /api/tick — approval suspend/resume", () => {
   });
 
   it("passes rejection notes through as decisions", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
     const parked = makeDueAgent({ status: "awaiting_approval", conversationState: suspension });
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
     mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
@@ -651,7 +651,7 @@ describe("POST /api/tick — approval suspend/resume", () => {
 describe("POST /api/tick — timeout + parallelism", () => {
   it("errors an agent whose run exceeds the per-agent budget", async () => {
     process.env.SH_AGENT_TIMEOUT_MS = "20"; // tiny budget
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
     mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
@@ -662,7 +662,7 @@ describe("POST /api/tick — timeout + parallelism", () => {
     );
 
     const res = await POST(tickReq());
-    const body = await res.json();
+    const body = (await res.json()) as { agentsRan: number };
 
     expect(body.agentsRan).toBe(0);
     // The timed-out agent is errored and rescheduled.
@@ -673,7 +673,7 @@ describe("POST /api/tick — timeout + parallelism", () => {
   });
 
   it("runs all due agents in a team concurrently (Promise.allSettled)", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     const a1 = makeDueAgent({ id: "agent-1", name: "Alpha" });
     const a2 = makeDueAgent({ id: "agent-2", name: "Beta" });
@@ -693,7 +693,7 @@ describe("POST /api/tick — timeout + parallelism", () => {
     });
 
     const res = await POST(tickReq());
-    const body = await res.json();
+    const body = (await res.json()) as { agentsRan: number };
 
     expect(body.agentsRan).toBe(3);
     // All three were invoked before any resolved (concurrent kickoff).
@@ -702,7 +702,7 @@ describe("POST /api/tick — timeout + parallelism", () => {
   });
 
   it("one agent failing does not stop its teammates", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     const a1 = makeDueAgent({ id: "agent-1", name: "Alpha" });
     const a2 = makeDueAgent({ id: "agent-2", name: "Beta" });
@@ -714,7 +714,7 @@ describe("POST /api/tick — timeout + parallelism", () => {
       .mockResolvedValueOnce({ actionType: "noop", payload: {} });
 
     const res = await POST(tickReq());
-    const body = await res.json();
+    const body = (await res.json()) as { agentsRan: number };
 
     // One failed, one succeeded — tick still completes, count reflects the win.
     expect(body.agentsRan).toBe(1);
@@ -730,7 +730,7 @@ describe("POST /api/tick — timeout + parallelism", () => {
 
 describe("POST /api/tick — LLM client selection", () => {
   it("uses Codex client when apiKeySource is codex", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     mockGetApiKeySource.mockReturnValue("codex");
     mockGetConfig.mockReturnValue({
@@ -760,7 +760,7 @@ describe("POST /api/tick — LLM client selection", () => {
   });
 
   it("uses Anthropic client when ANTHROPIC_API_KEY is set", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     process.env.ANTHROPIC_API_KEY = "sk-ant-test";
     mockGetApiKeySource.mockReturnValue("config");
@@ -781,7 +781,7 @@ describe("POST /api/tick — LLM client selection", () => {
   });
 
   it("falls back to OpenAI client when no codex or anthropic key", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     mockGetApiKeySource.mockReturnValue("config");
     delete process.env.ANTHROPIC_API_KEY;
@@ -809,11 +809,11 @@ describe("POST /api/tick — LLM client selection", () => {
 
 describe("GET /api/tick", () => {
   it("delegates to POST and returns same shape", async () => {
-    const { GET } = await import("@/app/api/tick/route");
+    const { GET } = await import("@/server/api/tick");
     mockDb.query.teams.findMany.mockResolvedValueOnce([]);
 
     const res = await GET(tickReq());
-    const body = await res.json();
+    const body = (await res.json()) as { ok: boolean; agentsRan: number; timestamp: unknown };
 
     expect(body.ok).toBe(true);
     expect(body.agentsRan).toBe(0);
@@ -837,7 +837,7 @@ describe("POST /api/tick — play-by-play trace", () => {
   }
 
   it("persists runner trace steps emitted during a successful run", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
     mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
@@ -863,7 +863,7 @@ describe("POST /api/tick — play-by-play trace", () => {
   });
 
   it("records a tick_failed step when the run throws", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
     mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
@@ -879,7 +879,7 @@ describe("POST /api/tick — play-by-play trace", () => {
   });
 
   it("resume reuses the trace tickId parked with the suspension", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     const parkedTickId = "11111111-2222-4333-8444-555555555555";
     const parked = makeDueAgent({
@@ -917,7 +917,7 @@ describe("POST /api/tick — play-by-play trace", () => {
 
 describe("POST /api/tick — codex app-server harness", () => {
   it("routes fresh codex-provider runs through the harness, not the runner", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     mockGetApiKeySource.mockReturnValue("codex");
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
@@ -930,7 +930,7 @@ describe("POST /api/tick — codex app-server harness", () => {
     });
 
     const res = await POST(tickReq());
-    const body = await res.json();
+    const body = (await res.json()) as { agentsRan: number };
 
     expect(body.agentsRan).toBe(1);
     expect(mockRunCodexAgentTick).toHaveBeenCalledTimes(1);
@@ -950,7 +950,7 @@ describe("POST /api/tick — codex app-server harness", () => {
   it("SH_CODEX_RUNTIME=exec opts out of the harness", async () => {
     process.env.SH_CODEX_RUNTIME = "exec";
     try {
-      const { POST } = await import("@/app/api/tick/route");
+      const { POST } = await import("@/server/api/tick");
 
       mockGetApiKeySource.mockReturnValue("codex");
       mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
@@ -968,7 +968,7 @@ describe("POST /api/tick — codex app-server harness", () => {
   });
 
   it("parks a codex-thread suspension opaquely with the trace tickId riding along", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     mockGetApiKeySource.mockReturnValue("codex");
     mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
@@ -1006,7 +1006,7 @@ describe("POST /api/tick — codex app-server harness", () => {
   });
 
   it("resumes a codex-thread suspension through the harness with the decisions", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     const parked = makeDueAgent({
       status: "awaiting_approval",
@@ -1044,7 +1044,7 @@ describe("POST /api/tick — codex app-server harness", () => {
   });
 
   it("legacy message-based suspensions still resume through the runner under the codex provider", async () => {
-    const { POST } = await import("@/app/api/tick/route");
+    const { POST } = await import("@/server/api/tick");
 
     const parked = makeDueAgent({
       status: "awaiting_approval",

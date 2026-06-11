@@ -69,47 +69,47 @@ beforeEach(() => {
 
 describe("POST /api/spawn", () => {
   it("returns 400 when agents is missing", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     const res = await POST(makeReq({}));
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("agents required");
   });
 
   it("returns 400 when agents is not an array", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     const res = await POST(makeReq({ agents: "not-an-array" }));
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("agents required");
   });
 
   it("returns 400 when agents is an empty array", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     const res = await POST(makeReq({ agents: [] }));
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("agents required");
   });
 
   it("returns 400 when agents is null", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     const res = await POST(makeReq({ agents: null }));
-    const body = await res.json();
+    const body = (await res.json()) as { error?: string };
 
     expect(res.status).toBe(400);
     expect(body.error).toBe("agents required");
   });
 
   it("creates team, chat session, and agents on success", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     const res = await POST(
       makeReq({
@@ -117,7 +117,7 @@ describe("POST /api/spawn", () => {
         teamName: "My Team",
       }),
     );
-    const body = await res.json();
+    const body = (await res.json()) as { teamId?: string };
 
     expect(res.status).toBe(200);
     expect(body.teamId).toBe("team-new");
@@ -127,7 +127,7 @@ describe("POST /api/spawn", () => {
   });
 
   it("uses teamName when provided", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     await POST(
       makeReq({
@@ -142,7 +142,7 @@ describe("POST /api/spawn", () => {
   });
 
   it("falls back to archetype join when teamName is missing", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     await POST(
       makeReq({
@@ -158,7 +158,7 @@ describe("POST /api/spawn", () => {
   });
 
   it("falls back to archetype join when teamName is empty string", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     await POST(
       makeReq({
@@ -172,7 +172,7 @@ describe("POST /api/spawn", () => {
   });
 
   it("caps team name at 50 characters when falling back to archetype join", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     const longArchetypeAgents = Array.from({ length: 10 }, (_, i) =>
       validAgent({ archetype: `long-archetype-name-${i}`, name: `Agent-${i}` }),
@@ -185,7 +185,7 @@ describe("POST /api/spawn", () => {
   });
 
   it("creates a chat session for the new team", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     await POST(makeReq({ agents: [validAgent()] }));
 
@@ -195,7 +195,7 @@ describe("POST /api/spawn", () => {
   });
 
   it("schedules the first agent's first run at now + scheduleSeconds", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     const before = new Date();
     await POST(
@@ -222,7 +222,7 @@ describe("POST /api/spawn", () => {
   });
 
   it("staggers first runs of later agents by 2s each", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     await POST(
       makeReq({
@@ -247,7 +247,7 @@ describe("POST /api/spawn", () => {
   });
 
   it("maps agent fields from snake_case payload to camelCase DB columns", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     await POST(
       makeReq({
@@ -266,7 +266,7 @@ describe("POST /api/spawn", () => {
   });
 
   it("creates multiple agents in a single insert", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     await POST(
       makeReq({
@@ -288,7 +288,7 @@ describe("POST /api/spawn", () => {
   });
 
   it("passes cofounderName to team insert", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     await POST(
       makeReq({
@@ -303,7 +303,7 @@ describe("POST /api/spawn", () => {
   });
 
   it("defaults cofounderName to Harmon when not provided", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     await POST(
       makeReq({
@@ -317,7 +317,7 @@ describe("POST /api/spawn", () => {
   });
 
   it("trims cofounderName whitespace", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
 
     await POST(
       makeReq({
@@ -331,11 +331,11 @@ describe("POST /api/spawn", () => {
   });
 
   it("returns the team id in the response", async () => {
-    const { POST } = await import("@/app/api/spawn/route");
+    const { POST } = await import("@/server/api/spawn");
     mockReturning.mockResolvedValueOnce([{ id: "uuid-42" }]);
 
     const res = await POST(makeReq({ agents: [validAgent()] }));
-    const body = await res.json();
+    const body = (await res.json()) as { teamId?: string };
 
     expect(body.teamId).toBe("uuid-42");
   });
