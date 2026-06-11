@@ -160,6 +160,9 @@ export function createAnthropicClient(opts: {
             response.stop_reason === "tool_use" ? "tool_calls" : "stop";
 
           return {
+            // Echo the serving model (OpenAI wire shape) so the spend counter
+            // and the cascade attribute the call correctly.
+            model: response.model,
             choices: [
               {
                 message: {

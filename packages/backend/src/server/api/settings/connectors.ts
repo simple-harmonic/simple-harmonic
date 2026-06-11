@@ -28,6 +28,7 @@ function maskSecret(s: string): string {
 
 function getBuiltinConnectors(): ConnectorStatus[] {
   const anthropicKey = process.env.ANTHROPIC_API_KEY ?? "";
+  const openrouterKey = process.env.OPENROUTER_API_KEY ?? "";
   const githubToken = resolveConnector("GITHUB_TOKEN");
 
   return [
@@ -58,6 +59,16 @@ function getBuiltinConnectors(): ConnectorStatus[] {
       configured: anthropicKey.length > 0,
       maskedValue: anthropicKey ? maskSecret(anthropicKey) : undefined,
       envVar: "ANTHROPIC_API_KEY",
+      source: "env",
+    },
+    {
+      id: "builtin-openrouter",
+      name: "OpenRouter",
+      description:
+        "OpenRouter API key. Cascade fallback for agent LLM calls (set OPENROUTER_MODEL / OPENROUTER_FALLBACK_MODELS to pick models).",
+      configured: openrouterKey.length > 0,
+      maskedValue: openrouterKey ? maskSecret(openrouterKey) : undefined,
+      envVar: "OPENROUTER_API_KEY",
       source: "env",
     },
     {

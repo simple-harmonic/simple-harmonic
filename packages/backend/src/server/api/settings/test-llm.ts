@@ -1,7 +1,8 @@
+import type { LLMCandidate } from "../../../lib/meta-agent/cascade";
 import { getCodexAccessToken, getCodexAuthStatus } from "../../codex-auth";
-import { getApiKeySource, getConfig } from "../../config";
+import { getConfig } from "../../config";
+import { resolveLLMCandidates } from "../../llm";
 import { proxyFetch } from "../../proxy-fetch";
-import OpenAI from "openai";
 
 // Undici hides the real network failure in err.cause. Walk the chain so we
 // surface "ECONNREFUSED", "EAI_AGAIN", "ETIMEDOUT", etc. instead of the
@@ -34,35 +35,42 @@ function describeError(err: unknown): string {
 }
 
 export async function POST() {
-  const { openaiApiKey, openaiBaseUrl, model } = getConfig();
-  const source = getApiKeySource();
+  // Test the cascade's PRIMARY provider — the one agent ticks hit first.
+  const primary = resolveLLMCandidates({ timeoutMs: 10_000 })[0];
 
-  if (!openaiApiKey && source !== "codex") {
+  if (primary.provider === "codex") {
+    return testCodex(primary.model);
+  }
+
+  // The resolver's last resort is a key-less OpenAI client; surface a setup
+  // hint instead of the SDK's auth error.
+  if (primary.provider === "openai" && !getConfig().openaiApiKey) {
     return Response.json({
       ok: false,
-      error: "No API key configured. Add an OpenAI key or sign in with Codex.",
+      error:
+        "No API key configured. Add an OpenAI, Anthropic, or OpenRouter key — or sign in with Codex.",
     });
   }
 
-  if (source === "codex") {
-    return testCodex(model);
-  }
-
-  return testOpenai(openaiApiKey, openaiBaseUrl, model);
+  return testChatClient(primary);
 }
 
-async function testOpenai(apiKey: string, baseUrl: string, model: string) {
+async function testChatClient(c: LLMCandidate) {
   try {
-    const client = new OpenAI({ apiKey, baseURL: baseUrl, timeout: 10000 });
-    const res = await client.chat.completions.create({
-      model,
+    const res = await c.llm.chat.completions.create({
+      model: c.model,
       max_tokens: 10,
       messages: [{ role: "user", content: "Reply with the word OK." }],
     });
     const text = res.choices[0]?.message?.content ?? "";
-    return Response.json({ ok: true, model, response: text.slice(0, 50) });
+    return Response.json({
+      ok: true,
+      provider: c.provider,
+      model: c.model,
+      response: text.slice(0, 50),
+    });
   } catch (err) {
-    console.error("[test-llm openai]", err);
+    console.error(`[test-llm ${c.provider}]`, err);
     return Response.json({ ok: false, error: describeError(err) });
   }
 }
