@@ -52,6 +52,11 @@ describe("spend", () => {
     expect(costCents("mystery-model", 1_000_000, 0)).toBe(1500);
   });
 
+  it("costCents strips OpenRouter vendor namespaces before rate matching", () => {
+    expect(costCents("anthropic/claude-sonnet-4", 1_000_000, 1_000_000)).toBe(1800);
+    expect(costCents("openai/gpt-5.5", 1_000_000, 0)).toBe(125);
+  });
+
   it("dailyCapCents defaults to 5000 and is overridable", () => {
     delete process.env.SH_DAILY_SPEND_CAP_CENTS;
     expect(dailyCapCents()).toBe(5000);
@@ -112,5 +117,24 @@ describe("spend", () => {
     await llm.chat.completions.create({ model: "claude-sonnet-4", messages: [] });
     expect(usage.inputTokens).toBe(20);
     expect(usage.outputTokens).toBe(8);
+  });
+
+  it("makeCountingLLM attributes spend to the serving model over the requested one", async () => {
+    const base = {
+      chat: {
+        completions: {
+          create: vi.fn().mockResolvedValue({
+            choices: [],
+            // The cascade stamps the model that actually served the call.
+            model: "openrouter-served/gpt-5.5",
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+        },
+      },
+      // biome-ignore lint/suspicious/noExplicitAny: test double
+    } as any;
+    const { llm, usage } = makeCountingLLM(base, "claude-sonnet-4");
+    await llm.chat.completions.create({ model: "claude-sonnet-4", messages: [] });
+    expect(usage.model).toBe("openrouter-served/gpt-5.5");
   });
 });

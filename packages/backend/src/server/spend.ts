@@ -32,7 +32,10 @@ export function costCents(
   outputTokens: number,
 ): number {
   const m = (model || "").toLowerCase();
-  const rate = RATES.find((r) => m.startsWith(r.prefix)) ?? FALLBACK_RATE;
+  // OpenRouter ids are vendor-namespaced ("anthropic/claude-sonnet-4"); strip
+  // the namespace so they hit the same rate rows as direct API ids.
+  const bare = m.includes("/") ? m.slice(m.indexOf("/") + 1) : m;
+  const rate = RATES.find((r) => bare.startsWith(r.prefix)) ?? FALLBACK_RATE;
   const cents =
     (inputTokens * rate.inCents + outputTokens * rate.outCents) / 1_000_000;
   return Math.ceil(cents);
@@ -146,8 +149,11 @@ export function makeCountingLLM(
             usage.inputTokens += u.input_tokens ?? u.prompt_tokens ?? 0;
             usage.outputTokens += u.output_tokens ?? u.completion_tokens ?? 0;
           }
+          // Prefer the response's model: with the cascade the serving model
+          // can differ from the requested one.
+          const rm = (res as { model?: string }).model;
           const pm = (params as { model?: string }).model;
-          if (pm) usage.model = pm;
+          usage.model = rm || pm || usage.model;
           return res;
         },
       },

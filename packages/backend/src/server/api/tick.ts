@@ -1,6 +1,4 @@
 import { approveAgentTick, runAgent } from "../../lib/meta-agent";
-import { createAnthropicClient } from "../../lib/meta-agent/anthropic-adapter";
-import { createCodexClient } from "../../lib/meta-agent/codex-adapter";
 import {
   type CodexThreadSuspension,
   isCodexThreadSuspension,
@@ -21,7 +19,7 @@ import {
   getPlatformStatus,
   queryAppEvents,
 } from "../app-events";
-import { getApiKeySource, getConfig } from "../config";
+import { getApiKeySource } from "../config";
 import { db } from "../db";
 import {
   actionLog,
@@ -29,6 +27,7 @@ import {
   pendingApprovals,
   teams,
 } from "../db/schema";
+import { resolveLLM } from "../llm";
 import { isCronAuthorized } from "../operator-auth";
 import {
   checkSpendAllowed,
@@ -42,7 +41,6 @@ import {
   pruneTraceEvents,
 } from "../trace";
 import { and, desc, eq, sql } from "drizzle-orm";
-import OpenAI from "openai";
 
 // Skip ticks for teams with no recent user activity to control costs.
 const HIBERNATE_THRESHOLD_MS = 5 * 60 * 1000;
@@ -163,37 +161,30 @@ export async function POST(req: Request) {
 
   let totalRan = 0;
   const a2ax = getA2AX();
-  const cfg = getConfig();
 
-  // LLM client resolution: Codex CLI > Anthropic > OpenAI
+  // LLM cascade: Codex CLI > Anthropic > OpenRouter > OpenAI (server/llm.ts).
+  // Each completion call walks the configured providers in order; a provider
+  // error falls through to the next step and logs a warning app event.
   const apiKeySource = getApiKeySource();
-  const anthropicKey = process.env.ANTHROPIC_API_KEY;
-
-  let llm: LLMClient;
-  let modelOverride: string | undefined;
+  const { llm, model: modelOverride } = resolveLLM({
+    onFallback: ({ provider, model, error, next }) => {
+      const reason = (error instanceof Error ? error.message : String(error)).slice(0, 200);
+      emitAppEvent({
+        severity: "warning",
+        source: "tick",
+        message: next
+          ? `LLM ${provider}/${model} failed (${reason}); falling back to ${next.provider}/${next.model}`
+          : `LLM ${provider}/${model} failed (${reason}); cascade exhausted`,
+      });
+    },
+  });
 
   // Engine mode (codex app-server harness): codex owns the agent loop and
   // calls SH tools back over RPC. Default for the codex provider; set
   // SH_CODEX_RUNTIME=exec to fall back to the legacy per-round exec adapter.
-  // The exec adapter LLM client is still constructed below either way: it
-  // serves legacy (message-based) suspensions parked before a deploy.
+  // The exec-adapter cascade step is still constructed either way: it serves
+  // legacy (message-based) suspensions parked before a deploy.
   const useCodexHarness = apiKeySource === "codex" && process.env.SH_CODEX_RUNTIME !== "exec";
-
-  if (apiKeySource === "codex") {
-    // Use Codex CLI subprocess (ChatGPT subscription via codex exec)
-    llm = createCodexClient({ model: cfg.model || "gpt-5.5" });
-    modelOverride = cfg.model || "gpt-5.5";
-  } else if (anthropicKey) {
-    llm = createAnthropicClient({ apiKey: anthropicKey, timeout: 120_000 });
-    modelOverride = "claude-sonnet-4-20250514";
-  } else {
-    llm = new OpenAI({
-      apiKey: cfg.openaiApiKey || undefined,
-      baseURL: cfg.openaiBaseUrl || undefined,
-      timeout: 120_000,
-    }) as unknown as LLMClient;
-    modelOverride = cfg.model;
-  }
 
   const timeoutMs = agentTimeoutMs();
 

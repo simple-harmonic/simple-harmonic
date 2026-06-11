@@ -66,6 +66,10 @@ function makeResponse(body: string, status = 200): Response {
 describe("POST /api/settings/test-llm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The endpoint tests the cascade's primary provider; keep these env-based
+    // providers out so the openai/codex paths below stay deterministic.
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
   });
 
   // -----------------------------------------------------------------------
@@ -107,7 +111,7 @@ describe("POST /api/settings/test-llm", () => {
       const res = await POST();
       const json = await res.json();
 
-      expect(json).toEqual({ ok: true, model: "o4-mini", response: "OK" });
+      expect(json).toEqual({ ok: true, provider: "openai", model: "o4-mini", response: "OK" });
     });
 
     it("returns ok:false with describeError on failure", async () => {
