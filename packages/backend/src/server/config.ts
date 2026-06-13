@@ -30,7 +30,7 @@ const DEFAULT_CODING_CONFIG: Record<CodingBackendType, CodingBackendConfig> = {
 const DEFAULTS: AppConfig = {
   openaiApiKey: "",
   openaiBaseUrl: "https://api.openai.com/v1",
-  model: "o4-mini",
+  model: "gpt-5.5",
   dataDir: join(process.cwd(), ".simple-harmonic", "data"),
   codingBackend: "codex",
   codingConfig: DEFAULT_CODING_CONFIG,
@@ -56,25 +56,46 @@ export function getConfig(): AppConfig {
     getCodexAccessToken() ||
     DEFAULTS.openaiApiKey;
 
-  const codingRaw = file.codingBackend || process.env.SH_CODING_BACKEND || DEFAULTS.codingBackend;
-  const codingBackend = (["codex", "claude-code", "opencode"].includes(codingRaw)
-    ? codingRaw
-    : DEFAULTS.codingBackend) as CodingBackendType;
+  const codingRaw =
+    file.codingBackend ||
+    process.env.SH_CODING_BACKEND ||
+    DEFAULTS.codingBackend;
+  const codingBackend = (
+    ["codex", "claude-code", "opencode"].includes(codingRaw)
+      ? codingRaw
+      : DEFAULTS.codingBackend
+  ) as CodingBackendType;
 
   const fileCodingConfig = (file as Record<string, unknown>).codingConfig as
     | Record<string, CodingBackendConfig>
     | undefined;
   const codingConfig: Record<CodingBackendType, CodingBackendConfig> = {
     codex: { ...DEFAULT_CODING_CONFIG.codex, ...fileCodingConfig?.codex },
-    "claude-code": { ...DEFAULT_CODING_CONFIG["claude-code"], ...fileCodingConfig?.["claude-code"] },
-    opencode: { ...DEFAULT_CODING_CONFIG.opencode, ...fileCodingConfig?.opencode },
+    "claude-code": {
+      ...DEFAULT_CODING_CONFIG["claude-code"],
+      ...fileCodingConfig?.["claude-code"],
+    },
+    opencode: {
+      ...DEFAULT_CODING_CONFIG.opencode,
+      ...fileCodingConfig?.opencode,
+    },
   };
 
   return {
     openaiApiKey: apiKey,
-    openaiBaseUrl: file.openaiBaseUrl || process.env.OPENAI_BASE_URL || DEFAULTS.openaiBaseUrl,
+    openaiBaseUrl:
+      file.openaiBaseUrl ||
+      process.env.OPENAI_BASE_URL ||
+      DEFAULTS.openaiBaseUrl,
     model: file.model || process.env.OPENAI_MODEL || DEFAULTS.model,
+<<<<<<< Updated upstream
     dataDir: file.dataDir || process.env.SH_DATA_DIR || DEFAULTS.dataDir,
+||||||| Stash base
+    databaseUrl: file.databaseUrl || process.env.DATABASE_URL || DEFAULTS.databaseUrl,
+=======
+    databaseUrl:
+      file.databaseUrl || process.env.DATABASE_URL || DEFAULTS.databaseUrl,
+>>>>>>> Stashed changes
     codingBackend,
     codingConfig,
   };

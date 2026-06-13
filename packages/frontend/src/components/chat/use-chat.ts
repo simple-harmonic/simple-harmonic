@@ -33,16 +33,20 @@ interface UseChatReturn {
 const INITIAL_MESSAGE: ChatMessageData = {
   id: "initial",
   role: "assistant",
-  content:
-    "Hi. I'm **Harmon**, your AI cofounder. Before I spin up a team, I want to understand what you actually do day-to-day so the agents are useful, not generic.\n\nWalk me through your company. Three things: **what you do**, **who pays you** (or would), and **what's currently eating your week**. Start anywhere. I'll ask follow-ups.\n\n(If you'd rather call me something else, just say so.)",
+  content: "Hi. I'm **Harmon**, your AI manager. How can I help you today?",
   timestamp: new Date().toISOString(),
 };
 
 export function useChat(): UseChatReturn {
-  const [messages, setMessages] = useState<ChatMessageData[]>([INITIAL_MESSAGE]);
+  const [messages, setMessages] = useState<ChatMessageData[]>([
+    INITIAL_MESSAGE,
+  ]);
   const [status, setStatus] = useState<ChatStatus>("idle");
-  const [spawnProposal, setSpawnProposal] = useState<SpawnProposal | null>(null);
-  const [credentialRequest, setCredentialRequest] = useState<CredentialRequestData | null>(null);
+  const [spawnProposal, setSpawnProposal] = useState<SpawnProposal | null>(
+    null,
+  );
+  const [credentialRequest, setCredentialRequest] =
+    useState<CredentialRequestData | null>(null);
   const streamingIdRef = useRef<string | null>(null);
 
   const sendMessage = useCallback(
@@ -65,13 +69,21 @@ export function useChat(): UseChatReturn {
 
       setMessages((prev) => [
         ...prev,
-        { id: assistantId, role: "assistant", content: "", timestamp: new Date().toISOString() },
+        {
+          id: assistantId,
+          role: "assistant",
+          content: "",
+          timestamp: new Date().toISOString(),
+        },
       ]);
 
       const allMessages = [...messages, userMsg];
       const apiMessages = allMessages
         .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+        .map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        }));
 
       fetch("/api/chat", {
         method: "POST",
@@ -101,13 +113,17 @@ export function useChat(): UseChatReturn {
               if (data.type === "token") {
                 setMessages((prev) =>
                   prev.map((m) =>
-                    m.id === assistantId ? { ...m, content: m.content + data.text } : m,
+                    m.id === assistantId
+                      ? { ...m, content: m.content + data.text }
+                      : m,
                   ),
                 );
               } else if (data.type === "spawn") {
                 setMessages((prev) =>
                   prev.map((m) =>
-                    m.id === assistantId ? { ...m, content: data.content || m.content } : m,
+                    m.id === assistantId
+                      ? { ...m, content: data.content || m.content }
+                      : m,
                   ),
                 );
                 setSpawnProposal({
@@ -119,7 +135,9 @@ export function useChat(): UseChatReturn {
               } else if (data.type === "request_credential") {
                 setMessages((prev) =>
                   prev.map((m) =>
-                    m.id === assistantId ? { ...m, content: data.content || m.content } : m,
+                    m.id === assistantId
+                      ? { ...m, content: data.content || m.content }
+                      : m,
                   ),
                 );
                 setCredentialRequest({
@@ -180,5 +198,14 @@ export function useChat(): UseChatReturn {
     setCredentialRequest(null);
   }, []);
 
-  return { messages, status, spawnProposal, credentialRequest, sendMessage, retry, clearSpawnProposal, clearCredentialRequest };
+  return {
+    messages,
+    status,
+    spawnProposal,
+    credentialRequest,
+    sendMessage,
+    retry,
+    clearSpawnProposal,
+    clearCredentialRequest,
+  };
 }
