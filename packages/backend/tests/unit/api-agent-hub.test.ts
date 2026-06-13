@@ -1,84 +1,79 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { COFOUNDER_AGENT_ID } from "@/lib/meta-agent/identity";
+import { getA2AX } from "@/server/a2ax";
+import { actionLog, agents, teams } from "@/server/store";
+import { useTempStore } from "../helpers/store";
 
-// Mock db and schema
-const mockExecute = vi.fn();
-const mockDb = { execute: mockExecute };
+// GET /api/team/[id]/agent-hub?agentId= returns the agent's fields plus a merged
+// timeline of action-log entries and received (and, for the cofounder/user,
+// sent) a2ax messages. Run against the real file store: seed a team + agents,
+// add actionLog entries and a2ax messages, then assert on the timeline.
 
-vi.mock("@/server/db", () => ({
-  db: () => mockDb,
-}));
-
-vi.mock("@/server/db/schema", () => ({}));
-
-vi.mock("drizzle-orm", () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
-}));
-
-vi.mock("@/lib/meta-agent/identity", () => ({
-  COFOUNDER_AGENT_ID: "00000000-0000-0000-0000-00000000c0f0",
-  USER_AGENT_ID: "00000000-0000-0000-0000-00000000fffe",
-  USER_DISPLAY_NAME: "You",
-  resolveCofounderName: (name: string | null) => name?.trim() || "Harmon",
-}));
-
-import { GET } from "@/server/api/team/id/agent-hub";
-
-function makeReq(agentId?: string): Request {
+function makeReq(teamId: string, agentId?: string): Request {
   const url = agentId
-    ? `http://localhost/api/team/team-1/agent-hub?agentId=${agentId}`
-    : "http://localhost/api/team/team-1/agent-hub";
+    ? `http://localhost/api/team/${teamId}/agent-hub?agentId=${agentId}`
+    : `http://localhost/api/team/${teamId}/agent-hub`;
   return new Request(url);
 }
 
-function makeParams(id = "team-1") {
+function makeParams(id: string) {
   return { params: Promise.resolve({ id }) };
 }
 
+async function seed(teamOverrides: Record<string, unknown> = {}) {
+  const team = await teams.insert({ name: "Test Team", ...teamOverrides });
+  const bot = await agents.insert(team.id, {
+    name: "ops-monitor",
+    role: "Monitors ops",
+    archetype: "monitor",
+    tools: [],
+    scheduleSeconds: 300,
+    initialPrompt: "p",
+  });
+  const other = await agents.insert(team.id, {
+    name: "content-scheduler",
+    role: "Content",
+    archetype: "scheduler",
+    tools: [],
+    scheduleSeconds: 600,
+    initialPrompt: "p",
+  });
+  return { team, bot, other };
+}
+
 describe("GET /api/team/[id]/agent-hub", () => {
+  useTempStore();
+
   it("returns 400 when agentId is missing", async () => {
-    const res = await GET(makeReq(), makeParams());
+    const { GET } = await import("@/server/api/team/id/agent-hub");
+    const { team } = await seed();
+
+    const res = await GET(makeReq(team.id), makeParams(team.id));
     expect(res.status).toBe(400);
     const data = (await res.json()) as { error?: string };
     expect(data.error).toContain("agentId");
   });
 
-  it("returns 404 when agent not found in results", async () => {
-    mockExecute.mockResolvedValue({
-      rows: [{
-        data: {
-          agents: [{ id: "other-agent", name: "Other", role: "Test", status: "running", schedule_seconds: 300, next_run_at: null, in_flight: false }],
-          cofounderName: null,
-          actions: [],
-          messages: [],
-        },
-      }],
-    });
+  it("returns 404 when the agent is not found", async () => {
+    const { GET } = await import("@/server/api/team/id/agent-hub");
+    const { team } = await seed();
 
-    const res = await GET(makeReq("missing-agent"), makeParams());
+    const res = await GET(makeReq(team.id, "missing-agent"), makeParams(team.id));
     expect(res.status).toBe(404);
   });
 
-  it("returns agent hub data with timeline", async () => {
-    const now = new Date().toISOString();
-    mockExecute.mockResolvedValue({
-      rows: [{
-        data: {
-          agents: [
-            { id: "agent-1", name: "ops-monitor", role: "Monitors ops", status: "running", schedule_seconds: 300, next_run_at: now, in_flight: false },
-            { id: "agent-2", name: "content-scheduler", role: "Content", status: "running", schedule_seconds: 600, next_run_at: null, in_flight: false },
-          ],
-          cofounderName: "Atlas",
-          actions: [
-            { id: "act-1", action_type: "scan", payload: { summary: "scanned" }, executed_at: now },
-          ],
-          messages: [
-            { id: "msg-1", channel_type: "broadcast", channel_id: "broadcast:team-1", from_agent_id: "agent-2", kind: "text", content: "Hello", created_at: now },
-          ],
-        },
-      }],
-    });
+  it("returns agent fields and a timeline of actions + received messages", async () => {
+    const { GET } = await import("@/server/api/team/id/agent-hub");
+    const { team, bot, other } = await seed();
 
-    const res = await GET(makeReq("agent-1"), makeParams());
+    await actionLog.insert(bot.id, {
+      actionType: "scan",
+      payload: { summary: "scanned" },
+    });
+    // A broadcast from another agent is "received" by the bot.
+    await getA2AX().broadcast(team.id, other.id, "Hello");
+
+    const res = await GET(makeReq(team.id, bot.id), makeParams(team.id));
     expect(res.status).toBe(200);
 
     const data = (await res.json()) as {
@@ -87,147 +82,125 @@ describe("GET /api/team/[id]/agent-hub", () => {
       agentRole: string;
       agentStatus: string;
       agentSchedule: number;
-      nextRunAt: string | null;
       inFlight: boolean;
-      timeline: unknown[];
+      timeline: Array<{ type: string }>;
     };
-    expect(data.agentId).toBe("agent-1");
+
+    expect(data.agentId).toBe(bot.id);
     expect(data.agentName).toBe("ops-monitor");
     expect(data.agentRole).toBe("Monitors ops");
     expect(data.agentStatus).toBe("running");
     expect(data.agentSchedule).toBe(300);
-    expect(data.nextRunAt).toBe(now);
     expect(data.inFlight).toBe(false);
-    expect(data.timeline).toHaveLength(2); // 1 action + 1 broadcast message
+    // 1 action + 1 broadcast.
+    expect(data.timeline).toHaveLength(2);
+    const types = data.timeline.map((t) => t.type).sort();
+    expect(types).toEqual(["action", "received"]);
   });
 
   it("filters out messages sent by the agent itself", async () => {
-    const now = new Date().toISOString();
-    mockExecute.mockResolvedValue({
-      rows: [{
-        data: {
-          agents: [
-            { id: "agent-1", name: "bot", role: "Bot", status: "running", schedule_seconds: 300, next_run_at: null, in_flight: false },
-          ],
-          cofounderName: null,
-          actions: [],
-          messages: [
-            { id: "msg-self", channel_type: "broadcast", channel_id: "broadcast:team-1", from_agent_id: "agent-1", kind: "text", content: "My own msg", created_at: now },
-            { id: "msg-other", channel_type: "broadcast", channel_id: "broadcast:team-1", from_agent_id: "agent-2", kind: "text", content: "From other", created_at: now },
-          ],
-        },
-      }],
-    });
+    const { GET } = await import("@/server/api/team/id/agent-hub");
+    const { team, bot, other } = await seed();
 
-    const res = await GET(makeReq("agent-1"), makeParams());
-    const data = (await res.json()) as { timeline: Array<{ type: string; content?: string }> };
+    await getA2AX().broadcast(team.id, bot.id, "My own msg");
+    await getA2AX().broadcast(team.id, other.id, "From other");
 
-    // Only the broadcast from agent-2 should appear (self messages filtered out)
-    const receivedMsgs = data.timeline.filter((t: { type: string }) => t.type === "received");
-    expect(receivedMsgs).toHaveLength(1);
-    expect(receivedMsgs[0].content).toBe("From other");
+    const res = await GET(makeReq(team.id, bot.id), makeParams(team.id));
+    const data = (await res.json()) as {
+      timeline: Array<{ type: string; content?: string }>;
+    };
+
+    const received = data.timeline.filter((t) => t.type === "received");
+    expect(received).toHaveLength(1);
+    expect(received[0].content).toBe("From other");
   });
 
-  it("includes direct messages to the agent in timeline", async () => {
-    const now = new Date().toISOString();
-    mockExecute.mockResolvedValue({
-      rows: [{
-        data: {
-          agents: [
-            { id: "agent-1", name: "bot", role: "Bot", status: "running", schedule_seconds: 300, next_run_at: null, in_flight: false },
-          ],
-          cofounderName: null,
-          actions: [],
-          messages: [
-            { id: "msg-dm", channel_type: "direct", channel_id: "dm:agent-2:agent-1", from_agent_id: "agent-2", kind: "text", content: "DM to you", created_at: now },
-            { id: "msg-other-dm", channel_type: "direct", channel_id: "dm:agent-2:agent-3", from_agent_id: "agent-2", kind: "text", content: "Not for me", created_at: now },
-          ],
-        },
-      }],
-    });
+  it("includes direct messages addressed to the agent and excludes others'", async () => {
+    const { GET } = await import("@/server/api/team/id/agent-hub");
+    const { team, bot, other } = await seed();
+    const thirdParty = "agent-3";
 
-    const res = await GET(makeReq("agent-1"), makeParams());
-    const data = (await res.json()) as { timeline: Array<{ type: string; content?: string }> };
+    // DM to the bot (channel id includes the bot's id) -> received.
+    await getA2AX().sendDirect(team.id, other.id, bot.id, "DM to you");
+    // DM between two other agents (channel id excludes the bot) -> not received.
+    await getA2AX().sendDirect(team.id, other.id, thirdParty, "Not for me");
 
-    const received = data.timeline.filter((t: { type: string }) => t.type === "received");
+    const res = await GET(makeReq(team.id, bot.id), makeParams(team.id));
+    const data = (await res.json()) as {
+      timeline: Array<{ type: string; content?: string }>;
+    };
+
+    const received = data.timeline.filter((t) => t.type === "received");
     expect(received).toHaveLength(1);
     expect(received[0].content).toBe("DM to you");
   });
 
-  it("resolves cofounder name in message sender names", async () => {
-    const now = new Date().toISOString();
-    const cofounderId = "00000000-0000-0000-0000-00000000c0f0";
-    mockExecute.mockResolvedValue({
-      rows: [{
-        data: {
-          agents: [
-            { id: "agent-1", name: "bot", role: "Bot", status: "running", schedule_seconds: 300, next_run_at: null, in_flight: false },
-          ],
-          cofounderName: "Atlas",
-          actions: [],
-          messages: [
-            { id: "msg-cof", channel_type: "broadcast", channel_id: "broadcast:team-1", from_agent_id: cofounderId, kind: "text", content: "From cofounder", created_at: now },
-          ],
-        },
-      }],
-    });
+  it("resolves the cofounder name in received-message sender names", async () => {
+    const { GET } = await import("@/server/api/team/id/agent-hub");
+    const { team, bot } = await seed({ cofounderName: "Atlas" });
 
-    const res = await GET(makeReq("agent-1"), makeParams());
-    const data = (await res.json()) as { timeline: Array<{ type: string; fromName?: string }> };
+    await getA2AX().broadcast(team.id, COFOUNDER_AGENT_ID, "From cofounder");
 
-    const received = data.timeline.filter((t: { type: string }) => t.type === "received");
+    const res = await GET(makeReq(team.id, bot.id), makeParams(team.id));
+    const data = (await res.json()) as {
+      timeline: Array<{ type: string; fromName?: string }>;
+    };
+
+    const received = data.timeline.filter((t) => t.type === "received");
+    expect(received).toHaveLength(1);
     expect(received[0].fromName).toBe("Atlas");
   });
 
-  it("sorts timeline by timestamp ascending", async () => {
-    const t1 = "2025-01-01T00:01:00Z";
-    const t2 = "2025-01-01T00:02:00Z";
-    const t3 = "2025-01-01T00:03:00Z";
+  it("sorts the timeline by timestamp ascending", async () => {
+    const { GET } = await import("@/server/api/team/id/agent-hub");
+    const { team, bot, other } = await seed();
 
-    mockExecute.mockResolvedValue({
-      rows: [{
-        data: {
-          agents: [
-            { id: "agent-1", name: "bot", role: "Bot", status: "running", schedule_seconds: 300, next_run_at: null, in_flight: false },
-          ],
-          cofounderName: null,
-          // Actions in reverse order
-          actions: [
-            { id: "act-2", action_type: "late", payload: {}, executed_at: t3 },
-            { id: "act-1", action_type: "early", payload: {}, executed_at: t1 },
-          ],
-          messages: [
-            { id: "msg-1", channel_type: "broadcast", channel_id: "broadcast:team-1", from_agent_id: "agent-2", kind: "text", content: "mid", created_at: t2 },
-          ],
-        },
-      }],
-    });
+    // Insert an action, then a message, then another action — out of order in
+    // time but the route must return them oldest-first.
+    await actionLog.insert(bot.id, { actionType: "early", payload: {} });
+    await new Promise((r) => setTimeout(r, 5));
+    await getA2AX().broadcast(team.id, other.id, "mid");
+    await new Promise((r) => setTimeout(r, 5));
+    await actionLog.insert(bot.id, { actionType: "late", payload: {} });
 
-    const res = await GET(makeReq("agent-1"), makeParams());
-    const data = (await res.json()) as { timeline: Array<{ timestamp: string }> };
+    const res = await GET(makeReq(team.id, bot.id), makeParams(team.id));
+    const data = (await res.json()) as {
+      timeline: Array<{ timestamp: string; type: string; actionType?: string; content?: string }>;
+    };
 
     expect(data.timeline).toHaveLength(3);
-    expect(data.timeline[0].timestamp).toBe(t1);
-    expect(data.timeline[1].timestamp).toBe(t2);
-    expect(data.timeline[2].timestamp).toBe(t3);
+    const timestamps = data.timeline.map((t) => new Date(t.timestamp).getTime());
+    expect(timestamps).toEqual([...timestamps].sort((a, b) => a - b));
+    expect(data.timeline[0].actionType).toBe("early");
+    expect(data.timeline[1].content).toBe("mid");
+    expect(data.timeline[2].actionType).toBe("late");
   });
 
-  it("returns null for nextRunAt when agent has none", async () => {
-    mockExecute.mockResolvedValue({
-      rows: [{
-        data: {
-          agents: [
-            { id: "agent-1", name: "bot", role: "Bot", status: "running", schedule_seconds: 300, next_run_at: null, in_flight: false },
-          ],
-          cofounderName: null,
-          actions: [],
-          messages: [],
-        },
-      }],
-    });
+  it("returns null for nextRunAt when the agent has none", async () => {
+    const { GET } = await import("@/server/api/team/id/agent-hub");
+    const { team, bot } = await seed();
 
-    const res = await GET(makeReq("agent-1"), makeParams());
+    const res = await GET(makeReq(team.id, bot.id), makeParams(team.id));
     const data = (await res.json()) as { nextRunAt: string | null };
     expect(data.nextRunAt).toBeNull();
+  });
+
+  it("includes the agent's action payload in the timeline", async () => {
+    const { GET } = await import("@/server/api/team/id/agent-hub");
+    const { team, bot } = await seed();
+
+    await actionLog.insert(bot.id, {
+      actionType: "scan",
+      payload: { summary: "scanned 3 repos", count: 3 },
+    });
+
+    const res = await GET(makeReq(team.id, bot.id), makeParams(team.id));
+    const data = (await res.json()) as {
+      timeline: Array<{ type: string; actionType?: string; payload?: Record<string, unknown> }>;
+    };
+
+    const action = data.timeline.find((t) => t.type === "action");
+    expect(action?.actionType).toBe("scan");
+    expect(action?.payload).toEqual({ summary: "scanned 3 repos", count: 3 });
   });
 });

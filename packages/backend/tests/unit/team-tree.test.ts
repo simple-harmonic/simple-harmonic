@@ -1,95 +1,133 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  getAncestorChain,
+  getChildTeams,
+  getRootTeams,
+  getSubTreeIds,
+  getTeamTree,
+  isAncestor,
+} from "@/server/team-tree";
+import { teams } from "@/server/store";
+import { useTempStore } from "../helpers/store";
 
-// Mock the DB with in-memory team data
-const mockTeams = [
-  { id: "root", parentTeamId: null, name: "Root", paused: false, tickCount: 0, metaAgentPrompt: null, cofounderName: null, lastUserActiveAt: new Date(), createdAt: new Date() },
-  { id: "eng", parentTeamId: "root", name: "Engineering", paused: false, tickCount: 0, metaAgentPrompt: null, cofounderName: null, lastUserActiveAt: new Date(), createdAt: new Date() },
-  { id: "frontend", parentTeamId: "eng", name: "Frontend", paused: false, tickCount: 0, metaAgentPrompt: null, cofounderName: null, lastUserActiveAt: new Date(), createdAt: new Date() },
-  { id: "backend", parentTeamId: "eng", name: "Backend", paused: false, tickCount: 0, metaAgentPrompt: null, cofounderName: null, lastUserActiveAt: new Date(), createdAt: new Date() },
-  { id: "growth", parentTeamId: "root", name: "Growth", paused: false, tickCount: 0, metaAgentPrompt: null, cofounderName: null, lastUserActiveAt: new Date(), createdAt: new Date() },
-];
-
-vi.mock("@/server/db", () => ({
-  db: () => ({
-    query: {
-      teams: {
-        findMany: vi.fn().mockImplementation(({ where } = {}) => {
-          if (!where) return Promise.resolve(mockTeams);
-          return Promise.resolve(mockTeams);
-        }),
-      },
-    },
-  }),
-}));
-
-// For the functions that use eq/isNull, we need to override
-// the imports to work with our mock. The simplest approach:
-// import the functions and test them against the mock.
+// A small fixed tree, built fresh per test with generated UUIDs:
+//
+//   Root
+//   ├── Engineering
+//   │   ├── Frontend
+//   │   └── Backend
+//   └── Growth
+//
+let root: string;
+let eng: string;
+let frontend: string;
+let backend: string;
+let growth: string;
 
 describe("team tree helpers", () => {
-  it("getSubTreeIds returns the full sub-tree from root", async () => {
-    const { getSubTreeIds } = await import("@/server/team-tree");
-    const ids = await getSubTreeIds("root");
-    expect(ids).toEqual(new Set(["root", "eng", "frontend", "backend", "growth"]));
+  useTempStore();
+
+  beforeEach(async () => {
+    root = (await teams.insert({ name: "Root" })).id;
+    eng = (await teams.insert({ name: "Engineering", parentTeamId: root })).id;
+    frontend = (await teams.insert({ name: "Frontend", parentTeamId: eng })).id;
+    backend = (await teams.insert({ name: "Backend", parentTeamId: eng })).id;
+    growth = (await teams.insert({ name: "Growth", parentTeamId: root })).id;
   });
 
-  it("getSubTreeIds returns sub-tree from a mid-level node", async () => {
-    const { getSubTreeIds } = await import("@/server/team-tree");
-    const ids = await getSubTreeIds("eng");
-    expect(ids).toEqual(new Set(["eng", "frontend", "backend"]));
+  // -------------------------------------------------------------------------
+  // getRootTeams
+  // -------------------------------------------------------------------------
+
+  it("getRootTeams returns only parentless teams", async () => {
+    const roots = await getRootTeams();
+    expect(roots.map((t) => t.id)).toEqual([root]);
+  });
+
+  // -------------------------------------------------------------------------
+  // getChildTeams
+  // -------------------------------------------------------------------------
+
+  it("getChildTeams returns direct children only", async () => {
+    const children = await getChildTeams(root);
+    expect(children.map((t) => t.id).sort()).toEqual([eng, growth].sort());
+  });
+
+  it("getChildTeams returns an empty list for a leaf", async () => {
+    expect(await getChildTeams(frontend)).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
+  // getSubTreeIds
+  // -------------------------------------------------------------------------
+
+  it("getSubTreeIds returns the full sub-tree from root", async () => {
+    const ids = await getSubTreeIds(root);
+    expect(ids).toEqual(new Set([root, eng, frontend, backend, growth]));
+  });
+
+  it("getSubTreeIds returns the sub-tree from a mid-level node", async () => {
+    const ids = await getSubTreeIds(eng);
+    expect(ids).toEqual(new Set([eng, frontend, backend]));
   });
 
   it("getSubTreeIds returns just the leaf for a leaf node", async () => {
-    const { getSubTreeIds } = await import("@/server/team-tree");
-    const ids = await getSubTreeIds("frontend");
-    expect(ids).toEqual(new Set(["frontend"]));
+    const ids = await getSubTreeIds(frontend);
+    expect(ids).toEqual(new Set([frontend]));
   });
+
+  // -------------------------------------------------------------------------
+  // isAncestor
+  // -------------------------------------------------------------------------
 
   it("isAncestor returns true for self", async () => {
-    const { isAncestor } = await import("@/server/team-tree");
-    expect(await isAncestor("eng", "eng")).toBe(true);
+    expect(await isAncestor(eng, eng)).toBe(true);
   });
 
-  it("isAncestor returns true for parent", async () => {
-    const { isAncestor } = await import("@/server/team-tree");
-    expect(await isAncestor("root", "eng")).toBe(true);
+  it("isAncestor returns true for a direct parent", async () => {
+    expect(await isAncestor(root, eng)).toBe(true);
   });
 
-  it("isAncestor returns true for grandparent", async () => {
-    const { isAncestor } = await import("@/server/team-tree");
-    expect(await isAncestor("root", "frontend")).toBe(true);
+  it("isAncestor returns true for a grandparent", async () => {
+    expect(await isAncestor(root, frontend)).toBe(true);
   });
 
-  it("isAncestor returns false for sibling", async () => {
-    const { isAncestor } = await import("@/server/team-tree");
-    expect(await isAncestor("growth", "eng")).toBe(false);
+  it("isAncestor returns false for a sibling", async () => {
+    expect(await isAncestor(growth, eng)).toBe(false);
   });
 
-  it("isAncestor returns false for child-to-parent direction", async () => {
-    const { isAncestor } = await import("@/server/team-tree");
-    expect(await isAncestor("frontend", "root")).toBe(false);
+  it("isAncestor returns false for the child-to-parent direction", async () => {
+    expect(await isAncestor(frontend, root)).toBe(false);
   });
 
-  it("getAncestorChain walks up to root", async () => {
-    const { getAncestorChain } = await import("@/server/team-tree");
-    const chain = await getAncestorChain("frontend");
-    expect(chain).toEqual(["frontend", "eng", "root"]);
+  // -------------------------------------------------------------------------
+  // getAncestorChain
+  // -------------------------------------------------------------------------
+
+  it("getAncestorChain walks up to the root", async () => {
+    expect(await getAncestorChain(frontend)).toEqual([frontend, eng, root]);
   });
 
-  it("getAncestorChain for root is just root", async () => {
-    const { getAncestorChain } = await import("@/server/team-tree");
-    const chain = await getAncestorChain("root");
-    expect(chain).toEqual(["root"]);
+  it("getAncestorChain for the root is just the root", async () => {
+    expect(await getAncestorChain(root)).toEqual([root]);
   });
 
-  it("getTeamTree builds the full tree", async () => {
-    const { getTeamTree } = await import("@/server/team-tree");
+  // -------------------------------------------------------------------------
+  // getTeamTree
+  // -------------------------------------------------------------------------
+
+  it("getTeamTree builds the full nested tree", async () => {
     const tree = await getTeamTree();
     expect(tree).toHaveLength(1);
+    expect(tree[0].id).toBe(root);
     expect(tree[0].name).toBe("Root");
     expect(tree[0].children).toHaveLength(2);
-    const eng = tree[0].children.find((c) => c.name === "Engineering");
-    expect(eng?.children).toHaveLength(2);
-    expect(eng?.children.map((c) => c.name).sort()).toEqual(["Backend", "Frontend"]);
+
+    const engNode = tree[0].children.find((c) => c.name === "Engineering");
+    expect(engNode?.id).toBe(eng);
+    expect(engNode?.children.map((c) => c.name).sort()).toEqual(["Backend", "Frontend"]);
+
+    const growthNode = tree[0].children.find((c) => c.name === "Growth");
+    expect(growthNode?.children).toEqual([]);
   });
 });

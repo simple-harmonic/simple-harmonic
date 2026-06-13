@@ -6,9 +6,8 @@ import {
   USER_DISPLAY_NAME,
   USER_POV,
 } from "../../../../lib/meta-agent/identity";
-import { db } from "../../../db";
-import { a2axTasks, agents, teams } from "../../../db/schema";
-import { and, eq, or } from "drizzle-orm";
+import { getA2AX } from "../../../a2ax";
+import { agents, teams } from "../../../store";
 
 // GET /api/team/[id]/tasks?agentId=xxx
 // Special agentIds: "team" (all tasks), "cofounder" (tasks the cofounder is on)
@@ -21,13 +20,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return Response.json({ error: "agentId query param required" }, { status: 400 });
   }
 
-  const d = db();
+  const a2ax = getA2AX();
 
-  const agentRows = await d.query.agents.findMany({
-    where: eq(agents.teamId, teamId),
-  });
+  const agentRows = await agents.byTeam(teamId);
   const nameMap: Record<string, string> = Object.fromEntries(agentRows.map((a) => [a.id, a.name]));
-  const teamRow = await d.query.teams.findFirst({ where: eq(teams.id, teamId) });
+  const teamRow = await teams.byId(teamId);
   nameMap[COFOUNDER_AGENT_ID] = resolveCofounderName(teamRow?.cofounderName);
   nameMap[USER_AGENT_ID] = USER_DISPLAY_NAME;
 
@@ -35,24 +32,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const participantId =
     agentId === COFOUNDER_POV ? COFOUNDER_AGENT_ID : agentId === USER_POV ? USER_AGENT_ID : agentId;
 
-  const tasks = isTeamOverview
-    ? await d
-        .select()
-        .from(a2axTasks)
-        .where(eq(a2axTasks.teamId, teamId))
-        .orderBy(a2axTasks.updatedAt)
-        .limit(200)
-    : await d
-        .select()
-        .from(a2axTasks)
-        .where(
-          and(
-            eq(a2axTasks.teamId, teamId),
-            or(eq(a2axTasks.requestorId, participantId), eq(a2axTasks.assigneeId, participantId)),
-          ),
-        )
-        .orderBy(a2axTasks.updatedAt)
-        .limit(200);
+  const tasks = (await a2ax.listTasks(teamId, isTeamOverview ? undefined : participantId))
+    .sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime())
+    .slice(0, 200);
 
   const enriched = tasks.map((t) => ({
     id: t.id,

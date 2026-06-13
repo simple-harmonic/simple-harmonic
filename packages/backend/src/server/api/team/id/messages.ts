@@ -5,9 +5,7 @@ import {
   USER_POV,
 } from "../../../../lib/meta-agent/identity";
 import { getA2AX } from "../../../a2ax";
-import { db } from "../../../db";
-import { agents } from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { agents } from "../../../store";
 
 // GET /api/team/[id]/messages?agentId=xxx — get messages relevant to an agent
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -23,10 +21,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const ctx = await a2ax.getAgentContext(teamId, agentId);
 
   // Resolve agent names for display
-  const d = db();
-  const agentRows = await d.query.agents.findMany({
-    where: eq(agents.teamId, teamId),
-  });
+  const agentRows = await agents.byTeam(teamId);
   const nameMap = Object.fromEntries(agentRows.map((a) => [a.id, a.name]));
 
   const enriched = ctx.messages.map((m) => ({

@@ -1,24 +1,17 @@
 import type { ModifyAgentResult, PlannerMessage } from "../../lib/meta-agent";
 import { plannerStream } from "../../lib/meta-agent";
 import { emitAppEvent } from "../app-events";
-import { db } from "../db";
-import { agents, teams } from "../db/schema";
+import { agents, teams } from "../store";
+import type { Agent } from "../store";
 import { buildPlannerDeps } from "../planner-deps";
-import { and, eq } from "drizzle-orm";
 
 async function applyModifyAgent(
   result: ModifyAgentResult,
 ): Promise<{ ok: boolean; error?: string }> {
-  const d = db();
-
-  const team = await d.query.teams.findFirst({
-    where: eq(teams.name, result.team_name),
-  });
+  const team = (await teams.all()).find((t) => t.name === result.team_name);
   if (!team) return { ok: false, error: `Team "${result.team_name}" not found` };
 
-  const agent = await d.query.agents.findFirst({
-    where: and(eq(agents.teamId, team.id), eq(agents.name, result.agent_name)),
-  });
+  const agent = (await agents.byTeam(team.id)).find((a) => a.name === result.agent_name);
   if (!agent)
     return {
       ok: false,
@@ -36,7 +29,7 @@ async function applyModifyAgent(
 
   if (Object.keys(set).length === 0) return { ok: false, error: "No updates provided" };
 
-  await d.update(agents).set(set).where(eq(agents.id, agent.id));
+  await agents.update(agent.id, set as Partial<Agent>);
   return { ok: true };
 }
 

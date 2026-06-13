@@ -1,6 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock filesystem and codex-auth before importing config
 vi.mock("node:fs", () => ({
@@ -27,7 +26,7 @@ describe("config", () => {
     delete process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_BASE_URL;
     delete process.env.OPENAI_MODEL;
-    delete process.env.DATABASE_URL;
+    delete process.env.SH_DATA_DIR;
   });
 
   afterEach(() => {
@@ -47,17 +46,20 @@ describe("config", () => {
       expect(cfg.openaiApiKey).toBe("");
       expect(cfg.openaiBaseUrl).toBe("https://api.openai.com/v1");
       expect(cfg.model).toBe("o4-mini");
-      expect(cfg.databaseUrl).toBe("postgresql://localhost:5432/simple_harmonic");
+      // Default dataDir resolves to <cwd>/.simple-harmonic/data
+      expect(cfg.dataDir).toBe(`${process.cwd()}/.simple-harmonic/data`);
     });
 
     it("reads values from config file", async () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        openaiApiKey: "sk-test-key",
-        openaiBaseUrl: "https://custom.api.com/v1",
-        model: "gpt-5.5",
-        databaseUrl: "postgresql://prod:5432/mydb",
-      }));
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          openaiApiKey: "sk-test-key",
+          openaiBaseUrl: "https://custom.api.com/v1",
+          model: "gpt-5.5",
+          dataDir: "/var/lib/simple-harmonic",
+        }),
+      );
 
       const { getConfig } = await loadConfig();
       const cfg = getConfig();
@@ -65,7 +67,7 @@ describe("config", () => {
       expect(cfg.openaiApiKey).toBe("sk-test-key");
       expect(cfg.openaiBaseUrl).toBe("https://custom.api.com/v1");
       expect(cfg.model).toBe("gpt-5.5");
-      expect(cfg.databaseUrl).toBe("postgresql://prod:5432/mydb");
+      expect(cfg.dataDir).toBe("/var/lib/simple-harmonic");
     });
 
     it("falls back to env vars when config file has no values", async () => {
@@ -75,7 +77,7 @@ describe("config", () => {
       process.env.OPENAI_API_KEY = "sk-env-key";
       process.env.OPENAI_BASE_URL = "https://env.api.com/v1";
       process.env.OPENAI_MODEL = "gpt-env";
-      process.env.DATABASE_URL = "postgresql://env:5432/envdb";
+      process.env.SH_DATA_DIR = "/env/data/dir";
 
       const { getConfig } = await loadConfig();
       const cfg = getConfig();
@@ -83,7 +85,7 @@ describe("config", () => {
       expect(cfg.openaiApiKey).toBe("sk-env-key");
       expect(cfg.openaiBaseUrl).toBe("https://env.api.com/v1");
       expect(cfg.model).toBe("gpt-env");
-      expect(cfg.databaseUrl).toBe("postgresql://env:5432/envdb");
+      expect(cfg.dataDir).toBe("/env/data/dir");
     });
 
     it("handles corrupted config file gracefully", async () => {
@@ -106,6 +108,17 @@ describe("config", () => {
       const cfg = getConfig();
 
       expect(cfg.model).toBe("from-file");
+    });
+
+    it("config file dataDir takes precedence over SH_DATA_DIR env", async () => {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify({ dataDir: "/from/file" }));
+      process.env.SH_DATA_DIR = "/from/env";
+
+      const { getConfig } = await loadConfig();
+      const cfg = getConfig();
+
+      expect(cfg.dataDir).toBe("/from/file");
     });
   });
 
@@ -144,36 +157,36 @@ describe("config", () => {
       setConfig({ model: "new-model" });
 
       expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
-      const writtenContent = JSON.parse(
-        (mockWriteFileSync.mock.calls[0][1] as string).trim(),
-      );
+      const writtenContent = JSON.parse((mockWriteFileSync.mock.calls[0][1] as string).trim());
       expect(writtenContent.model).toBe("new-model");
     });
 
     it("preserves existing fields when updating", async () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        model: "existing",
-        databaseUrl: "postgresql://keep:5432/db",
-      }));
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          model: "existing",
+          dataDir: "/keep/this/dir",
+        }),
+      );
 
       const { setConfig } = await loadConfig();
       setConfig({ model: "updated" });
 
-      const writtenContent = JSON.parse(
-        (mockWriteFileSync.mock.calls[0][1] as string).trim(),
-      );
+      const writtenContent = JSON.parse((mockWriteFileSync.mock.calls[0][1] as string).trim());
       expect(writtenContent.model).toBe("updated");
-      expect(writtenContent.databaseUrl).toBe("postgresql://keep:5432/db");
+      expect(writtenContent.dataDir).toBe("/keep/this/dir");
     });
   });
 
   describe("getSafeConfig", () => {
     it("masks the API key", async () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        openaiApiKey: "sk-1234567890abcdef",
-      }));
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          openaiApiKey: "sk-1234567890abcdef",
+        }),
+      );
 
       const { getSafeConfig } = await loadConfig();
       const safe = getSafeConfig();
@@ -195,9 +208,11 @@ describe("config", () => {
 
     it("masks key <= 8 chars as all dots", async () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        openaiApiKey: "sk-short",
-      }));
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          openaiApiKey: "sk-short",
+        }),
+      );
 
       const { getSafeConfig } = await loadConfig();
       const safe = getSafeConfig();
@@ -208,9 +223,11 @@ describe("config", () => {
 
     it("masks key > 8 chars showing first 4 and last 4", async () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        openaiApiKey: "sk-123456789",
-      }));
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          openaiApiKey: "sk-123456789",
+        }),
+      );
 
       const { getSafeConfig } = await loadConfig();
       const safe = getSafeConfig();
@@ -218,69 +235,58 @@ describe("config", () => {
       expect(safe.openaiApiKey).toBe("sk-1••••6789");
     });
 
-    it("masks password in database URL", async () => {
+    it("returns the dataDir unmasked", async () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        databaseUrl: "postgresql://user:secret@host:5432/db",
-      }));
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          dataDir: "/var/lib/simple-harmonic/data",
+        }),
+      );
 
       const { getSafeConfig } = await loadConfig();
       const safe = getSafeConfig();
 
-      expect(safe.databaseUrl).not.toContain("secret");
-      // URL constructor encodes the bullet chars, so check it's not the original password
-      expect(safe.databaseUrl).toContain("user:");
-      expect(safe.databaseUrl).toContain("@host:5432/db");
+      expect(safe.dataDir).toBe("/var/lib/simple-harmonic/data");
     });
 
-    it("handles database URL without password", async () => {
+    it("includes hasOpenaiKey and hasDataDir flags", async () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        databaseUrl: "postgresql://localhost:5432/db",
-      }));
-
-      const { getSafeConfig } = await loadConfig();
-      const safe = getSafeConfig();
-
-      expect(safe.databaseUrl).toBe("postgresql://localhost:5432/db");
-    });
-
-    it("handles invalid database URL gracefully", async () => {
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        databaseUrl: "not-a-url",
-      }));
-
-      const { getSafeConfig } = await loadConfig();
-      const safe = getSafeConfig();
-
-      expect(safe.databaseUrl).toBe("not-a-url");
-    });
-
-    it("includes hasOpenaiKey and hasDatabase flags", async () => {
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        openaiApiKey: "sk-test",
-        databaseUrl: "postgresql://localhost:5432/db",
-      }));
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          openaiApiKey: "sk-test",
+          dataDir: "/some/data/dir",
+        }),
+      );
 
       const { getSafeConfig } = await loadConfig();
       const safe = getSafeConfig();
 
       expect(safe.hasOpenaiKey).toBe(true);
-      expect(safe.hasDatabase).toBe(true);
+      expect(safe.hasDataDir).toBe(true);
     });
 
     it("reports apiKeySource", async () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        openaiApiKey: "sk-test",
-      }));
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          openaiApiKey: "sk-test",
+        }),
+      );
 
       const { getSafeConfig } = await loadConfig();
       const safe = getSafeConfig();
 
       expect(safe.apiKeySource).toBe("config");
+    });
+
+    it("includes codingBackend and codingConfig", async () => {
+      mockExistsSync.mockReturnValue(false);
+
+      const { getSafeConfig } = await loadConfig();
+      const safe = getSafeConfig();
+
+      expect(safe.codingBackend).toBe("codex");
+      expect(safe.codingConfig).toBeDefined();
     });
   });
 });

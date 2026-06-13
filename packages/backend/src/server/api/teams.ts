@@ -1,9 +1,7 @@
-import { desc } from "drizzle-orm";
-import { db } from "../db";
-import { teams } from "../db/schema";
+import { teams } from "../store";
 
 export async function GET() {
-  const d = db();
-  const rows = await d.select().from(teams).orderBy(desc(teams.createdAt));
+  const rows = await teams.all(); // oldest-first
+  rows.reverse(); // newest-first, matching the old ORDER BY created_at DESC
   return Response.json(rows);
 }

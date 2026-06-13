@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 import type { ToolDefinition, ToolImpl } from "../../lib/meta-agent/registry";
-import type { ApiToolConfig } from "../db/schema";
+import type { ApiToolConfig } from "../store/types";
 import { resolveConnector } from "../connectors";
 import { proxyFetch } from "../proxy-fetch";
 import { assertPublicAndResolve } from "./url-guard";

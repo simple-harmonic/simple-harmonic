@@ -1,6 +1,4 @@
-import { eq } from "drizzle-orm";
-import { db } from "../../db";
-import { agents } from "../../db/schema";
+import { agents, teams } from "../../store";
 import { createAppRegistry } from "../../tools";
 
 interface SkillInfo {
@@ -20,12 +18,11 @@ export async function GET() {
   let teamMap = new Map<string, string>();
 
   try {
-    const d = db();
-    allAgents = await d.query.agents.findMany();
-    const allTeams = await d.query.teams.findMany();
+    allAgents = await agents.all();
+    const allTeams = await teams.all();
     teamMap = new Map(allTeams.map((t) => [t.id, t.name]));
   } catch {
-    // DB unavailable: still return tool definitions without agent assignments
+    // store unavailable: still return tool definitions without agent assignments
   }
 
   const skills: SkillInfo[] = allDefs.map((def) => {
@@ -65,16 +62,11 @@ export async function PATCH(req: Request) {
     return Response.json({ error: `Unknown tools: ${invalid.join(", ")}` }, { status: 400 });
   }
 
-  const d = db();
-  const updated = await d
-    .update(agents)
-    .set({ tools })
-    .where(eq(agents.id, agentId))
-    .returning({ id: agents.id, tools: agents.tools });
+  const updated = await agents.update(agentId, { tools });
 
-  if (updated.length === 0) {
+  if (!updated) {
     return Response.json({ error: "Agent not found" }, { status: 404 });
   }
 
-  return Response.json({ ok: true, agent: updated[0] });
+  return Response.json({ ok: true, agent: { id: updated.id, tools: updated.tools } });
 }

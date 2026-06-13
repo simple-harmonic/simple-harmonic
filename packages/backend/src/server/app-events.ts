@@ -18,9 +18,12 @@
 //   - Telemetry check: tool/infra events skipped if team has telemetry off.
 // ---------------------------------------------------------------------------
 
-import { db } from "./db";
-import { appEvents, teams } from "./db/schema";
-import { desc, eq, and, gte, isNull, ne, type SQL } from "drizzle-orm";
+import {
+  appEvents as eventsRepo,
+  platformStatus as platformStatusRepo,
+  teams as teamsRepo,
+} from "./store";
+import type { AppEvent as StoreAppEvent } from "./store";
 
 export type AppEventLevel = "agent" | "team" | "tool" | "infra";
 
@@ -106,16 +109,12 @@ async function isTelemetryEnabled(teamId: string): Promise<boolean> {
     return cached.enabled;
   }
   try {
-    const d = db();
-    const team = await d.query.teams.findFirst({
-      where: eq(teams.id, teamId),
-      columns: { telemetryEnabled: true },
-    });
+    const team = await teamsRepo.byId(teamId);
     const enabled = team?.telemetryEnabled ?? true;
     telemetryCache.set(teamId, { enabled, checkedAt: Date.now() });
     return enabled;
   } catch {
-    return true; // fail open: allow events through if DB check fails
+    return true; // fail open: allow events through if the read fails
   }
 }
 
@@ -177,23 +176,20 @@ function doInsert(
   message: string,
 ): void {
   try {
-    const d = db();
-    d.insert(appEvents)
-      .values({
-        severity: event.severity,
-        level,
-        source: event.source,
-        message,
-        teamId,
-        agentId: event.agentId ?? null,
-        metadata: event.metadata ?? null,
-      })
-      .then(() => {})
-      .catch((err) => {
-        console.error("[app-events] Failed to write event:", err instanceof Error ? err.message : err);
-      });
-  } catch {
-    // Silently skip
+    eventsRepo.insert({
+      severity: event.severity,
+      level,
+      source: event.source,
+      message,
+      teamId,
+      agentId: event.agentId ?? null,
+      metadata: event.metadata ?? null,
+    });
+  } catch (err) {
+    console.error(
+      "[app-events] Failed to write event:",
+      err instanceof Error ? err.message : err,
+    );
   }
 }
 
@@ -220,42 +216,16 @@ export interface EventQuery {
  * By default EXCLUDES infra-level events (agents should never see them).
  * Pass includeInfra: true for the founder report.
  */
-export async function queryAppEvents(query: EventQuery = {}): Promise<Array<typeof appEvents.$inferSelect>> {
-  const d = db();
-  const conditions: SQL[] = [];
-
-  if (query.teamId) {
-    conditions.push(eq(appEvents.teamId, query.teamId));
-  }
-  if (query.severity) {
-    conditions.push(eq(appEvents.severity, query.severity));
-  }
-  if (query.level) {
-    conditions.push(eq(appEvents.level, query.level));
-  }
-  if (query.source) {
-    conditions.push(eq(appEvents.source, query.source));
-  }
-  if (query.since) {
-    conditions.push(gte(appEvents.createdAt, query.since));
-  }
-
-  // Default: exclude infra events from agent-facing queries
-  if (!query.includeInfra) {
-    conditions.push(ne(appEvents.level, "infra"));
-  }
-
-  if (query.unacknowledgedOnly) {
-    conditions.push(isNull(appEvents.acknowledgedAt));
-  }
-
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
-  const limit = query.limit ?? 20;
-
-  return d.query.appEvents.findMany({
-    where,
-    orderBy: [desc(appEvents.createdAt)],
-    limit,
+export async function queryAppEvents(query: EventQuery = {}): Promise<StoreAppEvent[]> {
+  return eventsRepo.query({
+    teamId: query.teamId,
+    severity: query.severity,
+    level: query.level,
+    source: query.source,
+    since: query.since,
+    limit: query.limit ?? 20,
+    includeInfra: query.includeInfra,
+    unacknowledgedOnly: query.unacknowledgedOnly,
   });
 }
 
@@ -268,7 +238,7 @@ export async function queryAppEvents(query: EventQuery = {}): Promise<Array<type
  * Filters out infra events (they should never reach agents).
  * Tool events older than 24h are replaced with a summary line.
  */
-export function formatEventsForPrompt(events: Array<typeof appEvents.$inferSelect>): string | undefined {
+export function formatEventsForPrompt(events: StoreAppEvent[]): string | undefined {
   if (events.length === 0) return undefined;
 
   const now = Date.now();
@@ -316,13 +286,10 @@ export interface PlatformStatusRow {
 /** Get current platform status. Returns "healthy" if no row exists. */
 export async function getPlatformStatus(): Promise<PlatformStatusRow> {
   try {
-    const d = db();
-    const rows = await d.query.platformStatus.findMany({ limit: 1 });
-    if (rows.length > 0) {
-      return rows[0] as PlatformStatusRow;
-    }
+    const ps = await platformStatusRepo.get();
+    if (ps) return ps;
   } catch {
-    // Table may not exist yet
+    // Status file may not exist yet
   }
   return { status: "healthy", message: null, updatedAt: new Date() };
 }

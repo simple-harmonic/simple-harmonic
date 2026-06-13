@@ -21,6 +21,8 @@ export interface MessageQuery {
 export interface Transport {
     insertMessage(input: CreateMessageInput): Promise<Message>;
     queryMessages(query: MessageQuery): Promise<Message[]>;
+    /** All messages for a team, chronological — UI/inspection, not relevance-filtered. */
+    listTeamMessages(teamId: string, limit?: number): Promise<Message[]>;
     /** Mark messages read FOR a specific agent (per-recipient, not global). */
     markRead(agentId: string, messageIds: string[]): Promise<void>;
     markExpired(before: Date): Promise<number>;

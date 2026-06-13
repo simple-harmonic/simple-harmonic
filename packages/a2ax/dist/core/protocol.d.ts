@@ -63,6 +63,10 @@ export declare class A2AX {
     }): Promise<Task>;
     getAgentContext(teamId: string, agentId: string): Promise<AgentContext>;
     markContextRead(agentId: string, messageIds: string[]): Promise<void>;
+    /** All messages for a team, chronological. */
+    listMessages(teamId: string, limit?: number): Promise<Message[]>;
+    /** All tasks for a team, optionally narrowed to a participant. */
+    listTasks(teamId: string, agentId?: string): Promise<Task[]>;
     registerCard(card: AgentCard): Promise<AgentCard>;
     getCard(agentId: string): Promise<AgentCard | null>;
     discoverAgents(teamId: string): Promise<AgentCard[]>;

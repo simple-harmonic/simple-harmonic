@@ -11,17 +11,9 @@
 // ---------------------------------------------------------------------------
 
 import { z } from "zod";
-import { eq, and, inArray } from "drizzle-orm";
 import type { ToolDefinition, ToolImpl } from "../../lib/meta-agent/registry";
-import { db } from "../db";
-import {
-  agents,
-  teams,
-  chatSessions,
-  chatMessages,
-  actionLog,
-  pendingApprovals,
-} from "../db/schema";
+import { agents, teams } from "../store";
+import type { Agent, Team } from "../store";
 import { getSubTreeIds } from "../team-tree";
 
 // ---------------------------------------------------------------------------
@@ -45,8 +37,7 @@ async function resolveTeamId(
   fallback: string,
 ): Promise<{ teamId: string; error?: string }> {
   if (!teamName) return { teamId: fallback };
-  const d = db();
-  const team = await d.query.teams.findFirst({ where: eq(teams.name, teamName) });
+  const team = (await teams.all()).find((t) => t.name === teamName);
   if (!team) return { teamId: "", error: `Team "${teamName}" not found.` };
   return { teamId: team.id };
 }
@@ -72,14 +63,13 @@ export const setTeamGoalDef: ToolDefinition<typeof setTeamGoalSchema> = {
 
 export const setTeamGoalImpl: ToolImpl<typeof setTeamGoalSchema> = async (args, ctx) => {
   try {
-    const d = db();
     const { teamId, error } = await resolveTeamId(args.team_name, ctx.teamId);
     if (error) return { toolName: "set_team_goal", success: false, result: error };
 
     const authErr = await assertInSubTree(ctx.teamId, teamId, args.team_name || "target");
     if (authErr) return { toolName: "set_team_goal", success: false, result: authErr };
 
-    await d.update(teams).set({ goal: args.goal }).where(eq(teams.id, teamId));
+    await teams.update(teamId, { goal: args.goal });
 
     return {
       toolName: "set_team_goal",
@@ -121,7 +111,6 @@ export const modifyTeamDef: ToolDefinition<typeof modifyTeamSchema> = {
 
 export const modifyTeamImpl: ToolImpl<typeof modifyTeamSchema> = async (args, ctx) => {
   try {
-    const d = db();
     const { teamId, error } = await resolveTeamId(args.team_name, ctx.teamId);
     if (error) return { toolName: "modify_team", success: false, result: error };
 
@@ -134,46 +123,12 @@ export const modifyTeamImpl: ToolImpl<typeof modifyTeamSchema> = async (args, ct
         return { toolName: "modify_team", success: false, result: "Cannot delete your own team." };
       }
 
-      // Delete the entire sub-tree atomically. a2ax rows (channels, messages,
-      // reads, tasks, tokens) are cleaned up by the DB-level ON DELETE CASCADE
-      // FKs when their team/channel rows go (floor item 9); this block only
-      // needs to remove the app-core rows whose FKs to teams/agents are NO
-      // ACTION, in dependency order, all inside one transaction.
+      // Deleting the team's folder removes the entire sub-tree in one rmdir:
+      // nested sub-teams, every agent and its approvals/actions/trace, and the
+      // team's a2ax messages all live under it. Count first for the report.
       const subTreeIds = await getSubTreeIds(teamId);
-      const ids = [...subTreeIds];
-
-      const agentsDeleted = await d.transaction(async (tx) => {
-        const subAgents = await tx.query.agents.findMany({ where: inArray(agents.teamId, ids) });
-        const agentIds = subAgents.map((a) => a.id);
-        if (agentIds.length > 0) {
-          await tx.delete(pendingApprovals).where(inArray(pendingApprovals.agentId, agentIds));
-          await tx.delete(actionLog).where(inArray(actionLog.agentId, agentIds));
-          await tx.delete(agents).where(inArray(agents.id, agentIds));
-        }
-        // Chat messages → sessions
-        const sessions = await tx.query.chatSessions.findMany({ where: inArray(chatSessions.teamId, ids) });
-        const sessionIds = sessions.map((s) => s.id);
-        if (sessionIds.length > 0) {
-          await tx.delete(chatMessages).where(inArray(chatMessages.sessionId, sessionIds));
-          await tx.delete(chatSessions).where(inArray(chatSessions.id, sessionIds));
-        }
-        // Delete teams bottom-up (children first to satisfy the self-FK).
-        const allTeams = await tx.query.teams.findMany();
-        const depthMap = new Map<string, number>();
-        function computeDepth(id: string): number {
-          if (depthMap.has(id)) return depthMap.get(id)!;
-          const t = allTeams.find((x) => x.id === id);
-          const d2 = t?.parentTeamId ? computeDepth(t.parentTeamId) + 1 : 0;
-          depthMap.set(id, d2);
-          return d2;
-        }
-        for (const id of ids) computeDepth(id);
-        const sorted = ids.sort((a, b) => (depthMap.get(b) ?? 0) - (depthMap.get(a) ?? 0));
-        for (const id of sorted) {
-          await tx.delete(teams).where(eq(teams.id, id));
-        }
-        return agentIds.length;
-      });
+      const agentsDeleted = (await agents.byTeams(subTreeIds)).length;
+      await teams.delete(teamId);
 
       return {
         toolName: "modify_team",
@@ -181,7 +136,12 @@ export const modifyTeamImpl: ToolImpl<typeof modifyTeamSchema> = async (args, ct
         result: `Team "${args.team_name}" and ${agentsDeleted} agent(s) deleted.`,
         action: {
           actionType: "team_deleted",
-          payload: { teamId, teamName: args.team_name, agentsDeleted, teamsDeleted: ids.length },
+          payload: {
+            teamId,
+            teamName: args.team_name,
+            agentsDeleted,
+            teamsDeleted: subTreeIds.size,
+          },
         },
       };
     }
@@ -200,7 +160,7 @@ export const modifyTeamImpl: ToolImpl<typeof modifyTeamSchema> = async (args, ct
       return { toolName: "modify_team", success: false, result: "No updates provided." };
     }
 
-    await d.update(teams).set(set).where(eq(teams.id, teamId));
+    await teams.update(teamId, set as Partial<Team>);
 
     return {
       toolName: "modify_team",
@@ -246,20 +206,13 @@ export const spawnSubTeamDef: ToolDefinition<typeof spawnSubTeamSchema> = {
 
 export const spawnSubTeamImpl: ToolImpl<typeof spawnSubTeamSchema> = async (args, ctx) => {
   try {
-    const d = db();
-
-    const [team] = await d
-      .insert(teams)
-      .values({ name: args.team_name, parentTeamId: ctx.teamId })
-      .returning();
-
-    await d.insert(chatSessions).values({ teamId: team.id });
+    const team = await teams.insert({ name: args.team_name, parentTeamId: ctx.teamId });
 
     const now = new Date();
     if (args.agents.length > 0) {
-      await d.insert(agents).values(
+      await agents.insertMany(
+        team.id,
         args.agents.map((a, i) => ({
-          teamId: team.id,
           name: a.name,
           role: a.role,
           archetype: a.archetype,
@@ -323,7 +276,6 @@ export const modifyAgentDef: ToolDefinition<typeof modifyAgentSchema> = {
 
 export const modifyAgentImpl: ToolImpl<typeof modifyAgentSchema> = async (args, ctx) => {
   try {
-    const d = db();
     const actionType = args.action || "update";
 
     // Resolve target team
@@ -334,9 +286,7 @@ export const modifyAgentImpl: ToolImpl<typeof modifyAgentSchema> = async (args, 
     if (authErr) return { toolName: "modify_agent", success: false, result: authErr };
 
     // Find the agent
-    const agent = await d.query.agents.findFirst({
-      where: and(eq(agents.teamId, targetTeamId), eq(agents.name, args.agent_name)),
-    });
+    const agent = (await agents.byTeam(targetTeamId)).find((a) => a.name === args.agent_name);
     if (!agent) {
       return { toolName: "modify_agent", success: false, result: `Agent "${args.agent_name}" not found in "${args.team_name || "your team"}".` };
     }
@@ -348,11 +298,8 @@ export const modifyAgentImpl: ToolImpl<typeof modifyAgentSchema> = async (args, 
 
     // --- Delete ---
     if (actionType === "delete") {
-      await d.transaction(async (tx) => {
-        await tx.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
-        await tx.delete(actionLog).where(eq(actionLog.agentId, agent.id));
-        await tx.delete(agents).where(eq(agents.id, agent.id));
-      });
+      // rmdir the agent folder: agent.json + its approvals/actions/trace.
+      await agents.delete(agent.id);
 
       return {
         toolName: "modify_agent",
@@ -367,14 +314,14 @@ export const modifyAgentImpl: ToolImpl<typeof modifyAgentSchema> = async (args, 
       if (!args.move_to_team) {
         return { toolName: "modify_agent", success: false, result: "action 'move' requires move_to_team." };
       }
-      const destTeam = await d.query.teams.findFirst({ where: eq(teams.name, args.move_to_team) });
+      const destTeam = (await teams.all()).find((t) => t.name === args.move_to_team);
       if (!destTeam) {
         return { toolName: "modify_agent", success: false, result: `Destination team "${args.move_to_team}" not found.` };
       }
       const destAuthErr = await assertInSubTree(ctx.teamId, destTeam.id, args.move_to_team);
       if (destAuthErr) return { toolName: "modify_agent", success: false, result: destAuthErr };
 
-      await d.update(agents).set({ teamId: destTeam.id }).where(eq(agents.id, agent.id));
+      await agents.move(agent.id, destTeam.id);
 
       return {
         toolName: "modify_agent",
@@ -402,7 +349,7 @@ export const modifyAgentImpl: ToolImpl<typeof modifyAgentSchema> = async (args, 
       return { toolName: "modify_agent", success: false, result: "No updates provided." };
     }
 
-    await d.update(agents).set(set).where(eq(agents.id, agent.id));
+    await agents.update(agent.id, set as Partial<Agent>);
 
     return {
       toolName: "modify_agent",

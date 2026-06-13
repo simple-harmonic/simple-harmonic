@@ -1,45 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
-const mockDb = {
-  query: {
-    agentTraceEvents: {
-      findMany: vi.fn(),
-    },
-  },
-};
-
-vi.mock("@/server/db", () => ({
-  db: () => mockDb,
-}));
-
-vi.mock("@/server/db/schema", () => ({
-  agentTraceEvents: {
-    teamId: "agent_trace_events.teamId",
-    agentId: "agent_trace_events.agentId",
-    tickId: "agent_trace_events.tickId",
-    seq: "agent_trace_events.seq",
-    emittedAt: "agent_trace_events.emittedAt",
-  },
-}));
-
-const eqMock = vi.fn((_col: unknown, val: unknown) => ({ _eq: val }));
-vi.mock("drizzle-orm", () => ({
-  eq: (...args: [unknown, unknown]) => eqMock(...args),
-  and: vi.fn((...clauses: unknown[]) => ({ _and: clauses })),
-  gte: vi.fn((_col: unknown, val: unknown) => ({ _gte: val })),
-  asc: vi.fn((col: unknown) => ({ _asc: col })),
-  desc: vi.fn((col: unknown) => ({ _desc: col })),
-}));
+import { describe, expect, it } from "vitest";
+import { agents, teams, traceEvents } from "@/server/store";
+import { useTempStore } from "../helpers/store";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const TEAM_ID = "team-1";
 
 function makeParams(id: string) {
   return { params: Promise.resolve({ id }) };
@@ -69,35 +34,56 @@ async function readFirstSSEEvent(res: Response): Promise<{ type: string; entries
   }
 }
 
-function traceRow(overrides: Record<string, unknown> = {}) {
-  return {
-    id: "evt-1",
-    teamId: TEAM_ID,
-    agentId: "agent-1",
-    tickId: "tick-1",
-    seq: 0,
-    type: "tick_started",
-    data: { mode: "fresh" },
-    emittedAt: new Date("2026-06-10T10:00:00Z"),
-    createdAt: new Date("2026-06-10T10:00:00Z"),
+async function seedTeamAndAgent(overrides: Record<string, unknown> = {}) {
+  const team = await teams.insert({ name: "Test Team" });
+  const agent = await agents.insert(team.id, {
+    name: "Researcher",
+    role: "research",
+    archetype: "researcher",
+    tools: [],
+    scheduleSeconds: 10,
+    initialPrompt: "Do research",
     ...overrides,
-  };
+  });
+  return { team, agent };
 }
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  mockDb.query.agentTraceEvents.findMany.mockResolvedValue([]);
-});
+let seq = 0;
+/** Append one trace step for the given team/agent. traceEvents.append writes
+ *  into the agent's folder, so the agent must already exist. */
+async function appendStep(
+  teamId: string,
+  agentId: string,
+  step: { tickId: string; type: string; data?: Record<string, unknown>; emittedAt?: Date },
+) {
+  await traceEvents.append([
+    {
+      teamId,
+      agentId,
+      tickId: step.tickId,
+      seq: seq++,
+      type: step.type,
+      data: step.data ?? {},
+      emittedAt: step.emittedAt ?? new Date(),
+    },
+  ]);
+}
 
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("GET /api/team/[id]/trace", () => {
+  useTempStore();
+
   it("returns SSE headers", async () => {
     const { GET } = await import("@/server/api/team/id/trace");
+    const { team } = await seedTeamAndAgent();
 
-    const res = await GET(new Request("http://localhost/api/team/team-1/trace"), makeParams(TEAM_ID));
+    const res = await GET(
+      new Request(`http://localhost/api/team/${team.id}/trace`),
+      makeParams(team.id),
+    );
 
     expect(res.headers.get("Content-Type")).toBe("text/event-stream");
     expect(res.headers.get("Cache-Control")).toBe("no-cache, no-transform");
@@ -105,54 +91,87 @@ describe("GET /api/team/[id]/trace", () => {
     await res.body?.cancel();
   });
 
-  it("emits a history event with entries reversed to chronological order", async () => {
+  it("emits a history event with entries in chronological order", async () => {
     const { GET } = await import("@/server/api/team/id/trace");
+    const { team, agent } = await seedTeamAndAgent();
 
-    const e1 = traceRow({ id: "evt-1", seq: 0, emittedAt: new Date("2026-06-10T10:00:00Z") });
-    const e2 = traceRow({
-      id: "evt-2",
-      seq: 1,
+    await appendStep(team.id, agent.id, {
+      tickId: "tick-1",
+      type: "tick_started",
+      data: { mode: "fresh" },
+      emittedAt: new Date("2026-06-10T10:00:00Z"),
+    });
+    await appendStep(team.id, agent.id, {
+      tickId: "tick-1",
       type: "tick_finished",
+      data: { actionType: "noop" },
       emittedAt: new Date("2026-06-10T10:00:05Z"),
     });
-    // DB returns newest-first; the route reverses to chronological.
-    mockDb.query.agentTraceEvents.findMany.mockResolvedValueOnce([e2, e1]);
 
-    const res = await GET(new Request("http://localhost/api/team/team-1/trace"), makeParams(TEAM_ID));
+    const res = await GET(
+      new Request(`http://localhost/api/team/${team.id}/trace`),
+      makeParams(team.id),
+    );
     const event = await readFirstSSEEvent(res);
 
     expect(event.type).toBe("history");
     expect(event.entries).toHaveLength(2);
-    expect((event.entries[0] as { id: string }).id).toBe("evt-1");
-    expect((event.entries[1] as { id: string }).id).toBe("evt-2");
-    expect(mockDb.query.agentTraceEvents.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ limit: 200 }),
-    );
+    expect((event.entries[0] as { type: string }).type).toBe("tick_started");
+    expect((event.entries[1] as { type: string }).type).toBe("tick_finished");
   });
 
   it("emits an empty history when there are no trace events", async () => {
     const { GET } = await import("@/server/api/team/id/trace");
-    mockDb.query.agentTraceEvents.findMany.mockResolvedValueOnce([]);
+    const { team } = await seedTeamAndAgent();
 
-    const res = await GET(new Request("http://localhost/api/team/team-1/trace"), makeParams(TEAM_ID));
+    const res = await GET(
+      new Request(`http://localhost/api/team/${team.id}/trace`),
+      makeParams(team.id),
+    );
     const event = await readFirstSSEEvent(res);
 
     expect(event).toEqual({ type: "history", entries: [] });
   });
 
-  it("applies agentId and tickId filters from the query string", async () => {
+  it("applies the agentId filter from the query string", async () => {
     const { GET } = await import("@/server/api/team/id/trace");
-    mockDb.query.agentTraceEvents.findMany.mockResolvedValueOnce([]);
+    const { team, agent } = await seedTeamAndAgent({ name: "Alpha" });
+    const other = await agents.insert(team.id, {
+      name: "Beta",
+      role: "research",
+      archetype: "researcher",
+      tools: [],
+      scheduleSeconds: 10,
+      initialPrompt: "Do research",
+    });
+
+    await appendStep(team.id, agent.id, { tickId: "t1", type: "tick_started" });
+    await appendStep(team.id, other.id, { tickId: "t2", type: "tick_started" });
 
     const res = await GET(
-      new Request("http://localhost/api/team/team-1/trace?agentId=agent-7&tickId=tick-9"),
-      makeParams(TEAM_ID),
+      new Request(`http://localhost/api/team/${team.id}/trace?agentId=${agent.id}`),
+      makeParams(team.id),
     );
-    await readFirstSSEEvent(res);
+    const event = await readFirstSSEEvent(res);
 
-    const eqValues = eqMock.mock.calls.map((c) => c[1]);
-    expect(eqValues).toContain(TEAM_ID);
-    expect(eqValues).toContain("agent-7");
-    expect(eqValues).toContain("tick-9");
+    expect(event.entries).toHaveLength(1);
+    expect((event.entries[0] as { agentId: string }).agentId).toBe(agent.id);
+  });
+
+  it("applies the tickId filter from the query string", async () => {
+    const { GET } = await import("@/server/api/team/id/trace");
+    const { team, agent } = await seedTeamAndAgent();
+
+    await appendStep(team.id, agent.id, { tickId: "tick-keep", type: "tick_started" });
+    await appendStep(team.id, agent.id, { tickId: "tick-drop", type: "tick_started" });
+
+    const res = await GET(
+      new Request(`http://localhost/api/team/${team.id}/trace?tickId=tick-keep`),
+      makeParams(team.id),
+    );
+    const event = await readFirstSSEEvent(res);
+
+    expect(event.entries).toHaveLength(1);
+    expect((event.entries[0] as { tickId: string }).tickId).toBe("tick-keep");
   });
 });

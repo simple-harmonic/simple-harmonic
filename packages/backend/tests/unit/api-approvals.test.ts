@@ -1,94 +1,86 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { agents, approvals, teams } from "@/server/store";
+import { useTempStore } from "../helpers/store";
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
+function makeParams(teamId: string) {
+  return { params: Promise.resolve({ id: teamId }) };
+}
 
-const mockUpdateReturning = vi.fn();
-const mockUpdateWhere = vi.fn().mockResolvedValue(undefined);
-const mockUpdateSet = vi.fn().mockReturnValue({ where: mockUpdateWhere });
-const mockUpdate = vi.fn().mockReturnValue({ set: mockUpdateSet });
-
-const mockDb = {
-  query: {
-    pendingApprovals: {
-      findMany: vi.fn(),
-      findFirst: vi.fn(),
-    },
-  },
-  update: mockUpdate,
-};
-
-vi.mock("@/server/db", () => ({
-  db: () => mockDb,
-}));
-
-vi.mock("@/server/db/schema", () => ({
-  agents: { id: "agents.id" },
-  teams: { id: "teams.id" },
-  pendingApprovals: {
-    id: "pending_approvals.id",
-    agentId: "pending_approvals.agentId",
-    teamId: "pending_approvals.teamId",
-    status: "pending_approvals.status",
-  },
-}));
-
-vi.mock("drizzle-orm", () => ({
-  eq: vi.fn((_col: unknown, val: unknown) => ({ _eq: val })),
-  and: vi.fn((...clauses: unknown[]) => ({ _and: clauses })),
-}));
-
-function makeReq(body: unknown): Request {
-  return new Request("http://localhost/api/team/team-1/approvals", {
+function postReq(teamId: string, body: unknown): Request {
+  return new Request(`http://localhost/api/team/${teamId}/approvals`, {
     method: "POST",
     body: JSON.stringify(body),
     headers: { "Content-Type": "application/json" },
   });
 }
 
-const params = Promise.resolve({ id: "team-1" });
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  mockUpdate.mockReturnValue({ set: mockUpdateSet });
-  mockUpdateSet.mockReturnValue({ where: mockUpdateWhere });
-  mockUpdateReturning.mockResolvedValue([{ agentId: "agent-1" }]);
-  mockUpdateWhere.mockImplementation(() => {
-    const result = Promise.resolve(undefined) as Promise<undefined> & {
-      returning: typeof mockUpdateReturning;
-    };
-    result.returning = mockUpdateReturning;
-    return result;
+/** Seed a team + agent and append one pending approval; return ids. */
+async function seedApproval(overrides: { toolName?: string } = {}) {
+  const team = await teams.insert({ name: "Approvals Team" });
+  const agent = await agents.insert(team.id, {
+    name: "Worker",
+    role: "dev",
+    archetype: "researcher",
+    tools: [],
+    scheduleSeconds: 10,
+    initialPrompt: "Work",
   });
-});
+  await approvals.insertMany(agent.id, [
+    {
+      teamId: team.id,
+      toolCallId: "call-1",
+      toolName: overrides.toolName ?? "write_file",
+      toolArguments: '{"path":"x"}',
+    },
+  ]);
+  const [row] = await approvals.byAgent(agent.id);
+  return { team, agent, approval: row };
+}
 
 // ---------------------------------------------------------------------------
 // GET — list pending approvals
 // ---------------------------------------------------------------------------
 
 describe("GET /api/team/[id]/approvals", () => {
+  useTempStore();
+
   it("returns the team's pending approvals", async () => {
     const { GET } = await import("@/server/api/team/id/approvals");
-    mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
-      {
-        id: "ap-1",
-        agentId: "agent-1",
-        toolName: "write_file",
-        toolArguments: '{"path":"x"}',
-        createdAt: new Date("2026-05-30T00:00:00Z"),
-      },
-    ]);
+    const { team, agent, approval } = await seedApproval();
 
-    const res = await GET(new Request("http://localhost"), { params });
-    const body = (await res.json()) as { approvals: unknown[] };
+    const res = await GET(new Request("http://localhost"), makeParams(team.id));
+    const body = (await res.json()) as {
+      approvals: Array<{ id: string; agentId: string; toolName: string }>;
+    };
 
+    expect(res.status).toBe(200);
     expect(body.approvals).toHaveLength(1);
     expect(body.approvals[0]).toMatchObject({
-      id: "ap-1",
-      agentId: "agent-1",
+      id: approval.id,
+      agentId: agent.id,
       toolName: "write_file",
     });
+  });
+
+  it("returns an empty list when nothing is pending", async () => {
+    const { GET } = await import("@/server/api/team/id/approvals");
+    const team = await teams.insert({ name: "Empty" });
+
+    const res = await GET(new Request("http://localhost"), makeParams(team.id));
+    const body = (await res.json()) as { approvals: unknown[] };
+
+    expect(body.approvals).toEqual([]);
+  });
+
+  it("excludes already-resolved approvals", async () => {
+    const { GET } = await import("@/server/api/team/id/approvals");
+    const { team, approval } = await seedApproval();
+    await approvals.resolve(team.id, approval.id, "approved", null);
+
+    const res = await GET(new Request("http://localhost"), makeParams(team.id));
+    const body = (await res.json()) as { approvals: unknown[] };
+
+    expect(body.approvals).toEqual([]);
   });
 });
 
@@ -97,81 +89,81 @@ describe("GET /api/team/[id]/approvals", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /api/team/[id]/approvals", () => {
+  useTempStore();
+
   it("400s on a missing/invalid decision", async () => {
     const { POST } = await import("@/server/api/team/id/approvals");
-    const res = await POST(makeReq({ approvalId: "ap-1", decision: "maybe" }), { params });
+    const { team, approval } = await seedApproval();
+
+    const res = await POST(postReq(team.id, { approvalId: approval.id, decision: "maybe" }), makeParams(team.id));
     expect(res.status).toBe(400);
   });
 
   it("404s when the approval doesn't exist for the team", async () => {
     const { POST } = await import("@/server/api/team/id/approvals");
-    mockDb.query.pendingApprovals.findFirst.mockResolvedValueOnce(undefined);
-    const res = await POST(makeReq({ approvalId: "ap-x", decision: "approved" }), { params });
+    const { team } = await seedApproval();
+
+    const res = await POST(
+      postReq(team.id, { approvalId: "nonexistent", decision: "approved" }),
+      makeParams(team.id),
+    );
+    const body = (await res.json()) as { error?: string };
+
     expect(res.status).toBe(404);
+    expect(body.error).toBe("approval not found");
   });
 
-  it("409s when the approval is already resolved", async () => {
+  it("approves a pending row and marks it resolved", async () => {
     const { POST } = await import("@/server/api/team/id/approvals");
-    mockDb.query.pendingApprovals.findFirst.mockResolvedValueOnce({
-      id: "ap-1",
-      agentId: "agent-1",
-      teamId: "team-1",
-      status: "approved",
-    });
-    const res = await POST(makeReq({ approvalId: "ap-1", decision: "approved" }), { params });
-    expect(res.status).toBe(409);
-  });
+    const { team, agent, approval } = await seedApproval();
 
-  it("approves a pending row and sets status + resolvedAt", async () => {
-    const { POST } = await import("@/server/api/team/id/approvals");
-    mockDb.query.pendingApprovals.findFirst.mockResolvedValueOnce({
-      id: "ap-1",
-      agentId: "agent-1",
-      teamId: "team-1",
-      status: "pending",
-    });
-
-    const res = await POST(makeReq({ approvalId: "ap-1", decision: "approved" }), { params });
+    const res = await POST(
+      postReq(team.id, { approvalId: approval.id, decision: "approved" }),
+      makeParams(team.id),
+    );
     const body = await res.json();
 
+    expect(res.status).toBe(200);
     expect(body).toEqual({ ok: true, decision: "approved" });
-    expect(mockUpdateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "approved", resolvedAt: expect.any(Date) }),
-    );
-    expect(mockUpdateReturning).toHaveBeenCalledWith({ agentId: "pending_approvals.agentId" });
+
+    const [stored] = await approvals.byAgent(agent.id);
+    expect(stored.status).toBe("approved");
+    expect(stored.resolvedAt).toBeInstanceOf(Date);
   });
 
   it("stores the rejection note", async () => {
     const { POST } = await import("@/server/api/team/id/approvals");
-    mockDb.query.pendingApprovals.findFirst.mockResolvedValueOnce({
-      id: "ap-1",
-      agentId: "agent-1",
-      teamId: "team-1",
-      status: "pending",
-    });
+    const { team, agent, approval } = await seedApproval();
 
     await POST(
-      makeReq({ approvalId: "ap-1", decision: "rejected", note: "no thanks" }),
-      { params },
+      postReq(team.id, { approvalId: approval.id, decision: "rejected", note: "no thanks" }),
+      makeParams(team.id),
     );
 
-    expect(mockUpdateSet).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "rejected", decisionNote: "no thanks" }),
-    );
+    const [stored] = await approvals.byAgent(agent.id);
+    expect(stored.status).toBe("rejected");
+    expect(stored.decisionNote).toBe("no thanks");
   });
 
-  it("409s when the pending row is resolved concurrently", async () => {
+  it("409s when the approval is already resolved", async () => {
     const { POST } = await import("@/server/api/team/id/approvals");
-    mockDb.query.pendingApprovals.findFirst.mockResolvedValueOnce({
-      id: "ap-1",
-      agentId: "agent-1",
-      teamId: "team-1",
-      status: "pending",
-    });
-    mockUpdateReturning.mockResolvedValueOnce([]);
+    const { team, approval } = await seedApproval();
 
-    const res = await POST(makeReq({ approvalId: "ap-1", decision: "approved" }), { params });
+    // First resolution succeeds.
+    const first = await POST(
+      postReq(team.id, { approvalId: approval.id, decision: "approved" }),
+      makeParams(team.id),
+    );
+    expect(first.status).toBe(200);
 
-    expect(res.status).toBe(409);
+    // Second resolution of the same row is a conflict.
+    const second = await POST(
+      postReq(team.id, { approvalId: approval.id, decision: "approved" }),
+      makeParams(team.id),
+    );
+    const body = (await second.json()) as { error?: string };
+
+    expect(second.status).toBe(409);
+    expect(body.error).toBe("approval already resolved");
   });
 });

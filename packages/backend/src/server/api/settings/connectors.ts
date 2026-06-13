@@ -80,17 +80,6 @@ function getBuiltinConnectors(): ConnectorStatus[] {
       envVar: "GITHUB_TOKEN",
       source: "env",
     },
-    {
-      id: "builtin-database",
-      name: "Database",
-      description: "Neon Postgres connection.",
-      configured: (process.env.DATABASE_URL ?? "").length > 0,
-      maskedValue: process.env.DATABASE_URL
-        ? process.env.DATABASE_URL.replace(/:([^@]+)@/, ":****@")
-        : undefined,
-      envVar: "DATABASE_URL",
-      source: "env",
-    },
   ];
 }
 

@@ -1,16 +1,36 @@
-import type { PgDatabase } from "drizzle-orm/pg-core";
+import type { Transport, MessageQuery } from "../core/transport.js";
 import type { AgentCard } from "../types/agent-card.js";
 import type { AgentToken } from "../types/auth.js";
 import type { Channel, ChannelMember } from "../types/channel.js";
 import type { CreateMessageInput, Message } from "../types/message.js";
 import type { CreateTaskInput, Task, UpdateTaskInput } from "../types/task.js";
-import type { MessageQuery, Transport } from "../core/transport.js";
-type DB = PgDatabase<any, any, any>;
-export declare class DrizzleTransport implements Transport {
-    private db;
-    constructor(db: DB);
+export declare class JsonFileTransport implements Transport {
+    private teamsRoot;
+    private messages;
+    private reads;
+    private channels;
+    private members;
+    private tasks;
+    private cards;
+    private tokens;
+    private teamDirs;
+    private loaded;
+    private hydrated;
+    /** @param teamsRoot Absolute path to <dataDir>/teams. */
+    constructor(teamsRoot: string);
+    private hydrate;
+    private loadDir;
+    /** Resolve a team's messages dir, re-walking once if it appeared post-hydrate. */
+    private dirForTeam;
+    private persistChannels;
+    private persistMembers;
+    private persistTasks;
+    private persistCards;
+    private persistTokens;
     insertMessage(input: CreateMessageInput): Promise<Message>;
     queryMessages(query: MessageQuery): Promise<Message[]>;
+    /** All messages for a team, chronological (for the conversation/hub views). */
+    listTeamMessages(teamId: string, limit?: number): Promise<Message[]>;
     markRead(agentId: string, messageIds: string[]): Promise<void>;
     markExpired(before: Date): Promise<number>;
     getChannel(channelId: string): Promise<Channel | null>;
@@ -30,10 +50,5 @@ export declare class DrizzleTransport implements Transport {
     createToken(token: AgentToken): Promise<AgentToken>;
     getToken(token: string): Promise<AgentToken | null>;
     revokeToken(token: string): Promise<void>;
-    private toMessage;
-    private toChannel;
-    private toTask;
-    private toAgentCard;
 }
-export {};
-//# sourceMappingURL=drizzle.d.ts.map
+//# sourceMappingURL=json-file.d.ts.map

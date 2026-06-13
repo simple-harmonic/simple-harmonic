@@ -3,16 +3,16 @@
 // ---------------------------------------------------------------------------
 
 import { A2AX } from "@simple-harmonic/a2ax";
-import { DrizzleTransport } from "@simple-harmonic/a2ax/adapters/drizzle";
-import { db } from "./db";
+import { JsonFileTransport } from "@simple-harmonic/a2ax/adapters/json-file";
+import { teamsRoot } from "./store/data-dir";
 
 let instance: A2AX | null = null;
 
 export function getA2AX(): A2AX {
   if (!instance) {
-    // DrizzleTransport needs a PgDatabase-compatible instance.
-    // Simple Harmonic's db() returns NodePgDatabase which satisfies PgDatabase<any>.
-    const transport = new DrizzleTransport(db() as any);
+    // JsonFileTransport persists each team's messages/channels/tasks/tokens
+    // under that team's folder in the data tree (<dataDir>/teams/<id>/messages).
+    const transport = new JsonFileTransport(teamsRoot());
 
     instance = new A2AX({
       transport,
@@ -21,4 +21,9 @@ export function getA2AX(): A2AX {
     });
   }
   return instance;
+}
+
+/** Drop the cached instance (tests that repoint SH_DATA_DIR between cases). */
+export function resetA2AXForTests(): void {
+  instance = null;
 }

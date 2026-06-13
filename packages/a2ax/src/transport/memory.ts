@@ -104,6 +104,13 @@ export class MemoryTransport implements Transport {
     return results;
   }
 
+  async listTeamMessages(teamId: string, limit?: number): Promise<Message[]> {
+    const rows = this.messages
+      .filter((m) => m.teamId === teamId)
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    return limit ? rows.slice(0, limit) : rows;
+  }
+
   async markRead(agentId: string, messageIds: string[]): Promise<void> {
     for (const id of messageIds) {
       this.reads.add(`${id}:${agentId}`);

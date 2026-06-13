@@ -11,58 +11,27 @@
 // Run: npx tsx scripts/seed-demo.ts
 // ---------------------------------------------------------------------------
 
-import { sql } from "drizzle-orm";
-import { db } from "../packages/backend/src/server/db/index.js";
-import { agents, teams, chatSessions, chatMessages, actionLog, pendingApprovals, a2axMessages, a2axChannels, a2axChannelMembers, a2axTasks } from "../packages/backend/src/server/db/schema.js";
+import { agents, clearStore, teams } from "../packages/backend/src/server/store/index.js";
 import { saveConnector } from "../packages/backend/src/server/connectors.js";
 import { saveCustomToolFile } from "../packages/backend/src/server/custom-tools.js";
 
 async function main() {
-  const d = db();
-
   // --- Clear everything ---
   console.log("Clearing existing data...");
-  await d.delete(pendingApprovals);
-  await d.delete(actionLog);
-  await d.delete(a2axMessages);
-  await d.delete(a2axChannelMembers);
-  await d.delete(a2axTasks);
-  await d.delete(a2axChannels);
-  await d.delete(agents);
-  await d.delete(chatMessages);
-  await d.delete(chatSessions);
-  await d.delete(teams);
+  clearStore();
   console.log("Cleared.");
 
   // --- Root team ---
-  const [rootTeam] = await d.insert(teams).values({
-    name: "Harmonic Labs",
-    cofounderName: "Harmon",
-    lastUserActiveAt: new Date(),
-  }).returning();
+  const rootTeam = await teams.insert({ name: "Harmonic Labs", cofounderName: "Harmon" });
   console.log("Root team:", rootTeam.name, rootTeam.id.slice(0, 8));
 
-  await d.insert(chatSessions).values({ teamId: rootTeam.id });
-
   // --- Engineering sub-team ---
-  const [engTeam] = await d.insert(teams).values({
-    name: "Engineering",
-    parentTeamId: rootTeam.id,
-    lastUserActiveAt: new Date(),
-  }).returning();
+  const engTeam = await teams.insert({ name: "Engineering", parentTeamId: rootTeam.id });
   console.log("Sub-team:", engTeam.name, engTeam.id.slice(0, 8));
 
-  await d.insert(chatSessions).values({ teamId: engTeam.id });
-
   // --- Growth sub-team ---
-  const [growthTeam] = await d.insert(teams).values({
-    name: "Growth",
-    parentTeamId: rootTeam.id,
-    lastUserActiveAt: new Date(),
-  }).returning();
+  const growthTeam = await teams.insert({ name: "Growth", parentTeamId: rootTeam.id });
   console.log("Sub-team:", growthTeam.name, growthTeam.id.slice(0, 8));
-
-  await d.insert(chatSessions).values({ teamId: growthTeam.id });
 
   const now = new Date();
 
@@ -167,10 +136,9 @@ async function main() {
     },
   ];
 
-  for (let i = 0; i < engAgents.length; i++) {
-    const a = engAgents[i];
-    await d.insert(agents).values({
-      teamId: engTeam.id,
+  await agents.insertMany(
+    engTeam.id,
+    engAgents.map((a, i) => ({
       name: a.name,
       role: a.role,
       archetype: a.archetype,
@@ -179,7 +147,9 @@ async function main() {
       initialPrompt: a.initialPrompt,
       outputContract: a.outputContract,
       nextRunAt: new Date(now.getTime() + a.scheduleSeconds * 1000 + i * 2000),
-    });
+    })),
+  );
+  for (const a of engAgents) {
     console.log("  Agent:", a.name, `(${a.archetype})`, a.outputContract ? "with contract" : "");
   }
 
@@ -239,10 +209,9 @@ async function main() {
     },
   ];
 
-  for (let i = 0; i < growthAgents.length; i++) {
-    const a = growthAgents[i];
-    await d.insert(agents).values({
-      teamId: growthTeam.id,
+  await agents.insertMany(
+    growthTeam.id,
+    growthAgents.map((a, i) => ({
       name: a.name,
       role: a.role,
       archetype: a.archetype,
@@ -251,7 +220,9 @@ async function main() {
       initialPrompt: a.initialPrompt,
       outputContract: a.outputContract,
       nextRunAt: new Date(now.getTime() + a.scheduleSeconds * 1000 + i * 2000),
-    });
+    })),
+  );
+  for (const a of growthAgents) {
     console.log("  Agent:", a.name, `(${a.archetype})`, "with contract");
   }
 
@@ -277,8 +248,8 @@ async function main() {
   console.log("Connector: GITHUB_TOKEN");
 
   // --- Summary ---
-  const allTeams = await d.query.teams.findMany();
-  const allAgents = await d.query.agents.findMany();
+  const allTeams = await teams.all();
+  const allAgents = await agents.all();
 
   console.log("\n=== Demo seeded ===");
   console.log(`Teams: ${allTeams.length} (1 root + 2 sub-teams)`);

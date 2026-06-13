@@ -1,7 +1,5 @@
-import { inArray } from "drizzle-orm";
 import { queryAppEvents } from "../app-events";
-import { db } from "../db";
-import { appEvents } from "../db/schema";
+import { appEvents } from "../store";
 
 const MAX_UNACKNOWLEDGED = 100;
 
@@ -68,13 +66,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const d = db();
-    await d
-      .update(appEvents)
-      .set({ acknowledgedAt: new Date() })
-      .where(inArray(appEvents.id, body.eventIds));
-
-    return Response.json({ ok: true, acknowledged: body.eventIds.length });
+    const acknowledged = await appEvents.acknowledge(body.eventIds);
+    return Response.json({ ok: true, acknowledged });
   } catch (err) {
     return Response.json(
       { error: err instanceof Error ? err.message : "Unknown error" },

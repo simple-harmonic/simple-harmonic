@@ -1,12 +1,9 @@
-import { db } from "../../../db";
-import { teams } from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { teams } from "../../../store";
 
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const d = db();
 
-  await d.update(teams).set({ lastUserActiveAt: new Date() }).where(eq(teams.id, id));
+  await teams.update(id, { lastUserActiveAt: new Date() });
 
   return Response.json({ ok: true });
 }

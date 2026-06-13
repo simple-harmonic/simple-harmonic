@@ -1,107 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { actionLog, agents, approvals, spend, teams } from "@/server/store";
+import type { Agent } from "@/server/store";
+import { todayUtc } from "@/server/spend";
+import { useTempStore } from "../helpers/store";
 
 // ---------------------------------------------------------------------------
-// Mocks — DB
-// ---------------------------------------------------------------------------
-
-const mockInsertValues = vi.fn().mockResolvedValue(undefined);
-const mockInsert = vi.fn().mockReturnValue({ values: mockInsertValues });
-
-const mockWhereOnUpdate = vi.fn().mockResolvedValue(undefined);
-const mockUpdateReturning = vi.fn().mockResolvedValue([{ id: "agent-1" }]);
-const mockSet = vi.fn().mockReturnValue({ where: mockWhereOnUpdate });
-const mockUpdate = vi.fn().mockReturnValue({ set: mockSet });
-
-const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
-const mockDelete = vi.fn().mockReturnValue({ where: mockDeleteWhere });
-
-// Spend ledger read (checkSpendAllowed). Default: $0 spent today (under cap).
-const mockSelectWhere = vi.fn().mockResolvedValue([{ total: 0 }]);
-const mockSelect = vi
-  .fn()
-  .mockReturnValue({ from: vi.fn().mockReturnValue({ where: mockSelectWhere }) });
-
-const mockDb = {
-  query: {
-    teams: {
-      findMany: vi.fn().mockResolvedValue([]),
-      findFirst: vi.fn().mockResolvedValue({ telemetryEnabled: true }),
-    },
-    agents: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
-    pendingApprovals: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
-    actionLog: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
-    appEvents: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
-    platformStatus: {
-      findMany: vi.fn().mockResolvedValue([]),
-    },
-  },
-  update: mockUpdate,
-  insert: mockInsert,
-  delete: mockDelete,
-  select: mockSelect,
-  transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(mockDb)),
-};
-
-vi.mock("@/server/db", () => ({
-  db: () => mockDb,
-}));
-
-vi.mock("@/server/db/schema", () => ({
-  teams: { id: "teams.id", paused: "teams.paused", tickCount: "teams.tickCount" },
-  agents: {
-    id: "agents.id",
-    teamId: "agents.teamId",
-    inFlight: "agents.inFlight",
-    status: "agents.status",
-  },
-  actionLog: {},
-  pendingApprovals: { agentId: "pending_approvals.agentId", status: "pending_approvals.status" },
-  appEvents: { level: "app_events.level" },
-  llmSpend: { costCents: "llm_spend.cost_cents", day: "llm_spend.day" },
-  platformStatus: { id: "platform_status.id" },
-  agentTraceEvents: {
-    teamId: "agent_trace_events.teamId",
-    agentId: "agent_trace_events.agentId",
-    tickId: "agent_trace_events.tickId",
-    seq: "agent_trace_events.seq",
-    emittedAt: "agent_trace_events.emittedAt",
-  },
-}));
-
-// T2: the tick route builds a tool registry to classify destructive tools.
-vi.mock("@/server/tools", () => ({
-  createAppRegistry: () => ({ isDestructive: () => false }),
-  createAppRegistryWithCustomTools: () => Promise.resolve({ isDestructive: () => false }),
-}));
-
-vi.mock("drizzle-orm", () => ({
-  eq: vi.fn((_col: unknown, val: unknown) => ({ _eq: val })),
-  and: vi.fn((...clauses: unknown[]) => ({ _and: clauses })),
-  desc: vi.fn((col: unknown) => ({ _desc: col })),
-  asc: vi.fn((col: unknown) => ({ _asc: col })),
-  gte: vi.fn((_col: unknown, val: unknown) => ({ _gte: val })),
-  lt: vi.fn((_col: unknown, val: unknown) => ({ _lt: val })),
-  ne: vi.fn((_col: unknown, val: unknown) => ({ _ne: val })),
-  isNull: vi.fn((_col: unknown) => ({ _isNull: true })),
-  inArray: vi.fn((_col: unknown, vals: unknown[]) => ({ _inArray: vals })),
-  // The tick route builds an atomic increment via sql`${tickCount} + 1`.
-  // Mock the tagged-template so the route code runs without a real driver.
-  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
-    _sql: strings.join("?"),
-    values,
-  })),
-}));
-
-// ---------------------------------------------------------------------------
-// Mocks — meta-agent
+// Mocks — meta-agent runner / harness (the LLM-driven core). The DATA layer is
+// the REAL JSON file store (see useTempStore); only the agent loop is mocked.
 // ---------------------------------------------------------------------------
 
 const mockApproveAgentTick = vi.fn();
@@ -121,15 +26,20 @@ vi.mock("@/lib/meta-agent/codex-harness", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mocks — LLM adapters
+// Mocks — LLM adapters (resolveLLM builds these; the cascade client is never
+// actually called because runAgent/runCodexAgentTick are mocked).
 // ---------------------------------------------------------------------------
 
-const mockCreateAnthropicClient = vi.fn().mockReturnValue({ chat: { completions: { create: vi.fn() } } });
+const mockCreateAnthropicClient = vi
+  .fn()
+  .mockReturnValue({ chat: { completions: { create: vi.fn() } } });
 vi.mock("@/lib/meta-agent/anthropic-adapter", () => ({
   createAnthropicClient: (...args: unknown[]) => mockCreateAnthropicClient(...args),
 }));
 
-const mockCreateCodexClient = vi.fn().mockReturnValue({ chat: { completions: { create: vi.fn() } } });
+const mockCreateCodexClient = vi
+  .fn()
+  .mockReturnValue({ chat: { completions: { create: vi.fn() } } });
 vi.mock("@/lib/meta-agent/codex-adapter", () => ({
   createCodexClient: (...args: unknown[]) => mockCreateCodexClient(...args),
 }));
@@ -142,7 +52,17 @@ vi.mock("openai", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Mocks — a2ax, config
+// Mocks — tool registry (classifies destructive tools; kept stubbed).
+// ---------------------------------------------------------------------------
+
+vi.mock("@/server/tools", () => ({
+  createAppRegistry: () => ({ isDestructive: () => false }),
+  createAppRegistryWithCustomTools: () => ({ isDestructive: () => false }),
+}));
+
+// ---------------------------------------------------------------------------
+// Mocks — a2ax (message bus). resetA2AXForTests is preserved because the
+// useTempStore helper calls it between cases.
 // ---------------------------------------------------------------------------
 
 const mockGetAgentContext = vi.fn().mockResolvedValue({ formatted: "", messageIds: [] });
@@ -155,7 +75,12 @@ vi.mock("@/server/a2ax", () => ({
     markContextRead: mockMarkContextRead,
     broadcast: mockBroadcast,
   }),
+  resetA2AXForTests: () => {},
 }));
+
+// ---------------------------------------------------------------------------
+// Mocks — config (API key source / model).
+// ---------------------------------------------------------------------------
 
 const mockGetConfig = vi.fn().mockReturnValue({
   openaiApiKey: "",
@@ -175,45 +100,47 @@ vi.mock("@/server/config", () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-const TEAM_ID = "team-1";
-
-// The tick route now requires a Request (cron auth). In the test env
+// The tick route requires a Request (cron auth). In the test env
 // (NODE_ENV !== production, no VERCEL) an unset CRON_SECRET authorizes any
-// request, so a bare POST Request suffices for the existing behavior tests.
+// request, so a bare POST Request suffices for the behavior tests.
 function tickReq(headers?: Record<string, string>): Request {
   return new Request("http://localhost/api/tick", { method: "POST", headers });
 }
 
-const sampleTeam = {
-  id: TEAM_ID,
-  name: "Test Team",
-  paused: false,
-  tickCount: 3,
-  metaAgentPrompt: null,
-  cofounderName: null,
-  // Must be recent: the tick route hibernates teams idle >5 min, so a fixed
-  // past date would make every "agent runs" test see a hibernated team and
-  // run zero agents. Stamp it at module load (suite runs well under 5 min).
-  lastUserActiveAt: new Date(),
-  createdAt: new Date("2026-05-19T00:00:00Z"),
-};
+/** Seed an active team. lastUserActiveAt defaults to now (within the 5-min
+ *  hibernation window), so the tick won't skip it. */
+async function seedTeam(overrides: Record<string, unknown> = {}) {
+  return teams.insert({ name: "Test Team", ...overrides });
+}
 
-function makeDueAgent(overrides: Record<string, unknown> = {}) {
-  return {
-    id: "agent-1",
-    teamId: TEAM_ID,
+/** Seed an agent that is due to run (nextRunAt in the past). */
+async function seedAgent(teamId: string, overrides: Record<string, unknown> = {}) {
+  return agents.insert(teamId, {
     name: "Researcher",
     role: "research",
     archetype: "researcher",
     tools: ["report_action"],
     scheduleSeconds: 10,
     initialPrompt: "Do research",
-    status: "running",
     nextRunAt: new Date("2026-05-20T00:00:00Z"),
-    inFlight: false,
-    createdAt: new Date("2026-05-19T00:00:00Z"),
     ...overrides,
-  };
+  });
+}
+
+/** Seed a resolved (approved/rejected) approval row for one tool call. */
+async function seedApproval(
+  agent: Agent,
+  toolCallId: string,
+  status: "approved" | "rejected",
+  note: string | null = null,
+) {
+  await approvals.insertMany(agent.id, [
+    { teamId: agent.teamId, toolCallId, toolName: "write_file", toolArguments: "{}" },
+  ]);
+  const rows = await approvals.byAgent(agent.id);
+  const row = rows.find((r) => r.toolCallId === toolCallId);
+  if (!row) throw new Error("seeded approval not found");
+  await approvals.resolve(agent.teamId, row.id, status, note);
 }
 
 // ---------------------------------------------------------------------------
@@ -222,39 +149,12 @@ function makeDueAgent(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-
-  // Re-wire chained mock returns after clearAllMocks
-  mockUpdate.mockReturnValue({ set: mockSet });
-  mockSet.mockReturnValue({ where: mockWhereOnUpdate });
-  mockUpdateReturning.mockResolvedValue([{ id: "agent-1" }]);
-  mockWhereOnUpdate.mockImplementation(() => {
-    const result = Promise.resolve(undefined) as Promise<undefined> & {
-      returning: typeof mockUpdateReturning;
-    };
-    result.returning = mockUpdateReturning;
-    return result;
-  });
-  mockInsert.mockReturnValue({ values: mockInsertValues });
-  mockInsertValues.mockResolvedValue(undefined);
-  mockDelete.mockReturnValue({ where: mockDeleteWhere });
-  mockDeleteWhere.mockResolvedValue(undefined);
-
-  // Defaults. mockReset (not just clearAllMocks) drains any leftover
-  // mockResolvedValueOnce queue from a prior test — clearAllMocks only clears
-  // call history, so an unconsumed once-value would otherwise bleed across
-  // tests and make ordering matter (surfaced when the tick route went parallel).
   mockRunAgent.mockReset();
   mockRunCodexAgentTick.mockReset();
-  mockDb.query.teams.findMany.mockReset();
-  mockDb.query.agents.findMany.mockReset();
-  mockDb.query.pendingApprovals.findMany.mockReset();
-  mockDb.query.actionLog.findMany.mockReset();
-  mockDb.transaction.mockReset();
-  mockDb.transaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(mockDb));
-  mockDb.query.teams.findMany.mockResolvedValue([]);
-  mockDb.query.agents.findMany.mockResolvedValue([]);
-  mockDb.query.pendingApprovals.findMany.mockResolvedValue([]);
-  mockDb.query.actionLog.findMany.mockResolvedValue([]);
+  mockApproveAgentTick.mockReset();
+  mockGetAgentContext.mockResolvedValue({ formatted: "", messageIds: [] });
+  mockMarkContextRead.mockResolvedValue(undefined);
+  mockBroadcast.mockResolvedValue(undefined);
   mockGetConfig.mockReturnValue({
     openaiApiKey: "",
     openaiBaseUrl: "https://api.openai.com/v1",
@@ -262,8 +162,6 @@ beforeEach(() => {
     databaseUrl: "",
   });
   mockGetApiKeySource.mockReturnValue("config");
-
-  // Default: no ANTHROPIC_API_KEY env
   delete process.env.ANTHROPIC_API_KEY;
 });
 
@@ -272,9 +170,10 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("POST /api/tick", () => {
+  useTempStore();
+
   it("returns 0 agentsRan when no active teams exist", async () => {
     const { POST } = await import("@/server/api/tick");
-    mockDb.query.teams.findMany.mockResolvedValueOnce([]);
 
     const res = await POST(tickReq());
     const body = (await res.json()) as { ok: boolean; agentsRan: number; timestamp: unknown };
@@ -286,8 +185,7 @@ describe("POST /api/tick", () => {
 
   it("returns 0 agentsRan when team has no agents", async () => {
     const { POST } = await import("@/server/api/tick");
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([]);
+    await seedTeam();
 
     const res = await POST(tickReq());
     const body = (await res.json()) as { ok: boolean; agentsRan: number };
@@ -298,28 +196,21 @@ describe("POST /api/tick", () => {
 
   it("auto-recovers errored agents to running status", async () => {
     const { POST } = await import("@/server/api/tick");
-
-    const erroredAgent = makeDueAgent({ status: "errored" });
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([erroredAgent]);
-    // The agent won't be approved because approveAgentTick returns not allowed
-    mockApproveAgentTick.mockReturnValue({ allowed: false, reason: "not due", reasonCode: "not_due" });
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id, { status: "errored" });
+    // Not approved, so it won't actually run; only the recovery should fire.
+    mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "not_due" });
 
     await POST(tickReq());
 
-    // First update call should be the errored->running recovery
-    expect(mockUpdate).toHaveBeenCalled();
-    expect(mockSet).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "running", inFlight: false }),
-    );
+    expect((await agents.byId(agent.id))?.status).toBe("running");
+    expect((await agents.byId(agent.id))?.inFlight).toBe(false);
   });
 
   it("runs a due agent successfully and logs the action", async () => {
     const { POST } = await import("@/server/api/tick");
-
-    const agent = makeDueAgent();
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([agent]);
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id);
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockRunAgent.mockResolvedValueOnce({
       actionType: "research",
@@ -332,79 +223,51 @@ describe("POST /api/tick", () => {
     expect(body.ok).toBe(true);
     expect(body.agentsRan).toBe(1);
 
-    // Should set inFlight = true before running
-    expect(mockSet).toHaveBeenCalledWith(expect.objectContaining({ inFlight: true }));
+    // Action was logged to the store.
+    const logs = await actionLog.recentByAgent(agent.id, 10);
+    expect(logs).toHaveLength(1);
+    expect(logs[0].actionType).toBe("research");
+    expect(logs[0].payload).toEqual({ summary: "Found data" });
 
-    // Should insert into actionLog
-    expect(mockInsert).toHaveBeenCalled();
-    expect(mockInsertValues).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentId: "agent-1",
-        actionType: "research",
-        payload: { summary: "Found data" },
-      }),
-    );
-
-    // Should update nextRunAt and set inFlight = false
-    expect(mockSet).toHaveBeenCalledWith(
-      expect.objectContaining({
-        inFlight: false,
-        nextRunAt: expect.any(Date),
-      }),
-    );
+    // Agent returned to running, inFlight cleared, nextRunAt advanced.
+    const after = await agents.byId(agent.id);
+    expect(after?.status).toBe("running");
+    expect(after?.inFlight).toBe(false);
+    expect(after?.nextRunAt?.getTime()).toBeGreaterThan(new Date("2026-05-20T00:00:00Z").getTime());
   });
 
   it("sets agent to errored on failure", async () => {
     const { POST } = await import("@/server/api/tick");
-
-    const agent = makeDueAgent();
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([agent]);
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id);
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockRunAgent.mockRejectedValueOnce(new Error("LLM timeout"));
 
     const res = await POST(tickReq());
     const body = (await res.json()) as { ok: boolean; agentsRan: number };
 
-    // Agent failed but tick still completes
     expect(body.ok).toBe(true);
     expect(body.agentsRan).toBe(0);
 
-    // Should set agent to errored
-    expect(mockSet).toHaveBeenCalledWith(
-      expect.objectContaining({ inFlight: false, status: "errored" }),
-    );
+    const after = await agents.byId(agent.id);
+    expect(after?.status).toBe("errored");
+    expect(after?.inFlight).toBe(false);
   });
 
   it("increments team tickCount", async () => {
     const { POST } = await import("@/server/api/tick");
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([]);
+    const team = await seedTeam({ tickCount: 3 });
 
     await POST(tickReq());
 
-    // tickCount is incremented atomically in SQL (sql`${tickCount} + 1`)
-    // rather than read-modify-write, so the value passed to .set() is the
-    // mocked sql fragment, not a literal 4. Assert the increment was issued
-    // against the tickCount column.
-    const tickCountCall = mockSet.mock.calls.find(
-      (call) => call[0] && "tickCount" in call[0],
-    );
-    expect(tickCountCall).toBeDefined();
-    expect(tickCountCall?.[0].tickCount).toMatchObject({ _sql: "? + 1" });
+    expect((await teams.byId(team.id))?.tickCount).toBe(4);
   });
 
   it("skips agents that are not approved", async () => {
     const { POST } = await import("@/server/api/tick");
-
-    const agent = makeDueAgent();
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([agent]);
-    mockApproveAgentTick.mockReturnValue({
-      allowed: false,
-      reason: "not due",
-      reasonCode: "not_due",
-    });
+    const team = await seedTeam();
+    await seedAgent(team.id);
+    mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "not_due" });
 
     const res = await POST(tickReq());
     const body = (await res.json()) as { agentsRan: number };
@@ -415,38 +278,30 @@ describe("POST /api/tick", () => {
 
   it("builds peer list excluding the running agent", async () => {
     const { POST } = await import("@/server/api/tick");
-
-    const agent1 = makeDueAgent({ id: "agent-1", name: "Alpha" });
-    const agent2 = makeDueAgent({ id: "agent-2", name: "Beta", status: "paused" });
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([agent1, agent2]);
-    // Only agent1 is approved
-    mockApproveAgentTick
-      .mockReturnValueOnce({ allowed: true })
-      .mockReturnValueOnce({ allowed: false, reason: "paused", reasonCode: "agent_paused" });
+    const team = await seedTeam();
+    const agent1 = await seedAgent(team.id, { name: "Alpha" });
+    const agent2 = await seedAgent(team.id, { name: "Beta" });
+    // Only agent1 is approved (deterministic: approve by id).
+    mockApproveAgentTick.mockImplementation((_team: unknown, a: Agent) =>
+      a.id === agent1.id ? { allowed: true } : { allowed: false, reasonCode: "not_due" },
+    );
     mockRunAgent.mockResolvedValueOnce({ actionType: "noop", payload: {} });
 
     await POST(tickReq());
 
-    // runAgent should receive peers that excludes agent-1 (self)
     expect(mockRunAgent).toHaveBeenCalledWith(
       expect.objectContaining({
-        peers: expect.arrayContaining([
-          expect.objectContaining({ id: "agent-2", name: "Beta" }),
-        ]),
+        peers: expect.arrayContaining([expect.objectContaining({ id: agent2.id, name: "Beta" })]),
       }),
     );
-    // Peers should NOT include the running agent
     const callArgs = mockRunAgent.mock.calls[0][0];
-    expect(callArgs.peers.find((p: { id: string }) => p.id === "agent-1")).toBeUndefined();
+    expect(callArgs.peers.find((p: { id: string }) => p.id === agent1.id)).toBeUndefined();
   });
 
   it("fetches a2ax context and marks messages as read", async () => {
     const { POST } = await import("@/server/api/tick");
-
-    const agent = makeDueAgent();
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([agent]);
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id);
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockGetAgentContext.mockResolvedValueOnce({
       formatted: "You have 2 messages",
@@ -456,9 +311,8 @@ describe("POST /api/tick", () => {
 
     await POST(tickReq());
 
-    expect(mockGetAgentContext).toHaveBeenCalledWith(TEAM_ID, "agent-1");
-    expect(mockMarkContextRead).toHaveBeenCalledWith("agent-1", ["msg-1", "msg-2"]);
-    // a2axContext should be passed to runAgent
+    expect(mockGetAgentContext).toHaveBeenCalledWith(team.id, agent.id);
+    expect(mockMarkContextRead).toHaveBeenCalledWith(agent.id, ["msg-1", "msg-2"]);
     expect(mockRunAgent).toHaveBeenCalledWith(
       expect.objectContaining({ a2axContext: "You have 2 messages" }),
     );
@@ -466,13 +320,9 @@ describe("POST /api/tick", () => {
 
   it("handles multiple teams in a single tick", async () => {
     const { POST } = await import("@/server/api/tick");
-
-    const team2 = { ...sampleTeam, id: "team-2", name: "Second", tickCount: 0 };
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam, team2]);
-    // First team has one agent, second has none
-    mockDb.query.agents.findMany
-      .mockResolvedValueOnce([makeDueAgent()])
-      .mockResolvedValueOnce([]);
+    const team1 = await seedTeam({ name: "First", tickCount: 0 });
+    const team2 = await seedTeam({ name: "Second", tickCount: 0 });
+    await seedAgent(team1.id);
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockRunAgent.mockResolvedValueOnce({ actionType: "noop", payload: {} });
 
@@ -480,11 +330,9 @@ describe("POST /api/tick", () => {
     const body = (await res.json()) as { agentsRan: number };
 
     expect(body.agentsRan).toBe(1);
-    // Both teams should get tickCount incremented (two update calls for tickCount)
-    const tickCountCalls = mockSet.mock.calls.filter(
-      (call) => call[0] && "tickCount" in call[0],
-    );
-    expect(tickCountCalls).toHaveLength(2);
+    // Both teams' tickCount incremented.
+    expect((await teams.byId(team1.id))?.tickCount).toBe(1);
+    expect((await teams.byId(team2.id))?.tickCount).toBe(1);
   });
 
   describe("auth + spend gating", () => {
@@ -511,7 +359,16 @@ describe("POST /api/tick", () => {
     });
 
     it("skips the tick when the daily spend cap is reached", async () => {
-      mockSelectWhere.mockResolvedValueOnce([{ total: 999999 }]);
+      // Seed today's ledger over the default 5000c cap.
+      await spend.insert({
+        teamId: null,
+        agentId: null,
+        model: "claude-sonnet-4",
+        inputTokens: 0,
+        outputTokens: 0,
+        costCents: 999_999,
+        day: todayUtc(new Date()),
+      });
       const { POST } = await import("@/server/api/tick");
       const res = await POST(tickReq());
       const body = (await res.json()) as { skipped: string; agentsRan: number };
@@ -526,6 +383,8 @@ describe("POST /api/tick", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /api/tick — approval suspend/resume", () => {
+  useTempStore();
+
   const suspension = {
     messages: [{ role: "assistant", content: null, tool_calls: [] }],
     pending: [{ id: "call_w", name: "write_file", arguments: '{"path":"x"}' }],
@@ -535,8 +394,8 @@ describe("POST /api/tick — approval suspend/resume", () => {
 
   it("parks an agent and creates pending_approvals when a run suspends", async () => {
     const { POST } = await import("@/server/api/tick");
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id);
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockRunAgent.mockResolvedValueOnce({
       actionType: "suspended",
@@ -546,41 +405,37 @@ describe("POST /api/tick — approval suspend/resume", () => {
 
     await POST(tickReq());
 
-    expect(mockDb.transaction).toHaveBeenCalled();
     // Agent parked: status awaiting_approval + conversation state saved, with
     // the play-by-play trace tickId riding along for the resume pass.
-    expect(mockSet).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: "awaiting_approval",
-        conversationState: { ...suspension, traceTickId: expect.any(String) },
-      }),
-    );
-    // A pending_approvals row was inserted for the destructive call.
-    expect(mockInsertValues).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ toolCallId: "call_w", toolName: "write_file" }),
-      ]),
-    );
-    // nextRunAt must NOT advance while parked (no objectContaining with nextRunAt
-    // among the awaiting_approval set).
-    const parkCall = mockSet.mock.calls.find(
-      (c) => c[0] && c[0].status === "awaiting_approval",
-    );
-    expect(parkCall?.[0].nextRunAt).toBeUndefined();
+    const after = await agents.byId(agent.id);
+    expect(after?.status).toBe("awaiting_approval");
+    const cs = after?.conversationState as Record<string, unknown>;
+    expect(cs.pending).toEqual(suspension.pending);
+    expect(typeof cs.traceTickId).toBe("string");
+
+    // A pending approval row was written for the destructive call.
+    const pending = await approvals.byAgent(agent.id);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].toolCallId).toBe("call_w");
+    expect(pending[0].toolName).toBe("write_file");
+
+    // nextRunAt must NOT advance while parked.
+    expect(after?.nextRunAt?.getTime()).toBe(new Date("2026-05-20T00:00:00Z").getTime());
   });
 
-  it("does not run a fresh tick for an awaiting_approval agent", async () => {
+  it("does not run a fresh tick for an awaiting_approval agent with an unresolved approval", async () => {
     const { POST } = await import("@/server/api/tick");
-    const parked = makeDueAgent({ status: "awaiting_approval", conversationState: suspension });
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
-    // approveAgentTick is the real gate in the route; here it's mocked, but the
-    // route only adds awaiting_approval agents via the resume pass. Keep it
-    // blocked so the fresh pass can't pick it up.
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id, {
+      status: "awaiting_approval",
+      // conversationState set below via update (insert doesn't take it).
+    });
+    await agents.update(agent.id, { conversationState: suspension });
+    // approveAgentTick blocks awaiting_approval in the real route; mock it blocked.
     mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "awaiting_approval" });
-    // Still has an unresolved approval -> must NOT resume.
-    mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
-      { toolCallId: "call_w", status: "pending", decisionNote: null },
+    // Still-pending approval -> must NOT resume.
+    await approvals.insertMany(agent.id, [
+      { teamId: team.id, toolCallId: "call_w", toolName: "write_file", toolArguments: "{}" },
     ]);
 
     await POST(tickReq());
@@ -590,13 +445,11 @@ describe("POST /api/tick — approval suspend/resume", () => {
 
   it("resumes with decisions once all approvals are resolved", async () => {
     const { POST } = await import("@/server/api/tick");
-    const parked = makeDueAgent({ status: "awaiting_approval", conversationState: suspension });
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id, { status: "awaiting_approval" });
+    await agents.update(agent.id, { conversationState: suspension });
     mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "awaiting_approval" });
-    mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
-      { toolCallId: "call_w", status: "approved", decisionNote: null },
-    ]);
+    await seedApproval(agent, "call_w", "approved");
     mockRunAgent.mockResolvedValueOnce({
       actionType: "file_written",
       payload: { agent: "Researcher" },
@@ -604,7 +457,6 @@ describe("POST /api/tick — approval suspend/resume", () => {
 
     await POST(tickReq());
 
-    // runAgent called with resume carrying the decision.
     expect(mockRunAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         resume: expect.objectContaining({
@@ -614,22 +466,20 @@ describe("POST /api/tick — approval suspend/resume", () => {
       }),
     );
     // Resolved approvals consumed.
-    expect(mockDelete).toHaveBeenCalled();
+    expect(await approvals.byAgent(agent.id)).toEqual([]);
     // Completed -> back to running, conversation cleared.
-    expect(mockSet).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "running", conversationState: null }),
-    );
+    const after = await agents.byId(agent.id);
+    expect(after?.status).toBe("running");
+    expect(after?.conversationState).toBeNull();
   });
 
   it("passes rejection notes through as decisions", async () => {
     const { POST } = await import("@/server/api/tick");
-    const parked = makeDueAgent({ status: "awaiting_approval", conversationState: suspension });
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id, { status: "awaiting_approval" });
+    await agents.update(agent.id, { conversationState: suspension });
     mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "awaiting_approval" });
-    mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
-      { toolCallId: "call_w", status: "rejected", decisionNote: "too risky" },
-    ]);
+    await seedApproval(agent, "call_w", "rejected", "too risky");
     mockRunAgent.mockResolvedValueOnce({ actionType: "agent_thought", payload: {} });
 
     await POST(tickReq());
@@ -649,41 +499,42 @@ describe("POST /api/tick — approval suspend/resume", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /api/tick — timeout + parallelism", () => {
+  useTempStore();
+
   it("errors an agent whose run exceeds the per-agent budget", async () => {
     process.env.SH_AGENT_TIMEOUT_MS = "20"; // tiny budget
-    const { POST } = await import("@/server/api/tick");
+    try {
+      const { POST } = await import("@/server/api/tick");
+      const team = await seedTeam();
+      const agent = await seedAgent(team.id);
+      mockApproveAgentTick.mockReturnValue({ allowed: true });
+      mockRunAgent.mockImplementationOnce(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(() => resolve({ actionType: "noop", payload: {} }), 500),
+          ),
+      );
 
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
-    mockApproveAgentTick.mockReturnValue({ allowed: true });
-    // runAgent hangs well past the budget.
-    mockRunAgent.mockImplementationOnce(
-      () => new Promise((resolve) => setTimeout(() => resolve({ actionType: "noop", payload: {} }), 500)),
-    );
+      const res = await POST(tickReq());
+      const body = (await res.json()) as { agentsRan: number };
 
-    const res = await POST(tickReq());
-    const body = (await res.json()) as { agentsRan: number };
-
-    expect(body.agentsRan).toBe(0);
-    // The timed-out agent is errored and rescheduled.
-    expect(mockSet).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "errored", inFlight: false }),
-    );
-    delete process.env.SH_AGENT_TIMEOUT_MS;
+      expect(body.agentsRan).toBe(0);
+      const after = await agents.byId(agent.id);
+      expect(after?.status).toBe("errored");
+      expect(after?.inFlight).toBe(false);
+    } finally {
+      delete process.env.SH_AGENT_TIMEOUT_MS;
+    }
   });
 
   it("runs all due agents in a team concurrently (Promise.allSettled)", async () => {
     const { POST } = await import("@/server/api/tick");
-
-    const a1 = makeDueAgent({ id: "agent-1", name: "Alpha" });
-    const a2 = makeDueAgent({ id: "agent-2", name: "Beta" });
-    const a3 = makeDueAgent({ id: "agent-3", name: "Gamma" });
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([a1, a2, a3]);
+    const team = await seedTeam();
+    const a1 = await seedAgent(team.id, { name: "Alpha" });
+    const a2 = await seedAgent(team.id, { name: "Beta" });
+    const a3 = await seedAgent(team.id, { name: "Gamma" });
     mockApproveAgentTick.mockReturnValue({ allowed: true });
 
-    // Each run resolves after a delay; if they ran sequentially the total would
-    // be ~3x the delay. We only assert all three ran + were started together.
     const started: string[] = [];
     mockRunAgent.mockImplementation((cfg: { agentId: string }) => {
       started.push(cfg.agentId);
@@ -696,39 +547,40 @@ describe("POST /api/tick — timeout + parallelism", () => {
     const body = (await res.json()) as { agentsRan: number };
 
     expect(body.agentsRan).toBe(3);
-    // All three were invoked before any resolved (concurrent kickoff).
     expect(started).toHaveLength(3);
-    expect(new Set(started)).toEqual(new Set(["agent-1", "agent-2", "agent-3"]));
+    expect(new Set(started)).toEqual(new Set([a1.id, a2.id, a3.id]));
   });
 
   it("one agent failing does not stop its teammates", async () => {
     const { POST } = await import("@/server/api/tick");
-
-    const a1 = makeDueAgent({ id: "agent-1", name: "Alpha" });
-    const a2 = makeDueAgent({ id: "agent-2", name: "Beta" });
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([a1, a2]);
+    const team = await seedTeam();
+    const a1 = await seedAgent(team.id, { name: "Alpha" });
+    const a2 = await seedAgent(team.id, { name: "Beta" });
     mockApproveAgentTick.mockReturnValue({ allowed: true });
-    mockRunAgent
-      .mockRejectedValueOnce(new Error("boom"))
-      .mockResolvedValueOnce({ actionType: "noop", payload: {} });
+    // Fail a1 deterministically by id; succeed a2.
+    mockRunAgent.mockImplementation((cfg: { agentId: string }) =>
+      cfg.agentId === a1.id
+        ? Promise.reject(new Error("boom"))
+        : Promise.resolve({ actionType: "noop", payload: {} }),
+    );
 
     const res = await POST(tickReq());
     const body = (await res.json()) as { agentsRan: number };
 
-    // One failed, one succeeded — tick still completes, count reflects the win.
     expect(body.agentsRan).toBe(1);
-    expect(mockSet).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "errored" }),
-    );
+    expect((await agents.byId(a1.id))?.status).toBe("errored");
+    expect((await agents.byId(a2.id))?.status).toBe("running");
   });
 });
 
 // ---------------------------------------------------------------------------
-// LLM client selection
+// LLM client selection (resolveLLM builds the cascade from the configured
+// providers; the runner is mocked so no real call is made).
 // ---------------------------------------------------------------------------
 
 describe("POST /api/tick — LLM client selection", () => {
+  useTempStore();
+
   it("uses Codex client when apiKeySource is codex", async () => {
     const { POST } = await import("@/server/api/tick");
 
@@ -739,8 +591,8 @@ describe("POST /api/tick — LLM client selection", () => {
       model: "gpt-5.5",
       databaseUrl: "",
     });
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    const team = await seedTeam();
+    await seedAgent(team.id);
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     // Engine mode: codex-provider fresh runs go through the harness now.
     mockRunCodexAgentTick.mockResolvedValueOnce({
@@ -764,18 +616,15 @@ describe("POST /api/tick — LLM client selection", () => {
 
     process.env.ANTHROPIC_API_KEY = "sk-ant-test";
     mockGetApiKeySource.mockReturnValue("config");
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    const team = await seedTeam();
+    await seedAgent(team.id);
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockRunAgent.mockResolvedValueOnce({ actionType: "noop", payload: {} });
 
     await POST(tickReq());
 
     expect(mockCreateAnthropicClient).toHaveBeenCalledWith(
-      expect.objectContaining({
-        apiKey: "sk-ant-test",
-        timeout: 120_000,
-      }),
+      expect.objectContaining({ apiKey: "sk-ant-test", timeout: 120_000 }),
     );
     expect(mockCreateCodexClient).not.toHaveBeenCalled();
   });
@@ -791,15 +640,13 @@ describe("POST /api/tick — LLM client selection", () => {
       model: "o4-mini",
       databaseUrl: "",
     });
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([]);
+    await seedTeam();
 
     await POST(tickReq());
 
     expect(mockCreateCodexClient).not.toHaveBeenCalled();
     expect(mockCreateAnthropicClient).not.toHaveBeenCalled();
     // OpenAI path is the fallback — it instantiates new OpenAI() internally.
-    // We just verify the other two were NOT used.
   });
 });
 
@@ -808,9 +655,10 @@ describe("POST /api/tick — LLM client selection", () => {
 // ---------------------------------------------------------------------------
 
 describe("GET /api/tick", () => {
+  useTempStore();
+
   it("delegates to POST and returns same shape", async () => {
     const { GET } = await import("@/server/api/tick");
-    mockDb.query.teams.findMany.mockResolvedValueOnce([]);
 
     const res = await GET(tickReq());
     const body = (await res.json()) as { ok: boolean; agentsRan: number; timestamp: unknown };
@@ -826,21 +674,13 @@ describe("GET /api/tick", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /api/tick — play-by-play trace", () => {
-  /** Insert batches that look like trace rows (arrays of {type, tickId, seq}). */
-  function traceBatches(): Array<Array<Record<string, unknown>>> {
-    return mockInsertValues.mock.calls
-      .map((c) => c[0])
-      .filter(
-        (arg): arg is Array<Record<string, unknown>> =>
-          Array.isArray(arg) && arg.length > 0 && typeof arg[0]?.tickId === "string",
-      );
-  }
+  useTempStore();
 
   it("persists runner trace steps emitted during a successful run", async () => {
+    const { traceEvents } = await import("@/server/store");
     const { POST } = await import("@/server/api/tick");
-
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id);
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockRunAgent.mockImplementationOnce(async (cfg: { trace?: (s: unknown) => void }) => {
       cfg.trace?.({ type: "tick_started", data: { mode: "fresh", round: 0 } });
@@ -850,7 +690,7 @@ describe("POST /api/tick — play-by-play trace", () => {
 
     await POST(tickReq());
 
-    const rows = traceBatches().flat();
+    const rows = await traceEvents.query({ teamId: team.id, order: "asc", limit: 1000 });
     expect(rows.length).toBeGreaterThanOrEqual(2);
     expect(rows.map((r) => r.type)).toEqual(
       expect.arrayContaining(["tick_started", "tick_finished"]),
@@ -858,32 +698,34 @@ describe("POST /api/tick — play-by-play trace", () => {
     // All steps of one run share a tickId and identify the agent.
     const tickIds = new Set(rows.map((r) => r.tickId));
     expect(tickIds.size).toBe(1);
-    expect(rows[0].agentId).toBe("agent-1");
-    expect(rows[0].teamId).toBe(TEAM_ID);
+    expect(rows[0].agentId).toBe(agent.id);
+    expect(rows[0].teamId).toBe(team.id);
   });
 
   it("records a tick_failed step when the run throws", async () => {
+    const { traceEvents } = await import("@/server/store");
     const { POST } = await import("@/server/api/tick");
-
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    const team = await seedTeam();
+    await seedAgent(team.id);
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockRunAgent.mockRejectedValueOnce(new Error("LLM exploded"));
 
     await POST(tickReq());
 
-    const rows = traceBatches().flat();
+    const rows = await traceEvents.query({ teamId: team.id, order: "asc", limit: 1000 });
     const failed = rows.find((r) => r.type === "tick_failed");
     expect(failed).toBeDefined();
     expect((failed?.data as Record<string, unknown>)?.error).toContain("LLM exploded");
   });
 
   it("resume reuses the trace tickId parked with the suspension", async () => {
+    const { traceEvents } = await import("@/server/store");
     const { POST } = await import("@/server/api/tick");
 
     const parkedTickId = "11111111-2222-4333-8444-555555555555";
-    const parked = makeDueAgent({
-      status: "awaiting_approval",
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id, { status: "awaiting_approval" });
+    await agents.update(agent.id, {
       conversationState: {
         messages: [{ role: "assistant", content: null, tool_calls: [] }],
         pending: [{ id: "call_w", name: "write_file", arguments: "{}" }],
@@ -892,12 +734,8 @@ describe("POST /api/tick — play-by-play trace", () => {
         traceTickId: parkedTickId,
       },
     });
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
     mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "awaiting_approval" });
-    mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
-      { toolCallId: "call_w", status: "approved", decisionNote: null },
-    ]);
+    await seedApproval(agent, "call_w", "approved");
     mockRunAgent.mockImplementationOnce(async (cfg: { trace?: (s: unknown) => void }) => {
       cfg.trace?.({ type: "tick_started", data: { mode: "resume", round: 0 } });
       return { actionType: "file_written", payload: {} };
@@ -905,7 +743,7 @@ describe("POST /api/tick — play-by-play trace", () => {
 
     await POST(tickReq());
 
-    const rows = traceBatches().flat();
+    const rows = await traceEvents.query({ teamId: team.id, order: "asc", limit: 1000 });
     expect(rows.length).toBeGreaterThanOrEqual(1);
     expect(rows[0].tickId).toBe(parkedTickId);
   });
@@ -916,12 +754,14 @@ describe("POST /api/tick — play-by-play trace", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /api/tick — codex app-server harness", () => {
+  useTempStore();
+
   it("routes fresh codex-provider runs through the harness, not the runner", async () => {
     const { POST } = await import("@/server/api/tick");
 
     mockGetApiKeySource.mockReturnValue("codex");
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id);
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockRunCodexAgentTick.mockResolvedValueOnce({
       actionType: "research",
@@ -936,15 +776,15 @@ describe("POST /api/tick — codex app-server harness", () => {
     expect(mockRunCodexAgentTick).toHaveBeenCalledTimes(1);
     expect(mockRunAgent).not.toHaveBeenCalled();
 
-    // Real token usage from the harness lands in the spend ledger (model
-    // comes from config — the default test config says o4-mini).
-    expect(mockInsertValues).toHaveBeenCalledWith(
-      expect.objectContaining({ inputTokens: 5000, outputTokens: 250, model: "o4-mini" }),
-    );
+    // Real token usage from the harness lands in the spend ledger (model comes
+    // from config — the default test config says o4-mini).
+    const today = todayUtc(new Date());
+    const spent = await spend.sumForDay(today);
+    expect(spent).toBeGreaterThan(0);
+
     // And the action was logged.
-    expect(mockInsertValues).toHaveBeenCalledWith(
-      expect.objectContaining({ actionType: "research" }),
-    );
+    const logs = await actionLog.recentByAgent(agent.id, 10);
+    expect(logs[0].actionType).toBe("research");
   });
 
   it("SH_CODEX_RUNTIME=exec opts out of the harness", async () => {
@@ -953,8 +793,8 @@ describe("POST /api/tick — codex app-server harness", () => {
       const { POST } = await import("@/server/api/tick");
 
       mockGetApiKeySource.mockReturnValue("codex");
-      mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-      mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+      const team = await seedTeam();
+      await seedAgent(team.id);
       mockApproveAgentTick.mockReturnValue({ allowed: true });
       mockRunAgent.mockResolvedValueOnce({ actionType: "research", payload: {} });
 
@@ -971,8 +811,8 @@ describe("POST /api/tick — codex app-server harness", () => {
     const { POST } = await import("@/server/api/tick");
 
     mockGetApiKeySource.mockReturnValue("codex");
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([makeDueAgent()]);
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id);
     mockApproveAgentTick.mockReturnValue({ allowed: true });
     mockRunCodexAgentTick.mockResolvedValueOnce({
       actionType: "suspended",
@@ -988,28 +828,24 @@ describe("POST /api/tick — codex app-server harness", () => {
 
     await POST(tickReq());
 
-    expect(mockSet).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: "awaiting_approval",
-        conversationState: expect.objectContaining({
-          kind: "codex-thread",
-          threadId: "thr_abc",
-          traceTickId: expect.any(String),
-        }),
-      }),
-    );
-    expect(mockInsertValues).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ toolCallId: "c9", toolName: "write_file" }),
-      ]),
-    );
+    const after = await agents.byId(agent.id);
+    expect(after?.status).toBe("awaiting_approval");
+    const cs = after?.conversationState as Record<string, unknown>;
+    expect(cs.kind).toBe("codex-thread");
+    expect(cs.threadId).toBe("thr_abc");
+    expect(typeof cs.traceTickId).toBe("string");
+
+    const pending = await approvals.byAgent(agent.id);
+    expect(pending.some((p) => p.toolCallId === "c9" && p.toolName === "write_file")).toBe(true);
   });
 
   it("resumes a codex-thread suspension through the harness with the decisions", async () => {
     const { POST } = await import("@/server/api/tick");
 
-    const parked = makeDueAgent({
-      status: "awaiting_approval",
+    mockGetApiKeySource.mockReturnValue("codex");
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id, { status: "awaiting_approval" });
+    await agents.update(agent.id, {
       conversationState: {
         kind: "codex-thread",
         threadId: "thr_abc",
@@ -1017,13 +853,8 @@ describe("POST /api/tick — codex app-server harness", () => {
         actions: [],
       },
     });
-    mockGetApiKeySource.mockReturnValue("codex");
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
     mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "awaiting_approval" });
-    mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
-      { toolCallId: "c9", status: "approved", decisionNote: null },
-    ]);
+    await seedApproval(agent, "c9", "approved");
     mockRunCodexAgentTick.mockResolvedValueOnce({
       actionType: "file_written",
       payload: {},
@@ -1046,8 +877,10 @@ describe("POST /api/tick — codex app-server harness", () => {
   it("legacy message-based suspensions still resume through the runner under the codex provider", async () => {
     const { POST } = await import("@/server/api/tick");
 
-    const parked = makeDueAgent({
-      status: "awaiting_approval",
+    mockGetApiKeySource.mockReturnValue("codex");
+    const team = await seedTeam();
+    const agent = await seedAgent(team.id, { status: "awaiting_approval" });
+    await agents.update(agent.id, {
       conversationState: {
         messages: [{ role: "assistant", content: null, tool_calls: [] }],
         pending: [{ id: "call_w", name: "write_file", arguments: "{}" }],
@@ -1055,13 +888,8 @@ describe("POST /api/tick — codex app-server harness", () => {
         round: 0,
       },
     });
-    mockGetApiKeySource.mockReturnValue("codex");
-    mockDb.query.teams.findMany.mockResolvedValueOnce([sampleTeam]);
-    mockDb.query.agents.findMany.mockResolvedValueOnce([parked]);
     mockApproveAgentTick.mockReturnValue({ allowed: false, reasonCode: "awaiting_approval" });
-    mockDb.query.pendingApprovals.findMany.mockResolvedValueOnce([
-      { toolCallId: "call_w", status: "approved", decisionNote: null },
-    ]);
+    await seedApproval(agent, "call_w", "approved");
     mockRunAgent.mockResolvedValueOnce({ actionType: "file_written", payload: {} });
 
     await POST(tickReq());

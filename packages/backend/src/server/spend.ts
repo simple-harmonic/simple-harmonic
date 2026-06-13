@@ -6,12 +6,8 @@
 // loop checks the day's total against SH_DAILY_SPEND_CAP_CENTS before running.
 // ---------------------------------------------------------------------------
 
-import { sql } from "drizzle-orm";
 import type { LLMClient } from "../lib/meta-agent/runner";
-import type { db } from "./db";
-import { llmSpend } from "./db/schema";
-
-type DB = ReturnType<typeof db>;
+import { spend } from "./store";
 
 // Per-1M-token cost in US cents, by model-id prefix. Approximate published
 // list prices; the fallback is deliberately expensive so an unknown model
@@ -52,13 +48,8 @@ export function todayUtc(now: Date): string {
   return now.toISOString().slice(0, 10);
 }
 
-export async function spentTodayCents(d: DB, now: Date): Promise<number> {
-  const day = todayUtc(now);
-  const rows = await d
-    .select({ total: sql<number>`coalesce(sum(${llmSpend.costCents}), 0)` })
-    .from(llmSpend)
-    .where(sql`${llmSpend.day} = ${day}`);
-  return Number(rows[0]?.total ?? 0);
+export async function spentTodayCents(now: Date): Promise<number> {
+  return spend.sumForDay(todayUtc(now));
 }
 
 export interface SpendStatus {
@@ -77,10 +68,10 @@ export interface SpendStatus {
  * idle and the per-agent tick timeout; the caller logs the failure loudly. The
  * cap re-engages as soon as the ledger is readable again.
  */
-export async function checkSpendAllowed(d: DB, now: Date): Promise<SpendStatus> {
+export async function checkSpendAllowed(now: Date): Promise<SpendStatus> {
   const capCents = dailyCapCents();
   try {
-    const spentCents = await spentTodayCents(d, now);
+    const spentCents = await spentTodayCents(now);
     return { allowed: spentCents < capCents, spentCents, capCents };
   } catch {
     return { allowed: true, spentCents: -1, capCents, unknown: true };
@@ -89,7 +80,6 @@ export async function checkSpendAllowed(d: DB, now: Date): Promise<SpendStatus> 
 
 /** Append one usage row. Best-effort: a ledger write failure never breaks a tick. */
 export async function recordSpend(
-  d: DB,
   now: Date,
   entry: {
     teamId?: string | null;
@@ -101,7 +91,7 @@ export async function recordSpend(
 ): Promise<void> {
   if (entry.inputTokens <= 0 && entry.outputTokens <= 0) return;
   try {
-    await d.insert(llmSpend).values({
+    await spend.insert({
       teamId: entry.teamId ?? null,
       agentId: entry.agentId ?? null,
       model: entry.model,

@@ -3,9 +3,7 @@ import {
   USER_AGENT_ID,
 } from "../../lib/meta-agent/identity";
 import { getA2AX } from "../a2ax";
-import { db } from "../db";
-import { agents, chatSessions, teams } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { agents, teams } from "../store";
 
 const TEAM_NAME = "Simple Harmonic v0.0 Launch";
 const META_PROMPT = `You are the AI cofounder for Simple Harmonic, an AI cofounder and team product for founders. The company goal: ship Simple Harmonic v0.0 by June 1 2026, hit 1.5k GitHub stars by month 6, begin MRR at month 6. Your agents handle content, dev ops, market research, and community. Coordinate them. Be direct and opinionated.`;
@@ -50,13 +48,10 @@ const AGENT_DEFS = [
 ];
 
 export async function POST() {
-  const d = db();
   const a2ax = getA2AX();
 
   // Check if team already exists
-  const existing = await d.query.teams.findFirst({
-    where: eq(teams.name, TEAM_NAME),
-  });
+  const existing = (await teams.all()).find((t) => t.name === TEAM_NAME);
   if (existing) {
     return Response.json(
       { error: "Mock team already exists", teamId: existing.id },
@@ -65,37 +60,29 @@ export async function POST() {
   }
 
   // 1. Create team
-  const [team] = await d
-    .insert(teams)
-    .values({
-      name: TEAM_NAME,
-      metaAgentPrompt: META_PROMPT,
-      cofounderName: "Harmon",
-      paused: true,
-      tickCount: 12,
-    })
-    .returning({ id: teams.id });
+  const team = await teams.insert({
+    name: TEAM_NAME,
+    metaAgentPrompt: META_PROMPT,
+    cofounderName: "Harmon",
+    paused: true,
+    tickCount: 12,
+  });
 
-  // 2. Create chat session
-  await d.insert(chatSessions).values({ teamId: team.id });
-
-  // 3. Create agents
+  // 2. Create agents
   const now = new Date();
-  const inserted = await d
-    .insert(agents)
-    .values(
-      AGENT_DEFS.map((a) => ({
-        teamId: team.id,
-        name: a.name,
-        role: a.role,
-        archetype: a.archetype,
-        tools: a.tools,
-        scheduleSeconds: a.scheduleSeconds,
-        initialPrompt: a.initialPrompt,
-        nextRunAt: new Date(now.getTime() + a.scheduleSeconds * 1000),
-      })),
-    )
-    .returning({ id: agents.id, name: agents.name });
+  const insertedAgents = await agents.insertMany(
+    team.id,
+    AGENT_DEFS.map((a) => ({
+      name: a.name,
+      role: a.role,
+      archetype: a.archetype,
+      tools: a.tools,
+      scheduleSeconds: a.scheduleSeconds,
+      initialPrompt: a.initialPrompt,
+      nextRunAt: new Date(now.getTime() + a.scheduleSeconds * 1000),
+    })),
+  );
+  const inserted = insertedAgents.map((a) => ({ id: a.id, name: a.name }));
 
   const agentMap = Object.fromEntries(inserted.map((a) => [a.name, a.id]));
 

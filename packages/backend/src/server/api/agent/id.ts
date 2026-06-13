@@ -1,6 +1,5 @@
-import { eq } from "drizzle-orm";
-import { db } from "../../db";
-import { agents } from "../../db/schema";
+import { agents } from "../../store";
+import type { Agent } from "../../store";
 
 const PUBLIC_STATUSES = new Set(["running", "paused", "errored"]);
 
@@ -38,10 +37,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return Response.json({ error: "no valid fields" }, { status: 400 });
   }
 
-  const d = db();
-  const current = await d.query.agents.findFirst({
-    where: eq(agents.id, id),
-  });
+  const current = await agents.byId(id);
   if (!current) return Response.json({ error: "not found" }, { status: 404 });
 
   if (current.status === "awaiting_approval" && (body.wake === true || "status" in updates)) {
@@ -51,7 +47,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     );
   }
 
-  const [updated] = await d.update(agents).set(updates).where(eq(agents.id, id)).returning();
+  const updated = await agents.update(id, updates as Partial<Agent>);
   if (!updated) return Response.json({ error: "not found" }, { status: 404 });
 
   return Response.json(updated);

@@ -20,13 +20,8 @@ import {
   queryAppEvents,
 } from "../app-events";
 import { getApiKeySource } from "../config";
-import { db } from "../db";
-import {
-  actionLog,
-  agents,
-  pendingApprovals,
-  teams,
-} from "../db/schema";
+import { actionLog, agents, approvals, teams } from "../store";
+import type { Agent, Team } from "../store";
 import { resolveLLM } from "../llm";
 import { isCronAuthorized } from "../operator-auth";
 import {
@@ -40,7 +35,6 @@ import {
   type PersistentTraceSink,
   pruneTraceEvents,
 } from "../trace";
-import { and, desc, eq, sql } from "drizzle-orm";
 
 // Skip ticks for teams with no recent user activity to control costs.
 const HIBERNATE_THRESHOLD_MS = 5 * 60 * 1000;
@@ -64,15 +58,8 @@ const HISTORY_LIMIT = 10;
 
 const VALIDATION_HISTORY_LIMIT = 5;
 
-async function fetchRecentValidations(
-  d: ReturnType<typeof db>,
-  agentId: string,
-): Promise<string | undefined> {
-  const rows = await d.query.actionLog.findMany({
-    where: eq(actionLog.agentId, agentId),
-    orderBy: [desc(actionLog.executedAt)],
-    limit: VALIDATION_HISTORY_LIMIT * 2,
-  });
+async function fetchRecentValidations(agentId: string): Promise<string | undefined> {
+  const rows = await actionLog.recentByAgent(agentId, VALIDATION_HISTORY_LIMIT * 2);
 
   const validations: string[] = [];
   for (const r of rows.reverse()) {
@@ -92,15 +79,8 @@ async function fetchRecentValidations(
   return validations.length > 0 ? validations.join("\n") : undefined;
 }
 
-async function fetchRecentHistory(
-  d: ReturnType<typeof db>,
-  agentId: string,
-): Promise<string | undefined> {
-  const rows = await d.query.actionLog.findMany({
-    where: eq(actionLog.agentId, agentId),
-    orderBy: [desc(actionLog.executedAt)],
-    limit: HISTORY_LIMIT,
-  });
+async function fetchRecentHistory(agentId: string): Promise<string | undefined> {
+  const rows = await actionLog.recentByAgent(agentId, HISTORY_LIMIT);
   if (rows.length === 0) return undefined;
   const lines = rows.reverse().map((r) => {
     const ts = r.executedAt.toISOString().slice(11, 19);
@@ -127,14 +107,13 @@ function summarizePayload(actionType: string, payload: Record<string, unknown>):
   return json.length > 150 ? `${json.slice(0, 147)}...` : json;
 }
 
-type AgentRow = typeof agents.$inferSelect;
+type AgentRow = Agent;
 
 export async function POST(req: Request) {
   if (!isCronAuthorized(req, process.env.CRON_SECRET)) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const d = db();
   const now = new Date();
 
   // Retention sweep for play-by-play traces; internally throttled to hourly.
@@ -143,15 +122,13 @@ export async function POST(req: Request) {
   if (!didResetInFlight) {
     didResetInFlight = true;
     try {
-      await d.update(agents).set({ inFlight: false }).where(eq(agents.inFlight, true));
+      await agents.resetAllInFlight();
     } catch {
       didResetInFlight = false;
     }
   }
 
-  const allActive = await d.query.teams.findMany({
-    where: eq(teams.paused, false),
-  });
+  const allActive = await teams.listUnpaused();
 
   // Filter out hibernated teams: no user heartbeat in the last 5 minutes.
   const activeTeams = allActive.filter((t) => {
@@ -190,14 +167,13 @@ export async function POST(req: Request) {
 
   // Daily spend cap: bail before any LLM work if today's recorded spend is at
   // or over the ceiling. Fails OPEN on a ledger read error (see spend.ts) so a
-  // missing migration / DB hiccup can't silently halt every team's agents.
-  const spend = await checkSpendAllowed(d, now);
+  // missing ledger / IO hiccup can't silently halt every team's agents.
+  const spend = await checkSpendAllowed(now);
   if (spend.unknown) {
     emitAppEvent({
       severity: "warning",
       source: "tick",
-      message:
-        "Spend ledger unreadable (llm_spend not migrated?); proceeding without the cap this tick",
+      message: "Spend ledger unreadable; proceeding without the cap this tick",
     });
   } else if (!spend.allowed) {
     emitAppEvent({
@@ -219,35 +195,29 @@ export async function POST(req: Request) {
     const registry = createAppRegistryWithCustomTools();
 
     // Get all agents in team for peer context
-    const allAgents = await d.query.agents.findMany({
-      where: eq(agents.teamId, team.id),
-    });
+    const allAgents = await agents.byTeam(team.id);
 
     // Auto-recover errored agents: reset to running so they retry on next tick.
     for (const a of allAgents) {
       if (a.status === "errored") {
-        await d
-          .update(agents)
-          .set({ status: "running", inFlight: false })
-          .where(eq(agents.id, a.id));
+        await agents.update(a.id, { status: "running", inFlight: false });
         a.status = "running";
         a.inFlight = false;
       }
     }
 
     // Agents in a team run CONCURRENTLY within each pass (T5/D20). They are
-    // distinct DB rows and each has its own a2ax context, so they don't
-    // contend; the team-level tickCount increment happens once after both
-    // passes. Each agent run is independently time-bounded, so one slow agent
-    // can't delay the others. Passes stay sequential: a resuming agent must
-    // settle before the fresh pass (it's excluded from dueAgents anyway).
+    // distinct rows and each has its own a2ax context, so they don't contend;
+    // the team-level tickCount increment happens once after both passes. Each
+    // agent run is independently time-bounded, so one slow agent can't delay the
+    // others. Passes stay sequential: a resuming agent must settle before the
+    // fresh pass (it's excluded from dueAgents anyway).
 
     // --- Resume pass: agents parked awaiting approval -------------------------
     const parked = allAgents.filter((a) => a.status === "awaiting_approval");
     const resumeOutcomes = await Promise.allSettled(
       parked.map((agent) =>
         tryResumeAgent({
-          d,
           team,
           agent,
           allAgents,
@@ -269,7 +239,6 @@ export async function POST(req: Request) {
     const freshOutcomes = await Promise.allSettled(
       dueAgents.map((agent) =>
         runFreshAgent({
-          d,
           team,
           agent,
           allAgents,
@@ -285,10 +254,7 @@ export async function POST(req: Request) {
     );
     totalRan += countRan(freshOutcomes);
 
-    await d
-      .update(teams)
-      .set({ tickCount: sql`${teams.tickCount} + 1` })
-      .where(eq(teams.id, team.id));
+    await teams.incrementTickCount(team.id);
   }
 
   return Response.json({ ok: true, agentsRan: totalRan, timestamp: now.toISOString() });
@@ -359,8 +325,7 @@ function withTimeout<T>(
 }
 
 interface RunArgs {
-  d: ReturnType<typeof db>;
-  team: typeof teams.$inferSelect;
+  team: Team;
   agent: AgentRow;
   allAgents: AgentRow[];
   a2ax: ReturnType<typeof getA2AX>;
@@ -389,9 +354,9 @@ interface RunOutcome {
  * timeout) error the agent and advance nextRunAt so the tick can't tight-loop.
  */
 async function runFreshAgent(args: RunArgs): Promise<boolean> {
-  const { d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs, registry } = args;
+  const { team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs, registry } = args;
 
-  const claimed = await claimAgent(d, agent, "running");
+  const claimed = await agents.claim(agent.id, "running");
   if (!claimed) return false;
 
   const trace = createTraceSink({ teamId: team.id, agentId: agent.id });
@@ -399,8 +364,8 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
     const contract = agent.outputContract as Record<string, unknown> | null;
     const [ctx, recentHistory, recentValidations, recentEvents, platformSt] = await Promise.all([
       a2ax.getAgentContext(team.id, agent.id),
-      fetchRecentHistory(d, agent.id),
-      contract ? fetchRecentValidations(d, agent.id) : Promise.resolve(undefined),
+      fetchRecentHistory(agent.id),
+      contract ? fetchRecentValidations(agent.id) : Promise.resolve(undefined),
       queryAppEvents({
         teamId: team.id,
         since: new Date(now.getTime() - 3600000),
@@ -460,8 +425,8 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
     }
 
     await a2ax.markContextRead(agent.id, ctx.messageIds);
-    await handleRunResult({ d, agent, result, now, traceTickId: trace.tickId });
-    await recordSpend(d, now, {
+    await handleRunResult({ agent, result, now, traceTickId: trace.tickId });
+    await recordSpend(now, {
       teamId: team.id,
       agentId: agent.id,
       model: usage.model,
@@ -470,7 +435,7 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
     });
     return true;
   } catch (err) {
-    await failAgent({ d, agent, now, err, phase: "tick", a2ax, teamId: team.id, trace });
+    await failAgent({ agent, now, err, phase: "tick", a2ax, teamId: team.id, trace });
     return false;
   } finally {
     await trace.flush();
@@ -483,7 +448,7 @@ async function runFreshAgent(args: RunArgs): Promise<boolean> {
  * still waiting on at least one decision (or failed). Time-bounded.
  */
 async function tryResumeAgent(args: RunArgs): Promise<boolean> {
-  const { d, team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs, registry } = args;
+  const { team, agent, allAgents, a2ax, llm, modelOverride, now, timeoutMs, registry } = args;
 
   // Either shape may be parked here: a legacy message-based runner suspension
   // or an engine-mode codex-thread suspension. Both carry `pending`.
@@ -494,17 +459,16 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
   if (!suspension) {
     // Defensive: parked with no state. Clear both sides of the parked state so
     // stale approval cards cannot linger or contaminate a later suspension.
-    await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
-    await d
-      .update(agents)
-      .set({ status: "running", inFlight: false, conversationState: null })
-      .where(eq(agents.id, agent.id));
+    await approvals.clearForAgent(agent.id);
+    await agents.update(agent.id, {
+      status: "running",
+      inFlight: false,
+      conversationState: null,
+    });
     return false;
   }
 
-  const rows = await d.query.pendingApprovals.findMany({
-    where: eq(pendingApprovals.agentId, agent.id),
-  });
+  const rows = await approvals.byAgent(agent.id);
   const expectedIds = new Set(suspension.pending.map((p) => p.id));
   const decisionRows = rows.filter((r) => expectedIds.has(r.toolCallId));
 
@@ -524,7 +488,7 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
     };
   });
 
-  const claimed = await claimAgent(d, agent, "awaiting_approval");
+  const claimed = await agents.claim(agent.id, "awaiting_approval");
   if (!claimed) return false;
 
   // Continue the original tick's play-by-play thread: handleRunResult parked
@@ -535,7 +499,7 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
     tickId: extractTraceTickId(agent.conversationState),
   });
   try {
-    const recentHistory = await fetchRecentHistory(d, agent.id);
+    const recentHistory = await fetchRecentHistory(agent.id);
 
     const shared = {
       name: agent.name,
@@ -583,9 +547,9 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
     }
 
     // Consume the resolved approvals so they don't block a future suspension.
-    await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
-    await handleRunResult({ d, agent, result, now, traceTickId: trace.tickId });
-    await recordSpend(d, now, {
+    await approvals.clearForAgent(agent.id);
+    await handleRunResult({ agent, result, now, traceTickId: trace.tickId });
+    await recordSpend(now, {
       teamId: team.id,
       agentId: agent.id,
       model: usage.model,
@@ -594,8 +558,8 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
     });
     return true;
   } catch (err) {
-    await d.delete(pendingApprovals).where(eq(pendingApprovals.agentId, agent.id));
-    await failAgent({ d, agent, now, err, phase: "resume", a2ax, teamId: team.id, trace });
+    await approvals.clearForAgent(agent.id);
+    await failAgent({ agent, now, err, phase: "resume", a2ax, teamId: team.id, trace });
     return false;
   } finally {
     await trace.flush();
@@ -611,24 +575,10 @@ function extractTraceTickId(conversationState: unknown): string | undefined {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function claimAgent(
-  d: ReturnType<typeof db>,
-  agent: AgentRow,
-  status: AgentRow["status"],
-): Promise<boolean> {
-  const claimed = await d
-    .update(agents)
-    .set({ inFlight: true })
-    .where(and(eq(agents.id, agent.id), eq(agents.inFlight, false), eq(agents.status, status)))
-    .returning({ id: agents.id });
-  return claimed.length > 0;
-}
-
 /** Common failure handling: log, error the agent, advance nextRunAt, clear state.
  *  Double-writes: persists to app_events AND broadcasts via a2ax so peers
  *  see the failure immediately on their next tick. */
 async function failAgent(args: {
-  d: ReturnType<typeof db>;
   agent: AgentRow;
   now: Date;
   err: unknown;
@@ -637,7 +587,7 @@ async function failAgent(args: {
   teamId: string;
   trace?: PersistentTraceSink;
 }): Promise<void> {
-  const { d, agent, now, err, phase, a2ax, teamId, trace } = args;
+  const { agent, now, err, phase, a2ax, teamId, trace } = args;
   const msg = err instanceof Error ? err.message : String(err);
   console.error(`[tick] ${phase} of ${agent.name} failed:`, msg);
 
@@ -664,25 +614,21 @@ async function failAgent(args: {
     })
     .catch(() => {});
 
-  await d
-    .update(agents)
-    .set({
-      inFlight: false,
-      status: "errored",
-      conversationState: null,
-      nextRunAt: new Date(now.getTime() + agent.scheduleSeconds * 1000),
-    })
-    .where(eq(agents.id, agent.id));
+  await agents.update(agent.id, {
+    inFlight: false,
+    status: "errored",
+    conversationState: null,
+    nextRunAt: new Date(now.getTime() + agent.scheduleSeconds * 1000),
+  });
 }
 
 /**
- * Apply a runAgent result to the DB. If the run suspended, park the agent
- * (status awaiting_approval, conversation state saved, pending_approvals rows
- * created) WITHOUT advancing nextRunAt. Otherwise log the action and return the
- * agent to running.
+ * Apply a runAgent result to the store. If the run suspended, park the agent
+ * (status awaiting_approval, conversation state saved, approval rows created)
+ * WITHOUT advancing nextRunAt. Otherwise log the action and return the agent to
+ * running.
  */
 async function handleRunResult(args: {
-  d: ReturnType<typeof db>;
   agent: AgentRow;
   /** Result from either runAgent (runner) or runCodexAgentTick (harness);
    *  the suspension is persisted opaquely in both cases. */
@@ -692,43 +638,41 @@ async function handleRunResult(args: {
    *  pass can continue the same play-by-play thread. */
   traceTickId?: string;
 }): Promise<void> {
-  const { d, agent, result, now, traceTickId } = args;
+  const { agent, result, now, traceTickId } = args;
 
   if (result.suspension) {
     const s = result.suspension;
-    await d.transaction(async (tx) => {
-      await tx
-        .update(agents)
-        .set({
-          inFlight: false,
-          status: "awaiting_approval",
-          // The extra traceTickId key rides along with the opaque suspension;
-          // the runner ignores it and extractTraceTickId reads it on resume.
-          conversationState: {
-            ...(s as unknown as Record<string, unknown>),
-            ...(traceTickId ? { traceTickId } : {}),
-          },
-        })
-        .where(eq(agents.id, agent.id));
+    // No cross-file transaction: park the agent, write its approval rows, and
+    // log the suspension as three sequential writes (each atomic on its own
+    // file). A crash between them is recovered by the defensive clear in
+    // tryResumeAgent and the once-per-process inFlight reset.
+    await agents.update(agent.id, {
+      inFlight: false,
+      status: "awaiting_approval",
+      // The extra traceTickId key rides along with the opaque suspension;
+      // the runner ignores it and extractTraceTickId reads it on resume.
+      conversationState: {
+        ...(s as unknown as Record<string, unknown>),
+        ...(traceTickId ? { traceTickId } : {}),
+      },
+    });
 
-      if (s.pending.length > 0) {
-        await tx.insert(pendingApprovals).values(
-          s.pending.map((p) => ({
-            teamId: agent.teamId,
-            agentId: agent.id,
-            toolCallId: p.id,
-            toolName: p.name,
-            toolArguments: p.arguments,
-          })),
-        );
-      }
+    if (s.pending.length > 0) {
+      await approvals.insertMany(
+        agent.id,
+        s.pending.map((p) => ({
+          teamId: agent.teamId,
+          toolCallId: p.id,
+          toolName: p.name,
+          toolArguments: p.arguments,
+        })),
+      );
+    }
 
-      // Log the suspension so it shows in the narration feed.
-      await tx.insert(actionLog).values({
-        agentId: agent.id,
-        actionType: "awaiting_approval",
-        payload: result.payload,
-      });
+    // Log the suspension so it shows in the narration feed.
+    await actionLog.insert(agent.id, {
+      actionType: "awaiting_approval",
+      payload: result.payload,
     });
     return;
   }
@@ -740,21 +684,14 @@ async function handleRunResult(args: {
       }
     : result.payload;
 
-  await d.insert(actionLog).values({
-    agentId: agent.id,
-    actionType: result.actionType,
-    payload,
-  });
+  await actionLog.insert(agent.id, { actionType: result.actionType, payload });
 
-  await d
-    .update(agents)
-    .set({
-      inFlight: false,
-      status: "running",
-      conversationState: null,
-      nextRunAt: new Date(now.getTime() + agent.scheduleSeconds * 1000),
-    })
-    .where(eq(agents.id, agent.id));
+  await agents.update(agent.id, {
+    inFlight: false,
+    status: "running",
+    conversationState: null,
+    nextRunAt: new Date(now.getTime() + agent.scheduleSeconds * 1000),
+  });
 }
 
 // Vercel cron sends GET requests

@@ -1,5 +1,4 @@
-import { db } from "../../db";
-import { platformStatus } from "../../db/schema";
+import { platformStatus } from "../../store";
 
 /**
  * GET /api/settings/platform-status
@@ -7,11 +6,8 @@ import { platformStatus } from "../../db/schema";
  */
 export async function GET() {
   try {
-    const d = db();
-    const rows = await d.query.platformStatus.findMany({ limit: 1 });
-    if (rows.length > 0) {
-      return Response.json(rows[0]);
-    }
+    const ps = await platformStatus.get();
+    if (ps) return Response.json(ps);
     return Response.json({ id: 1, status: "healthy", message: null, updatedAt: new Date() });
   } catch (err) {
     return Response.json(
@@ -40,25 +36,7 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const d = db();
-    // Upsert the singleton row
-    await d
-      .insert(platformStatus)
-      .values({
-        id: 1,
-        status: body.status,
-        message: body.message ?? null,
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: platformStatus.id,
-        set: {
-          status: body.status,
-          message: body.message ?? null,
-          updatedAt: new Date(),
-        },
-      });
-
+    await platformStatus.set({ status: body.status, message: body.message ?? null });
     return Response.json({ ok: true, status: body.status, message: body.message ?? null });
   } catch (err) {
     return Response.json(

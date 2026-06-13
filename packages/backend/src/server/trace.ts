@@ -18,11 +18,9 @@
 // ---------------------------------------------------------------------------
 
 import { randomUUID } from "node:crypto";
-import { lt } from "drizzle-orm";
 import type { TraceStep } from "../lib/meta-agent/trace";
 import { scrubPII } from "./app-events";
-import { db } from "./db";
-import { agentTraceEvents } from "./db/schema";
+import { traceEvents, type NewTraceEvent } from "./store";
 
 /** Per-string cap. Tool results and thoughts beyond this are cut with a marker. */
 const MAX_STRING_LENGTH = 4000;
@@ -48,7 +46,7 @@ export function createTraceSink(args: {
 }): PersistentTraceSink {
   const tickId = args.tickId ?? randomUUID();
   let seq = 0;
-  const buffer: Array<typeof agentTraceEvents.$inferInsert> = [];
+  const buffer: NewTraceEvent[] = [];
   let writer: Promise<void> = Promise.resolve();
   let draining = false;
 
@@ -56,7 +54,7 @@ export function createTraceSink(args: {
     while (buffer.length > 0) {
       const batch = buffer.splice(0, buffer.length);
       try {
-        await db().insert(agentTraceEvents).values(batch);
+        await traceEvents.append(batch);
       } catch (err) {
         // Telemetry must never break a tick: drop the batch and carry on.
         const msg = err instanceof Error ? err.message : String(err);
@@ -167,7 +165,7 @@ export async function pruneTraceEvents(now = Date.now()): Promise<void> {
   lastPruneAt = now;
   try {
     const cutoff = new Date(now - retentionDays() * 86_400_000);
-    await db().delete(agentTraceEvents).where(lt(agentTraceEvents.emittedAt, cutoff));
+    await traceEvents.pruneOlderThan(cutoff);
   } catch (err) {
     console.error("[trace] prune failed:", err instanceof Error ? err.message : String(err));
   }
