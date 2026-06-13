@@ -88,14 +88,7 @@ export function getConfig(): AppConfig {
       process.env.OPENAI_BASE_URL ||
       DEFAULTS.openaiBaseUrl,
     model: file.model || process.env.OPENAI_MODEL || DEFAULTS.model,
-<<<<<<< Updated upstream
     dataDir: file.dataDir || process.env.SH_DATA_DIR || DEFAULTS.dataDir,
-||||||| Stash base
-    databaseUrl: file.databaseUrl || process.env.DATABASE_URL || DEFAULTS.databaseUrl,
-=======
-    databaseUrl:
-      file.databaseUrl || process.env.DATABASE_URL || DEFAULTS.databaseUrl,
->>>>>>> Stashed changes
     codingBackend,
     codingConfig,
   };
