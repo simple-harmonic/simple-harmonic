@@ -1,7 +1,5 @@
-import { eq } from "drizzle-orm";
 import { invalidateTelemetryCache } from "../../app-events";
-import { db } from "../../db";
-import { teams } from "../../db/schema";
+import { teams } from "../../store";
 
 /**
  * GET /api/settings/telemetry?teamId=...
@@ -16,11 +14,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    const d = db();
-    const team = await d.query.teams.findFirst({
-      where: eq(teams.id, teamId),
-      columns: { id: true, telemetryEnabled: true },
-    });
+    const team = await teams.byId(teamId);
 
     if (!team) {
       return Response.json({ error: "Team not found" }, { status: 404 });
@@ -53,14 +47,9 @@ export async function PUT(request: Request) {
   }
 
   try {
-    const d = db();
-    const updated = await d
-      .update(teams)
-      .set({ telemetryEnabled: body.enabled })
-      .where(eq(teams.id, body.teamId))
-      .returning({ id: teams.id });
+    const updated = await teams.update(body.teamId, { telemetryEnabled: body.enabled });
 
-    if (updated.length === 0) {
+    if (!updated) {
       return Response.json({ error: "Team not found" }, { status: 404 });
     }
 

@@ -353,6 +353,20 @@ export class A2AX {
   }
 
   // -------------------------------------------------------------------------
+  // Read views (team dashboards — not relevance-filtered like agent context)
+  // -------------------------------------------------------------------------
+
+  /** All messages for a team, chronological. */
+  async listMessages(teamId: string, limit?: number): Promise<Message[]> {
+    return this.transport.listTeamMessages(teamId, limit);
+  }
+
+  /** All tasks for a team, optionally narrowed to a participant. */
+  async listTasks(teamId: string, agentId?: string): Promise<Task[]> {
+    return this.transport.listTasks(teamId, agentId);
+  }
+
+  // -------------------------------------------------------------------------
   // Agent Cards
   // -------------------------------------------------------------------------
 

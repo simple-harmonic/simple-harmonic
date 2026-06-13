@@ -1,30 +1,25 @@
-import { eq, inArray } from "drizzle-orm";
-import { db } from "../../../db";
-import { agents, teams } from "../../../db/schema";
+import { agents, teams } from "../../../store";
+import type { Team } from "../../../store";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const d = db();
 
-  const team = await d.query.teams.findFirst({ where: eq(teams.id, id) });
+  const team = await teams.byId(id);
   if (!team) return Response.json({ error: "not found" }, { status: 404 });
 
   // Get direct agents for this team
-  const teamAgents = await d.query.agents.findMany({ where: eq(agents.teamId, id) });
+  const teamAgents = await agents.byTeam(id);
 
   // Get child teams and their agents for the sub-tree view
-  const allTeams = await d.query.teams.findMany();
+  const allTeams = await teams.all();
   const subTreeIds = getSubTreeIds(id, allTeams);
   subTreeIds.delete(id);
 
-  let childTeams: typeof allTeams = [];
+  let childTeams: Team[] = [];
   let childAgents: typeof teamAgents = [];
   if (subTreeIds.size > 0) {
-    const subIds = [...subTreeIds];
     childTeams = allTeams.filter((t) => subTreeIds.has(t.id));
-    childAgents = await d.query.agents.findMany({
-      where: inArray(agents.teamId, subIds),
-    });
+    childAgents = await agents.byTeams(subTreeIds);
   }
 
   return Response.json({
@@ -71,8 +66,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return Response.json({ error: "no valid fields" }, { status: 400 });
   }
 
-  const d = db();
-  const [updated] = await d.update(teams).set(updates).where(eq(teams.id, id)).returning();
+  const updated = await teams.update(id, updates as Partial<Team>);
   if (!updated) return Response.json({ error: "not found" }, { status: 404 });
 
   return Response.json(updated);

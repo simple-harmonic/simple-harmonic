@@ -1,15 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("../../src/server/db/schema", () => ({
-  llmSpend: { costCents: "cost_cents", day: "day" },
-}));
-vi.mock("drizzle-orm", () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
-    _sql: strings.join("?"),
-    values,
-  }),
-}));
-
+import { spend } from "@/server/store";
 import {
   checkSpendAllowed,
   costCents,
@@ -17,29 +7,30 @@ import {
   makeCountingLLM,
   recordSpend,
   todayUtc,
-} from "../../src/server/spend";
-
-function fakeDb(total: number | Error) {
-  return {
-    select: () => ({
-      from: () => ({
-        where: () =>
-          total instanceof Error
-            ? Promise.reject(total)
-            : Promise.resolve([{ total }]),
-      }),
-    }),
-    insert: vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue(undefined) }),
-    // biome-ignore lint/suspicious/noExplicitAny: test double
-  } as any;
-}
+} from "@/server/spend";
+import { useTempStore } from "../helpers/store";
 
 describe("spend", () => {
+  useTempStore();
+
   const savedCap = process.env.SH_DAILY_SPEND_CAP_CENTS;
   afterEach(() => {
     if (savedCap === undefined) delete process.env.SH_DAILY_SPEND_CAP_CENTS;
     else process.env.SH_DAILY_SPEND_CAP_CENTS = savedCap;
+    vi.restoreAllMocks();
   });
+
+  function seed(costCentsValue: number, day: string) {
+    return spend.insert({
+      teamId: null,
+      agentId: null,
+      model: "claude-sonnet-4",
+      inputTokens: 1,
+      outputTokens: 1,
+      costCents: costCentsValue,
+      day,
+    });
+  }
 
   it("costCents uses claude-sonnet rates and rounds up", () => {
     // 1M in @ 300c + 1M out @ 1500c = 1800c
@@ -71,34 +62,39 @@ describe("spend", () => {
   it("checkSpendAllowed: under cap allowed, at/over cap blocked", async () => {
     process.env.SH_DAILY_SPEND_CAP_CENTS = "5000";
     const now = new Date("2026-06-05T00:00:00Z");
-    expect((await checkSpendAllowed(fakeDb(100), now)).allowed).toBe(true);
-    expect((await checkSpendAllowed(fakeDb(5000), now)).allowed).toBe(false);
-    expect((await checkSpendAllowed(fakeDb(9999), now)).allowed).toBe(false);
+    const day = todayUtc(now);
+
+    await seed(100, day); // total 100
+    expect((await checkSpendAllowed(now)).allowed).toBe(true);
+
+    await seed(4900, day); // total 5000 (>= cap)
+    expect((await checkSpendAllowed(now)).allowed).toBe(false);
+
+    await seed(4999, day); // total 9999
+    expect((await checkSpendAllowed(now)).allowed).toBe(false);
   });
 
   it("checkSpendAllowed fails OPEN (unknown) on a ledger read error", async () => {
-    const res = await checkSpendAllowed(
-      fakeDb(new Error("relation llm_spend does not exist")),
-      new Date(),
-    );
+    vi.spyOn(spend, "sumForDay").mockRejectedValueOnce(new Error("ledger unreadable"));
+    const res = await checkSpendAllowed(new Date());
     expect(res.allowed).toBe(true);
     expect(res.unknown).toBe(true);
   });
 
   it("recordSpend skips zero-usage and inserts non-zero usage", async () => {
-    const db = fakeDb(0);
-    await recordSpend(db, new Date(), {
+    const insertSpy = vi.spyOn(spend, "insert");
+    await recordSpend(new Date(), {
       model: "claude-sonnet-4",
       inputTokens: 0,
       outputTokens: 0,
     });
-    expect(db.insert).not.toHaveBeenCalled();
-    await recordSpend(db, new Date(), {
+    expect(insertSpy).not.toHaveBeenCalled();
+    await recordSpend(new Date(), {
       model: "claude-sonnet-4",
       inputTokens: 100,
       outputTokens: 50,
     });
-    expect(db.insert).toHaveBeenCalledTimes(1);
+    expect(insertSpy).toHaveBeenCalledTimes(1);
   });
 
   it("makeCountingLLM accumulates token usage across calls", async () => {

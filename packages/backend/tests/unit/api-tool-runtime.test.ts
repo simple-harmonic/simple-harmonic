@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApiToolDef, buildApiToolImpl } from "@/server/tools/api-tool-runtime";
-import type { ApiToolConfig } from "@/server/db/schema";
+import type { ApiToolConfig } from "@/server/store/types";
 import type { ToolRunContext } from "@/lib/meta-agent/tools";
 
 vi.mock("@/server/connectors", () => ({

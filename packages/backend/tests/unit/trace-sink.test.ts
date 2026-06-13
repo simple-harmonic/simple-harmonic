@@ -1,63 +1,63 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
-// ---------------------------------------------------------------------------
-// Mocks — DB (insert/delete captured; schema + drizzle stay real)
-// ---------------------------------------------------------------------------
-
-const insertedBatches: Array<Array<Record<string, unknown>>> = [];
-const mockValues = vi.fn(async (rows: Array<Record<string, unknown>>) => {
-  insertedBatches.push(rows);
-});
-const mockInsert = vi.fn(() => ({ values: mockValues }));
-const mockDeleteWhere = vi.fn().mockResolvedValue(undefined);
-const mockDelete = vi.fn(() => ({ where: mockDeleteWhere }));
-
-vi.mock("@/server/db", () => ({
-  db: () => ({ insert: mockInsert, delete: mockDelete }),
-}));
-
+import { agents, teams, traceEvents } from "@/server/store";
 import {
   createTraceSink,
   pruneTraceEvents,
   resetPruneThrottleForTests,
   sanitizeTraceData,
 } from "@/server/trace";
+import { useTempStore } from "../helpers/store";
+
+// ---------------------------------------------------------------------------
+// Seeding — traceEvents.append() writes into the *agent's* folder, so a
+// team + agent must exist or the append is silently skipped.
+// ---------------------------------------------------------------------------
+
+async function seedTeamAndAgent() {
+  const team = await teams.insert({ name: "Test Team" });
+  const agent = await agents.insert(team.id, {
+    name: "Researcher",
+    role: "research",
+    archetype: "researcher",
+    tools: [],
+    scheduleSeconds: 10,
+    initialPrompt: "Do research",
+  });
+  return { teamId: team.id, agentId: agent.id };
+}
+
+/** All persisted steps for the seeded agent, chronological. */
+async function readSteps(teamId: string, agentId: string) {
+  return traceEvents.query({ teamId, agentId, order: "asc", limit: 1000 });
+}
 
 beforeEach(() => {
-  vi.clearAllMocks();
-  insertedBatches.length = 0;
-  mockValues.mockImplementation(async (rows: Array<Record<string, unknown>>) => {
-    insertedBatches.push(rows);
-  });
-  mockInsert.mockImplementation(() => ({ values: mockValues }));
-  mockDelete.mockImplementation(() => ({ where: mockDeleteWhere }));
   resetPruneThrottleForTests();
 });
-
-function allRows(): Array<Record<string, unknown>> {
-  return insertedBatches.flat();
-}
 
 // ---------------------------------------------------------------------------
 // createTraceSink
 // ---------------------------------------------------------------------------
 
 describe("createTraceSink", () => {
+  useTempStore();
+
   it("persists emitted steps in order with increasing seq and one tickId", async () => {
-    const sink = createTraceSink({ teamId: "team-1", agentId: "agent-1" });
+    const { teamId, agentId } = await seedTeamAndAgent();
+    const sink = createTraceSink({ teamId, agentId });
 
     sink.emit({ type: "tick_started", data: { mode: "fresh", round: 0 } });
     sink.emit({ type: "llm_request", data: { round: 0, model: "o4-mini" } });
     sink.emit({ type: "tick_finished", data: { actionType: "noop" } });
     await sink.flush();
 
-    const rows = allRows();
+    const rows = await readSteps(teamId, agentId);
     expect(rows).toHaveLength(3);
     expect(rows.map((r) => r.type)).toEqual(["tick_started", "llm_request", "tick_finished"]);
     expect(rows.map((r) => r.seq)).toEqual([0, 1, 2]);
     for (const r of rows) {
-      expect(r.teamId).toBe("team-1");
-      expect(r.agentId).toBe("agent-1");
+      expect(r.teamId).toBe(teamId);
+      expect(r.agentId).toBe(agentId);
       expect(r.tickId).toBe(sink.tickId);
       expect(r.emittedAt).toBeInstanceOf(Date);
     }
@@ -65,48 +65,52 @@ describe("createTraceSink", () => {
   });
 
   it("reuses a provided tickId so resumed ticks stay one thread", async () => {
-    const original = createTraceSink({ teamId: "team-1", agentId: "agent-1" });
-    const resumed = createTraceSink({
-      teamId: "team-1",
-      agentId: "agent-1",
-      tickId: original.tickId,
-    });
+    const { teamId, agentId } = await seedTeamAndAgent();
+    const original = createTraceSink({ teamId, agentId });
+    const resumed = createTraceSink({ teamId, agentId, tickId: original.tickId });
     expect(resumed.tickId).toBe(original.tickId);
   });
 
   it("steps emitted while a drain is in flight are not lost", async () => {
-    const sink = createTraceSink({ teamId: "team-1", agentId: "agent-1" });
-    // Slow first insert so later emits land mid-drain.
+    const { teamId, agentId } = await seedTeamAndAgent();
+    const sink = createTraceSink({ teamId, agentId });
+
+    // Slow the first append so later emits land mid-drain.
     let release: () => void = () => {};
-    mockValues.mockImplementationOnce(async (rows: Array<Record<string, unknown>>) => {
-      await new Promise<void>((r) => {
-        release = r;
+    const real = traceEvents.append.bind(traceEvents);
+    const appendSpy = vi
+      .spyOn(traceEvents, "append")
+      .mockImplementationOnce(async (rows) => {
+        await new Promise<void>((r) => {
+          release = r;
+        });
+        await real(rows);
       });
-      insertedBatches.push(rows);
-    });
 
     sink.emit({ type: "tick_started", data: {} });
     sink.emit({ type: "llm_request", data: {} });
     sink.emit({ type: "llm_response", data: {} });
     release();
     await sink.flush();
+    appendSpy.mockRestore();
 
-    expect(allRows().map((r) => r.type)).toEqual([
-      "tick_started",
-      "llm_request",
-      "llm_response",
-    ]);
+    const rows = await readSteps(teamId, agentId);
+    expect(rows.map((r) => r.type)).toEqual(["tick_started", "llm_request", "llm_response"]);
   });
 
   it("swallows insert failures (telemetry never breaks a tick)", async () => {
+    const { teamId, agentId } = await seedTeamAndAgent();
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const appendSpy = vi
+      .spyOn(traceEvents, "append")
+      .mockRejectedValue(new Error("store down"));
     try {
-      mockValues.mockRejectedValueOnce(new Error("db down"));
-      const sink = createTraceSink({ teamId: "team-1", agentId: "agent-1" });
+      const sink = createTraceSink({ teamId, agentId });
       sink.emit({ type: "tick_started", data: {} });
       await expect(sink.flush()).resolves.toBeUndefined();
       expect(errSpy).toHaveBeenCalled();
     } finally {
+      appendSpy.mockRestore();
       errSpy.mockRestore();
     }
   });
@@ -160,24 +164,53 @@ describe("sanitizeTraceData", () => {
 // ---------------------------------------------------------------------------
 
 describe("pruneTraceEvents", () => {
-  it("deletes old rows, then throttles for an hour", async () => {
-    await pruneTraceEvents();
-    expect(mockDelete).toHaveBeenCalledTimes(1);
+  useTempStore();
 
-    await pruneTraceEvents();
-    expect(mockDelete).toHaveBeenCalledTimes(1); // throttled
-
+  it("prunes old rows, then throttles for an hour", async () => {
     resetPruneThrottleForTests();
-    await pruneTraceEvents();
-    expect(mockDelete).toHaveBeenCalledTimes(2);
+    const pruneSpy = vi.spyOn(traceEvents, "pruneOlderThan");
+    try {
+      await pruneTraceEvents();
+      expect(pruneSpy).toHaveBeenCalledTimes(1);
+
+      await pruneTraceEvents();
+      expect(pruneSpy).toHaveBeenCalledTimes(1); // throttled within the hour
+
+      resetPruneThrottleForTests();
+      await pruneTraceEvents();
+      expect(pruneSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      pruneSpy.mockRestore();
+    }
   });
 
-  it("never throws on DB failure", async () => {
+  it("actually deletes trace events older than the retention window", async () => {
+    resetPruneThrottleForTests();
+    const { teamId, agentId } = await seedTeamAndAgent();
+
+    const old = new Date(Date.now() - 30 * 86_400_000); // 30 days ago (> 14d default)
+    const fresh = new Date();
+    await traceEvents.append([
+      { teamId, agentId, tickId: "t", seq: 0, type: "old", data: {}, emittedAt: old },
+      { teamId, agentId, tickId: "t", seq: 1, type: "fresh", data: {}, emittedAt: fresh },
+    ]);
+
+    await pruneTraceEvents();
+
+    const rows = await readSteps(teamId, agentId);
+    expect(rows.map((r) => r.type)).toEqual(["fresh"]);
+  });
+
+  it("never throws on store failure", async () => {
+    resetPruneThrottleForTests();
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const pruneSpy = vi
+      .spyOn(traceEvents, "pruneOlderThan")
+      .mockRejectedValueOnce(new Error("no table"));
     try {
-      mockDeleteWhere.mockRejectedValueOnce(new Error("no table"));
       await expect(pruneTraceEvents()).resolves.toBeUndefined();
     } finally {
+      pruneSpy.mockRestore();
       errSpy.mockRestore();
     }
   });

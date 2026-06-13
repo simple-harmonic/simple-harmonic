@@ -1,6 +1,4 @@
-import { and, asc, desc, eq, gte, type SQL } from "drizzle-orm";
-import { db } from "../../../db";
-import { agentTraceEvents } from "../../../db/schema";
+import { traceEvents } from "../../../store";
 
 // SSE: streams play-by-play trace events (one per agent step) for a team.
 // Optional query params narrow the stream: ?agentId=<uuid> for one agent's
@@ -22,12 +20,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const url = new URL(req.url);
   const agentId = url.searchParams.get("agentId");
   const tickId = url.searchParams.get("tickId");
-  const d = db();
-
-  const filters: SQL[] = [eq(agentTraceEvents.teamId, teamId)];
-  if (agentId) filters.push(eq(agentTraceEvents.agentId, agentId));
-  if (tickId) filters.push(eq(agentTraceEvents.tickId, tickId));
-  const baseFilter = and(...filters);
 
   const encoder = new TextEncoder();
   let closed = false;
@@ -60,9 +52,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       };
 
       // 1. History: newest HISTORY_LIMIT steps, reversed to chronological.
-      const history = await d.query.agentTraceEvents.findMany({
-        where: baseFilter,
-        orderBy: [desc(agentTraceEvents.emittedAt), desc(agentTraceEvents.seq)],
+      const history = await traceEvents.query({
+        teamId,
+        agentId,
+        tickId,
+        order: "desc",
         limit: HISTORY_LIMIT,
       });
       const ordered = history.slice().reverse();
@@ -76,11 +70,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       interval = setInterval(async () => {
         if (closed) return;
         try {
-          const latest = await d.query.agentTraceEvents.findMany({
-            where: lastSeen
-              ? and(baseFilter, gte(agentTraceEvents.emittedAt, lastSeen))
-              : baseFilter,
-            orderBy: [asc(agentTraceEvents.emittedAt), asc(agentTraceEvents.seq)],
+          const latest = await traceEvents.query({
+            teamId,
+            agentId,
+            tickId,
+            since: lastSeen ?? undefined,
+            order: "asc",
             limit: UPDATE_LIMIT,
           });
           const fresh = latest.filter((e) => !sentIds.has(e.id));

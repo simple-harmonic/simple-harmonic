@@ -78,6 +78,12 @@ export class MemoryTransport {
         }
         return results;
     }
+    async listTeamMessages(teamId, limit) {
+        const rows = this.messages
+            .filter((m) => m.teamId === teamId)
+            .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        return limit ? rows.slice(0, limit) : rows;
+    }
     async markRead(agentId, messageIds) {
         for (const id of messageIds) {
             this.reads.add(`${id}:${agentId}`);

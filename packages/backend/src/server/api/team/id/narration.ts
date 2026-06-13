@@ -1,20 +1,13 @@
-import { db } from "../../../db";
-import { actionLog, agents } from "../../../db/schema";
-import { and, desc, eq, gt, inArray } from "drizzle-orm";
+import { actionLog, agents } from "../../../store";
 
 // SSE: streams agent action log entries for a team. Emits one "history" event
 // on connect (last 50), then "update" events with only-new entries every 3s.
 // Cleans up reliably on client disconnect (cancel) by guarding the interval.
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: teamId } = await params;
-  const d = db();
 
   // Get the agent ids in this team so we can filter the action log correctly.
-  // The old code filtered `actionLog.agentId == teamId` which never matched.
-  const teamAgents = await d.query.agents.findMany({
-    where: eq(agents.teamId, teamId),
-    columns: { id: true },
-  });
+  const teamAgents = await agents.byTeam(teamId);
   const agentIds = teamAgents.map((a) => a.id);
 
   // Edge case: no agents yet — return an empty stream that closes cleanly.
@@ -46,11 +39,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
       // 1. History: last 50 entries for this team, oldest-first so the
       //    sidebar's "prepend new, slice 100" pattern displays in correct order.
-      const history = await d.query.actionLog.findMany({
-        where: inArray(actionLog.agentId, agentIds),
-        orderBy: desc(actionLog.executedAt),
-        limit: 50,
-      });
+      const history = await actionLog.byAgents(agentIds, { limit: 50 });
       // Reverse so chronological order is preserved in the client buffer.
       const orderedHistory = history.slice().reverse();
       if (orderedHistory.length > 0) {
@@ -62,12 +51,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       interval = setInterval(async () => {
         if (closed) return;
         try {
-          const latest = await d.query.actionLog.findMany({
-            where: lastSeen
-              ? and(inArray(actionLog.agentId, agentIds), gt(actionLog.executedAt, lastSeen))
-              : inArray(actionLog.agentId, agentIds),
-            orderBy: desc(actionLog.executedAt),
+          const latest = await actionLog.byAgents(agentIds, {
             limit: 20,
+            since: lastSeen ?? undefined,
           });
           if (latest.length === 0) return;
           lastSeen = latest[0].executedAt;

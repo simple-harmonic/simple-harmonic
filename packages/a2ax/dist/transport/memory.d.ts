@@ -14,6 +14,7 @@ export declare class MemoryTransport implements Transport {
     private tokens;
     insertMessage(input: CreateMessageInput): Promise<Message>;
     queryMessages(query: MessageQuery): Promise<Message[]>;
+    listTeamMessages(teamId: string, limit?: number): Promise<Message[]>;
     markRead(agentId: string, messageIds: string[]): Promise<void>;
     markExpired(before: Date): Promise<number>;
     getChannel(channelId: string): Promise<Channel | null>;

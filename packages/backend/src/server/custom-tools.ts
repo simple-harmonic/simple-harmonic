@@ -22,7 +22,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, unlink
 import { join, basename } from "node:path";
 import { toolsRoot } from "./tools/sandbox";
 import { assertValidToolName } from "./validation";
-import type { ApiToolConfig } from "./db/schema";
+import type { ApiToolConfig } from "./store/types";
 
 const DIR = ".simple-harmonic/skills";
 

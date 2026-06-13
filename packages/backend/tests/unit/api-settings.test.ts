@@ -46,9 +46,9 @@ describe("GET /api/settings", () => {
       openaiApiKey: "sk-1••••cdef",
       openaiBaseUrl: "https://api.openai.com/v1",
       model: "o4-mini",
-      databaseUrl: "postgresql://localhost:5432/simple_harmonic",
+      dataDir: "/some/data/dir",
       hasOpenaiKey: true,
-      hasDatabase: true,
+      hasDataDir: true,
       apiKeySource: "config" as const,
     };
     mockGetSafeConfig.mockReturnValue(safeConfig);
@@ -72,9 +72,9 @@ describe("POST /api/settings", () => {
       openaiApiKey: "sk-n••••wxyz",
       openaiBaseUrl: "https://custom.api.com/v1",
       model: "gpt-5",
-      databaseUrl: "postgresql://localhost:5432/db",
+      dataDir: "/some/data/dir",
       hasOpenaiKey: true,
-      hasDatabase: true,
+      hasDataDir: true,
       apiKeySource: "config" as const,
     };
     mockSetConfig.mockReturnValue(undefined);
@@ -113,19 +113,19 @@ describe("POST /api/settings", () => {
     expect(mockSetConfig).toHaveBeenCalledWith({ model: "gpt-5" });
   });
 
-  it("accepts databaseUrl as an allowed field", async () => {
+  it("accepts dataDir as an allowed field", async () => {
     mockSetConfig.mockReturnValue(undefined);
     mockGetSafeConfig.mockReturnValue({});
 
     const { POST } = await import("@/server/api/settings/index");
     const req = jsonRequest("http://localhost/api/settings", {
-      databaseUrl: "postgresql://new:5432/db",
+      dataDir: "/new/data/dir",
     });
     const res = await POST(req);
 
     expect(res.status).toBe(200);
     expect(mockSetConfig).toHaveBeenCalledWith({
-      databaseUrl: "postgresql://new:5432/db",
+      dataDir: "/new/data/dir",
     });
   });
 
@@ -206,7 +206,7 @@ describe("POST /api/settings", () => {
       openaiApiKey: "",
       openaiBaseUrl: "",
       model: "",
-      databaseUrl: "",
+      dataDir: "",
     });
     const res = await POST(req);
 

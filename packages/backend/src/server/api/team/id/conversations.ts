@@ -6,9 +6,8 @@ import {
   USER_DISPLAY_NAME,
   USER_POV,
 } from "../../../../lib/meta-agent/identity";
-import { db } from "../../../db";
-import { a2axMessages, a2axTasks, agents, teams } from "../../../db/schema";
-import { eq } from "drizzle-orm";
+import { getA2AX } from "../../../a2ax";
+import { agents, teams } from "../../../store";
 
 // GET /api/team/[id]/conversations?agentId=xxx
 // Special agentIds: "cofounder" (all messages), "team" (broadcast + group only)
@@ -21,12 +20,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return Response.json({ error: "agentId query param required" }, { status: 400 });
   }
 
-  const d = db();
+  const a2ax = getA2AX();
 
-  const [agentRows, teamRow] = await Promise.all([
-    d.query.agents.findMany({ where: eq(agents.teamId, teamId) }),
-    d.query.teams.findFirst({ where: eq(teams.id, teamId) }),
-  ]);
+  const [agentRows, teamRow] = await Promise.all([agents.byTeam(teamId), teams.byId(teamId)]);
   const cofounderName = resolveCofounderName(teamRow?.cofounderName);
   const nameMap: Record<string, string> = Object.fromEntries(agentRows.map((a) => [a.id, a.name]));
   nameMap[COFOUNDER_AGENT_ID] = cofounderName;
@@ -37,12 +33,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   const participantId =
     agentId === COFOUNDER_POV ? COFOUNDER_AGENT_ID : agentId === USER_POV ? USER_AGENT_ID : agentId;
 
-  const allMessages = await d
-    .select()
-    .from(a2axMessages)
-    .where(eq(a2axMessages.teamId, teamId))
-    .orderBy(a2axMessages.createdAt)
-    .limit(1000);
+  const allMessages = await a2ax.listMessages(teamId, 1000);
 
   // Team overview sees everything. Otherwise filter to messages involving the
   // participant (cofounder is treated as a participant with literal id "cofounder").
@@ -58,10 +49,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       });
 
   // Resolve task titles for task channels
-  const taskRows = await d
-    .select({ id: a2axTasks.id, title: a2axTasks.title })
-    .from(a2axTasks)
-    .where(eq(a2axTasks.teamId, teamId));
+  const taskRows = await a2ax.listTasks(teamId);
   const taskTitleMap = Object.fromEntries(taskRows.map((t) => [`task:${t.id}`, t.title]));
 
   // Group by channelId to form threads
@@ -128,7 +116,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       content: m.content,
       kind: m.kind,
       status: m.status,
-      urgent: m.urgent,
+      urgent: m.urgent ?? false,
       createdAt: m.createdAt.toISOString(),
       isSelf: !isTeamOverview && m.fromAgentId === participantId,
     });

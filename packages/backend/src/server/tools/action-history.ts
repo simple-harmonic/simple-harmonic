@@ -8,10 +8,8 @@
 // ---------------------------------------------------------------------------
 
 import { z } from "zod";
-import { eq, desc, and, inArray } from "drizzle-orm";
 import type { ToolDefinition, ToolImpl } from "../../lib/meta-agent/registry";
-import { db } from "../db";
-import { actionLog, agents, teams } from "../db/schema";
+import { actionLog, agents, teams } from "../store";
 import { getSubTreeIds } from "../team-tree";
 
 const actionHistorySchema = z.object({
@@ -53,7 +51,6 @@ export const actionHistoryDef: ToolDefinition<typeof actionHistorySchema> = {
 
 export const actionHistoryImpl: ToolImpl<typeof actionHistorySchema> = async (args, ctx) => {
   try {
-    const d = db();
     const limit = Math.min(args.limit ?? 20, 50);
 
     let targetAgentIds: string[];
@@ -68,9 +65,7 @@ export const actionHistoryImpl: ToolImpl<typeof actionHistorySchema> = async (ar
           result: "scope 'agent' requires agent_name.",
         };
       }
-      const agent = await d.query.agents.findFirst({
-        where: eq(agents.name, args.agent_name),
-      });
+      const agent = (await agents.all()).find((a) => a.name === args.agent_name);
       if (!agent) {
         return {
           toolName: "action_history",
@@ -83,9 +78,7 @@ export const actionHistoryImpl: ToolImpl<typeof actionHistorySchema> = async (ar
       // team scope: all agents in the team sub-tree
       let teamId = ctx.teamId;
       if (args.team_name) {
-        const team = await d.query.teams.findFirst({
-          where: eq(teams.name, args.team_name),
-        });
+        const team = (await teams.all()).find((t) => t.name === args.team_name);
         if (!team) {
           return {
             toolName: "action_history",
@@ -96,9 +89,7 @@ export const actionHistoryImpl: ToolImpl<typeof actionHistorySchema> = async (ar
         teamId = team.id;
       }
       const subTreeIds = await getSubTreeIds(teamId);
-      const teamAgents = await d.query.agents.findMany({
-        where: inArray(agents.teamId, [...subTreeIds]),
-      });
+      const teamAgents = await agents.byTeams(subTreeIds);
       targetAgentIds = teamAgents.map((a) => a.id);
       if (targetAgentIds.length === 0) {
         return {
@@ -109,16 +100,12 @@ export const actionHistoryImpl: ToolImpl<typeof actionHistorySchema> = async (ar
       }
     }
 
-    const rows = await d.query.actionLog.findMany({
-      where: inArray(actionLog.agentId, targetAgentIds),
-      orderBy: [desc(actionLog.executedAt)],
-      limit: limit * 2,
-    });
+    const rows = await actionLog.byAgents(targetAgentIds, { limit: limit * 2 });
 
     // Resolve agent names
-    const agentRows = await d.query.agents.findMany({
-      where: inArray(agents.id, targetAgentIds),
-    });
+    const agentRows = (await Promise.all(targetAgentIds.map((id) => agents.byId(id)))).filter(
+      (a): a is NonNullable<typeof a> => a !== null,
+    );
     const nameById = new Map(agentRows.map((a) => [a.id, a.name]));
 
     let entries = rows.map((r) => {

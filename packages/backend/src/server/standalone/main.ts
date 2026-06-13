@@ -22,15 +22,6 @@ import { createBackendServer } from "./server";
 
 const TICK_INTERVAL_MS = 10_000;
 
-function redactedDbHost(databaseUrl: string): string {
-  try {
-    const url = new URL(databaseUrl);
-    return `${url.host}${url.pathname}`;
-  } catch {
-    return "(invalid database URL)";
-  }
-}
-
 const port = Number(process.env.SH_BACKEND_PORT || process.env.PORT || 3001);
 
 const { count } = loadApolloSecrets();
@@ -41,7 +32,7 @@ if (count > 0) {
 const config = getConfig();
 console.log(
   `[simple-harmonic] cwd=${process.cwd()} model=${config.model} ` +
-    `codingBackend=${config.codingBackend} db=${redactedDbHost(config.databaseUrl)}`,
+    `codingBackend=${config.codingBackend} dataDir=${config.dataDir}`,
 );
 
 const server = createBackendServer();

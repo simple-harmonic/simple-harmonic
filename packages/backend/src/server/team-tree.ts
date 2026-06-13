@@ -5,39 +5,31 @@
 // sub-trees, and authorization scoping for lead agents.
 // ---------------------------------------------------------------------------
 
-import { eq, isNull } from "drizzle-orm";
-import { db } from "./db";
-import { teams } from "./db/schema";
+import { teams } from "./store";
+import type { Team } from "./store";
 
-type TeamRow = typeof teams.$inferSelect;
+type TeamRow = Team;
 
 /**
- * Get all teams in the database (cheap for the expected scale of <100 teams).
- * The tree is small enough that in-memory traversal beats recursive SQL.
+ * Get all teams (cheap for the expected scale of <100 teams). The tree is small
+ * enough that in-memory traversal beats anything cleverer.
  */
 async function allTeams(): Promise<TeamRow[]> {
-  const d = db();
-  return d.query.teams.findMany();
+  return teams.all();
 }
 
 /**
  * Get the direct children of a team.
  */
 export async function getChildTeams(teamId: string): Promise<TeamRow[]> {
-  const d = db();
-  return d.query.teams.findMany({
-    where: eq(teams.parentTeamId, teamId),
-  });
+  return teams.children(teamId);
 }
 
 /**
  * Get all root teams (no parent).
  */
 export async function getRootTeams(): Promise<TeamRow[]> {
-  const d = db();
-  return d.query.teams.findMany({
-    where: isNull(teams.parentTeamId),
-  });
+  return teams.roots();
 }
 
 /**

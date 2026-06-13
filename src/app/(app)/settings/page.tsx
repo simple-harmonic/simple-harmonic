@@ -6,9 +6,9 @@ import { useEffect, useState } from "react";
 
 interface SafeConfig {
   model: string;
-  databaseUrl: string;
+  dataDir: string;
   hasOpenaiKey: boolean;
-  hasDatabase: boolean;
+  hasDataDir: boolean;
   apiKeySource: "config" | "env" | "codex" | "none";
   codingBackend: "codex" | "claude-code" | "opencode";
 }
@@ -57,9 +57,9 @@ export default function SettingsPage() {
             />
             <SettingsCard
               href="/settings/database"
-              title="Database"
-              subtitle={config.hasDatabase ? config.databaseUrl : "Not configured"}
-              status={config.hasDatabase ? "ok" : "warning"}
+              title="Storage"
+              subtitle={config.hasDataDir ? config.dataDir : "Not configured"}
+              status={config.hasDataDir ? "ok" : "warning"}
             />
           </div>
         </section>

@@ -50,15 +50,22 @@ git clone https://github.com/simple-harmonic/simple-harmonic.git
 cd simple-harmonic
 npm install
 cp .env.example .env.local
-# Set DATABASE_URL (Neon pooler), ANTHROPIC_API_KEY or OPENAI_API_KEY
+# Set ANTHROPIC_API_KEY or OPENAI_API_KEY (no database required)
 npm run dev
 ```
 
-Create the database (and tables — schema is in `packages/backend/src/server/db/schema.ts`):
+State is a plain folder of JSON files — no database server. Initialize the data
+directory (defaults to `.simple-harmonic/data`, override with `SH_DATA_DIR`):
 ```bash
-npm run db:setup                      # uses the configured DATABASE_URL
-npm run db:setup -- postgresql://...  # or pass a URL (persisted to simple-harmonic.config.json)
+npm run data:init                 # creates the data dir skeleton
+npm run data:init -- /path/to/dir # or point it elsewhere (persisted to simple-harmonic.config.json)
 ```
+
+> **Single-writer, single-machine.** The file store assumes one process owns the
+> data directory at a time (run *either* `npm run dev` *or* `npm run dev:backend`,
+> not both against the same dir). It is not compatible with serverless platforms
+> that have an ephemeral, non-shared filesystem (e.g. Vercel) — run the standalone
+> backend host on a persistent box instead.
 
 Seed a demo team:
 ```bash
@@ -111,17 +118,16 @@ simple-harmonic/
 
 **Library boundary.** `packages/backend/src/lib/meta-agent/` is framework-shaped and extracts cleanly to NPM. It contains the planner, runner, tool registry, and contract validator. No I/O, no DB. The app-specific tools (filesystem, shell, network, management) live in `packages/backend/src/server/tools/`.
 
-**State split.** Runtime state (agents, teams, action log, approvals, a2ax messages) lives in Postgres. Configuration (connectors, skills, coding backend, app config) lives on disk as flat files.
+**State split.** Everything is files. Runtime state (teams, agents, action log, approvals, a2ax messages, traces, spend) is a domain-aggregate tree of JSON/JSONL under `.simple-harmonic/data/` — a team folder *contains* its agents and sub-teams, so the path encodes the hierarchy. Configuration (connectors, skills, coding backend, app config) lives alongside it as flat files. No database.
 
 ## Stack
 
 - Next.js + TypeScript strict
 - Tailwind + shadcn/ui
-- Drizzle ORM + Postgres (Neon pooled)
+- JSON file store (no database) — domain-aggregate tree under `.simple-harmonic/data/`
 - Anthropic Claude / OpenAI via `@anthropic-ai/sdk` and `openai`
 - Codex CLI / Claude Code CLI / OpenCode CLI for `coding_task`
 - Vitest + Playwright + Biome
-- Vercel for hosting
 
 ## Status
 

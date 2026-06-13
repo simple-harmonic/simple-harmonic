@@ -13,7 +13,8 @@ export interface AppConfig {
   openaiApiKey: string;
   openaiBaseUrl: string;
   model: string;
-  databaseUrl: string;
+  /** Root directory of the JSON file store (replaces the old databaseUrl). */
+  dataDir: string;
   codingBackend: CodingBackendType;
   codingConfig: Record<CodingBackendType, CodingBackendConfig>;
 }
@@ -30,7 +31,7 @@ const DEFAULTS: AppConfig = {
   openaiApiKey: "",
   openaiBaseUrl: "https://api.openai.com/v1",
   model: "o4-mini",
-  databaseUrl: "postgresql://localhost:5432/simple_harmonic",
+  dataDir: join(process.cwd(), ".simple-harmonic", "data"),
   codingBackend: "codex",
   codingConfig: DEFAULT_CODING_CONFIG,
 };
@@ -73,7 +74,7 @@ export function getConfig(): AppConfig {
     openaiApiKey: apiKey,
     openaiBaseUrl: file.openaiBaseUrl || process.env.OPENAI_BASE_URL || DEFAULTS.openaiBaseUrl,
     model: file.model || process.env.OPENAI_MODEL || DEFAULTS.model,
-    databaseUrl: file.databaseUrl || process.env.DATABASE_URL || DEFAULTS.databaseUrl,
+    dataDir: file.dataDir || process.env.SH_DATA_DIR || DEFAULTS.dataDir,
     codingBackend,
     codingConfig,
   };
@@ -102,9 +103,9 @@ export function getSafeConfig() {
     openaiApiKey: maskSecret(cfg.openaiApiKey),
     openaiBaseUrl: cfg.openaiBaseUrl,
     model: cfg.model,
-    databaseUrl: maskDbUrl(cfg.databaseUrl),
+    dataDir: cfg.dataDir,
     hasOpenaiKey: cfg.openaiApiKey.length > 0,
-    hasDatabase: cfg.databaseUrl.length > 0,
+    hasDataDir: cfg.dataDir.length > 0,
     apiKeySource: getApiKeySource(),
     codingBackend: cfg.codingBackend,
     codingConfig: cfg.codingConfig,
@@ -115,16 +116,4 @@ function maskSecret(s: string): string {
   if (!s) return "";
   if (s.length <= 8) return "••••••••";
   return `${s.slice(0, 4)}••••${s.slice(-4)}`;
-}
-
-function maskDbUrl(url: string): string {
-  try {
-    const u = new URL(url);
-    if (u.password) {
-      u.password = "••••";
-    }
-    return u.toString();
-  } catch {
-    return url;
-  }
 }

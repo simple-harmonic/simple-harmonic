@@ -1,25 +1,25 @@
 // ---------------------------------------------------------------------------
-// Headless DB bootstrap — same behavior as the Settings → Database UI button:
+// Headless data-store bootstrap — same behavior as the Settings → Storage UI
+// button:
 //
-//   npm run db:setup                          (uses config/env database URL)
-//   npm run db:setup -- postgresql://...      (also persists the URL to
-//                                              simple-harmonic.config.json)
+//   npm run data:init                 (uses the configured data dir)
+//   npm run data:init -- /path/to/dir (also persists the path to
+//                                      simple-harmonic.config.json)
 //
-// Creates the database if missing, applies the idempotent SCHEMA_SQL, and
-// verifies the tables. Run from the repo root so the config file resolves.
+// Ensures the data directory skeleton (teams/ and system/) exists. Run from the
+// repo root so the config file resolves.
 // ---------------------------------------------------------------------------
 
-import { POST as setupDb } from "../api/settings/setup-db";
+import { POST as setupDataDir } from "../api/settings/setup-db";
 import { load as loadApolloSecrets } from "../apollo";
 
-// Decrypt vault secrets into process.env first — a vault-stored DATABASE_URL
-// must be visible to getConfig() (same boot order as main.ts).
+// Decrypt vault secrets into process.env first (same boot order as main.ts).
 loadApolloSecrets();
 
-const databaseUrl = process.argv[2];
-const body = databaseUrl ? { databaseUrl } : {};
+const dataDir = process.argv[2];
+const body = dataDir ? { dataDir } : {};
 
-const response = await setupDb(
+const response = await setupDataDir(
   new Request("http://localhost/api/settings/setup-db", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -34,7 +34,7 @@ for (const step of result.steps ?? []) {
 }
 
 if (result.ok) {
-  console.log("✓ Database ready");
+  console.log("✓ Data store ready");
   process.exit(0);
 }
 

@@ -1,6 +1,5 @@
-import { eq } from "drizzle-orm";
-import { db } from "../db";
-import { agents, chatSessions, teams } from "../db/schema";
+import { agents, teams } from "../store";
+import type { NewAgent } from "../store";
 
 const HARMON_TOOLS = [
   "read_file",
@@ -66,14 +65,10 @@ export async function POST(request: Request) {
     return Response.json({ error: "agents required" }, { status: 400 });
   }
 
-  const d = db();
-
   // Resolve parent team: by ID or by name
   let resolvedParentId: string | null = parentTeamId ?? null;
   if (!resolvedParentId && parentTeam) {
-    const parent = await d.query.teams.findFirst({
-      where: eq(teams.name, parentTeam),
-    });
+    const parent = (await teams.all()).find((t) => t.name === parentTeam);
     if (!parent) {
       return Response.json({ error: `Parent team "${parentTeam}" not found` }, { status: 400 });
     }
@@ -90,21 +85,15 @@ export async function POST(request: Request) {
   const isRootTeam = !resolvedParentId;
   const resolvedCofounderName = cofounderName?.trim() || "Harmon";
 
-  const [team] = await d
-    .insert(teams)
-    .values({
-      name: resolvedTeamName,
-      parentTeamId: resolvedParentId,
-      cofounderName: resolvedCofounderName,
-      goal: goal?.trim() || null,
-    })
-    .returning({ id: teams.id });
-
-  await d.insert(chatSessions).values({ teamId: team.id });
+  const team = await teams.insert({
+    name: resolvedTeamName,
+    parentTeamId: resolvedParentId,
+    cofounderName: resolvedCofounderName,
+    goal: goal?.trim() || null,
+  });
 
   const now = new Date();
-  const agentRows = agentList.map((a, i) => ({
-    teamId: team.id,
+  const agentRows: NewAgent[] = agentList.map((a, i) => ({
     name: a.name,
     role: a.role,
     archetype: a.archetype,
@@ -117,7 +106,6 @@ export async function POST(request: Request) {
   // Auto-spawn Harmon as a tick-based agent on root teams
   if (isRootTeam && !noHarmon) {
     agentRows.push({
-      teamId: team.id,
       name: resolvedCofounderName.toLowerCase().replace(/\s+/g, "-"),
       role: "AI cofounder and team lead. Reviews agent performance, adjusts team structure, sets goals.",
       archetype: "meta-agent",
@@ -128,7 +116,7 @@ export async function POST(request: Request) {
     });
   }
 
-  await d.insert(agents).values(agentRows);
+  await agents.insertMany(team.id, agentRows);
 
   return Response.json({ teamId: team.id, parentTeamId: resolvedParentId });
 }

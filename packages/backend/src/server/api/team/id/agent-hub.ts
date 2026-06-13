@@ -4,13 +4,12 @@ import {
   USER_AGENT_ID,
   USER_DISPLAY_NAME,
 } from "../../../../lib/meta-agent/identity";
-import { db } from "../../../db";
-import { sql } from "drizzle-orm";
+import { getA2AX } from "../../../a2ax";
+import { actionLog, agents, teams } from "../../../store";
 
 // GET /api/team/[id]/agent-hub?agentId=xxx
-// Single SQL round-trip returning agents, team cofounder name, action log, and
-// messages. Neon adds ~300ms network latency per query, so batching into one
-// query is critical.
+// Returns the team's agents, cofounder name, the agent's recent action log, and
+// the team's messages in one shot for the agent dashboard.
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id: teamId } = await params;
   const url = new URL(req.url);
@@ -20,54 +19,42 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     return Response.json({ error: "agentId query param required" }, { status: 400 });
   }
 
-  const d = db();
+  const a2ax = getA2AX();
 
-  const result = await d.execute(sql`
-    SELECT json_build_object(
-      'agents', (SELECT coalesce(json_agg(row_to_json(a)), '[]') FROM agents a WHERE a.team_id = ${teamId}),
-      'cofounderName', (SELECT t.cofounder_name FROM teams t WHERE t.id = ${teamId}),
-      'actions', (SELECT coalesce(json_agg(row_to_json(al)), '[]') FROM (
-        SELECT id, action_type, payload, executed_at FROM action_log
-        WHERE agent_id = ${agentId} ORDER BY executed_at DESC LIMIT 100
-      ) al),
-      'messages', (SELECT coalesce(json_agg(row_to_json(m)), '[]') FROM (
-        SELECT id, channel_type, channel_id, from_agent_id, kind, content, created_at
-        FROM a2ax_messages WHERE team_id = ${teamId} ORDER BY created_at LIMIT 200
-      ) m)
-    ) as data
-  `);
+  const [agentRows, teamRow, actionRows, messageRows] = await Promise.all([
+    agents.byTeam(teamId),
+    teams.byId(teamId),
+    actionLog.recentByAgent(agentId, 100),
+    a2ax.listMessages(teamId, 200),
+  ]);
 
-  const data = (
-    result.rows[0] as {
-      data: {
-        agents: Array<{
-          id: string;
-          name: string;
-          role: string;
-          status: string;
-          schedule_seconds: number;
-          next_run_at: string | null;
-          in_flight: boolean;
-        }>;
-        cofounderName: string | null;
-        actions: Array<{
-          id: string;
-          action_type: string;
-          payload: Record<string, unknown>;
-          executed_at: string;
-        }>;
-        messages: Array<{
-          id: string;
-          channel_type: string;
-          channel_id: string;
-          from_agent_id: string;
-          kind: string;
-          content: string;
-          created_at: string;
-        }>;
-      };
-    }
-  ).data;
+  const data = {
+    agents: agentRows.map((a) => ({
+      id: a.id,
+      name: a.name,
+      role: a.role,
+      status: a.status as string,
+      schedule_seconds: a.scheduleSeconds,
+      next_run_at: a.nextRunAt ? a.nextRunAt.toISOString() : null,
+      in_flight: a.inFlight,
+    })),
+    cofounderName: teamRow?.cofounderName ?? null,
+    actions: actionRows.map((r) => ({
+      id: r.id,
+      action_type: r.actionType,
+      payload: r.payload,
+      executed_at: r.executedAt.toISOString(),
+    })),
+    messages: messageRows.map((m) => ({
+      id: m.id,
+      channel_type: m.channelType as string,
+      channel_id: m.channelId,
+      from_agent_id: m.fromAgentId,
+      kind: m.kind as string,
+      content: m.content,
+      created_at: m.createdAt.toISOString(),
+    })),
+  };
 
   const cofounderName = resolveCofounderName(data.cofounderName);
   const nameMap: Record<string, string> = Object.fromEntries(
