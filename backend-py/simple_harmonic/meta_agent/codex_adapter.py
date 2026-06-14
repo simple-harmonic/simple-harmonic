@@ -1,41 +1,25 @@
-"""Codex adapter — two ways to drive the Codex CLI as a model backend.
+"""Codex adapter — drive the Codex model via the ``codex app-server`` engine.
 
 TS source:
-  - packages/backend/src/lib/meta-agent/codex-adapter.ts     (exec one-shot path)
   - packages/backend/src/lib/meta-agent/codex-app-server.ts   (JSON-RPC transport)
   - packages/backend/src/lib/meta-agent/codex-harness.ts      (engine-mode harness)
 
-Two runtimes, picked by the ``SH_CODEX_RUNTIME`` env var (mirroring the TS tick
-route's ``apiKeySource === "codex" && process.env.SH_CODEX_RUNTIME !== "exec"``):
+``codex app-server`` owns the agent loop; every SH tool is a *dynamic tool* on the
+codex thread. When the model picks one, codex blocks on an ``item/tool/call``
+request that we answer via the slice-6 tool registry. A destructive call parks the
+turn and returns a :class:`CodexThreadSuspension`. The tick route selects this
+engine-mode entry point (:func:`run_codex_agent_tick`) directly when the api-key
+source is ``codex`` — codex is NOT a cascade ``LLMClient`` candidate.
 
-* ``exec`` — the simple one-shot path. ``codex exec --json`` is invoked once per
-  round; the agent loop lives in SH's runner. Tools are encoded in the prompt and
-  the model is asked to emit a JSON object. This path produces an
-  :class:`~simple_harmonic.llm.client.LLMClient`, so it plugs into
-  :data:`simple_harmonic.llm.candidates.codex_client_factory` as a cascade
-  candidate. **This is the default the cascade uses; it is the priority path.**
+Cancellation: ``AgentConfig.signal`` is an ``asyncio.Event`` (set == aborted), the
+Python mapping of the TS ``AbortSignal``; an abort interrupts the turn
+(``turn/interrupt``) and raises.
 
-* app-server (engine mode) — ``codex app-server`` owns the agent loop; every SH
-  tool is a *dynamic tool* on the codex thread. When the model picks one, codex
-  blocks on an ``item/tool/call`` request that we answer via the slice-6 tool
-  registry. The approval gate moves into the hands: a destructive call parks the
-  turn and returns a :class:`CodexThreadSuspension`. This is a separate tick
-  entry point (:func:`run_codex_agent_tick`), NOT a cascade ``LLMClient`` — the
-  tick route selects it directly when the codex runtime is engine mode.
-
-Cancellation model
--------------------
-``AgentConfig.signal`` / ``CompletionOptions.signal`` is an ``asyncio.Event``
-(set == aborted), the Python mapping of the TS ``AbortSignal``:
-  * exec path: the abort kills the ``codex exec`` subprocess (SIGTERM) and raises;
-  * app-server path: the abort interrupts the turn (``turn/interrupt``) and raises.
-
-OFFLINE: no network, and no real ``codex`` process in tests — the exec path mocks
-``asyncio.create_subprocess_exec`` and the app-server path is driven by a fake
-in-memory transport (scripted JSON-RPC lines).
+OFFLINE: no network and no real ``codex`` process in tests — the app-server path is
+driven by a fake in-memory transport (scripted JSON-RPC lines).
 """
-# ruff: noqa: E501 - the agent-facing codex prompt scaffold below is a verbatim
-# port of the TS prompt text and must match it closely; do not rewrap those lines.
+# ruff: noqa: E501 - inline JSON-RPC payload literals mirror the codex app-server
+# protocol shapes and read better unwrapped; do not rewrap those lines.
 
 from __future__ import annotations
 
@@ -55,358 +39,16 @@ from simple_harmonic.llm.client import (
     LLMResponse,
     ToolCall,
     ToolCallFunction,
+    Usage,
     make_client,
 )
-from simple_harmonic.tools.sandbox import coding_env
 
 DEFAULT_CODEX_MODEL = "gpt-5.5"
-# The TS exec adapter caps the run at 120s and the buffer at 1 MiB.
-EXEC_TIMEOUT_S = 120.0
-
-
-# ===========================================================================
-# Exec one-shot path (codex-adapter.ts)
-# ===========================================================================
-
-
-def _build_codex_prompt(
-    messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None
-) -> str:
-    """Format OpenAI-style messages + tools into a single prompt for ``codex exec``.
-
-    ``codex exec`` has no custom-tool support, so tool definitions are encoded in
-    the prompt and the model is instructed to emit a structured JSON object.
-    Verbatim port of TS ``buildCodexPrompt``.
-    """
-    parts: list[str] = []
-
-    # System messages
-    for m in messages:
-        if m.get("role") == "system":
-            parts.append(str(m.get("content") or ""))
-
-    # Tool definitions
-    if tools:
-        parts.append("\n## Available Tools\n")
-        parts.append(
-            'You MUST respond with a JSON object. If you want to use a tool, set '
-            '"tool_calls" to an array of calls. If you just want to respond with text, '
-            'set "content" to your message.\n'
-        )
-        parts.append("Response format:")
-        parts.append("```json")
-        parts.append(
-            json.dumps(
-                {
-                    "content": "your text response (or null if using tools)",
-                    "tool_calls": [
-                        {
-                            "name": "tool_name",
-                            "arguments": {"key": "value"},
-                        }
-                    ],
-                },
-                indent=2,
-            )
-        )
-        parts.append("```\n")
-        parts.append("Available tools:")
-        for t in tools:
-            fn = t.get("function", {})
-            parts.append(f"- **{fn.get('name')}**: {fn.get('description') or ''}")
-            if fn.get("parameters"):
-                parts.append(f"  Parameters: {json.dumps(fn.get('parameters'))}")
-        parts.append("")
-
-    # User/assistant/tool messages
-    for m in messages:
-        role = m.get("role")
-        if role == "system":
-            continue
-        if role == "user":
-            parts.append(f"\n[User]\n{m.get('content') or ''}")
-        elif role == "assistant":
-            parts.append(f"\n[Assistant]\n{m.get('content') or ''}")
-        elif role == "tool":
-            parts.append(f"\n[Tool Result]\n{m.get('content') or ''}")
-
-    parts.append(
-        "\n\nRespond with ONLY a valid JSON object. No markdown fences, no extra text."
-    )
-
-    return "\n".join(parts)
-
-
-def _parse_codex_output(jsonl_output: str) -> str:
-    """Parse the JSONL output from ``codex exec`` and return the last agent message.
-
-    Verbatim port of TS ``parseCodexOutput``: scans each line, keeps the text of
-    the last ``item.completed`` / ``agent_message`` event, ignores non-JSON lines,
-    and tolerates ``error`` events.
-    """
-    last_text = ""
-    for line in jsonl_output.strip().split("\n"):
-        if not line.strip():
-            continue
-        try:
-            event = json.loads(line)
-        except (ValueError, TypeError):
-            continue  # skip non-JSON lines
-        if (
-            event.get("type") == "item.completed"
-            and isinstance(event.get("item"), dict)
-            and event["item"].get("type") == "agent_message"
-            and event["item"].get("text")
-        ):
-            last_text = event["item"]["text"]
-        # error events are logged-but-tolerated in TS; we just keep scanning.
-    return last_text
-
-
-def extract_json_object(text: str) -> str | None:
-    """Extract the most likely JSON object from free-text model output.
-
-    Verbatim port of TS ``extractJsonObject``:
-      1. a ```json fenced block (or any ``` fence) whose inner content starts ``{``;
-      2. otherwise the first BALANCED top-level ``{...}`` found by brace scanning,
-         skipping braces inside strings (tolerates leading/trailing prose).
-    Returns the candidate JSON string, or ``None`` if nothing object-like exists.
-    """
-    import re
-
-    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if fence:
-        inner = fence.group(1).strip()
-        if inner.startswith("{"):
-            return inner
-
-    start = text.find("{")
-    if start == -1:
-        return None
-    depth = 0
-    in_string = False
-    escaped = False
-    for i in range(start, len(text)):
-        ch = text[i]
-        if escaped:
-            escaped = False
-            continue
-        if ch == "\\":
-            escaped = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : i + 1]
-    return None
-
-
-@dataclass
-class _StructuredResponse:
-    content: str | None
-    tool_calls: list[dict[str, Any]] | None = None
-
-
-def _parse_structured_response(text: str, allowed_tools: set[str]) -> _StructuredResponse:
-    """Try to parse the agent text as structured JSON with tool calls.
-
-    Verbatim port of TS ``parseStructuredResponse``: ``allowed_tools`` gates the
-    calls (a hallucinated/unoffered tool name is dropped). When ``tool_calls`` is
-    present but all are filtered out, falls through to content so the turn isn't
-    silently empty. Tool call ids are index-based (``call_0``, ...) for
-    determinism, matching the runner's per-round id matching.
-    """
-    json_str = extract_json_object(text)
-    if json_str is None:
-        return _StructuredResponse(content=text)
-
-    try:
-        parsed = json.loads(json_str)
-    except (ValueError, TypeError):
-        return _StructuredResponse(content=text)
-    if not isinstance(parsed, dict):
-        return _StructuredResponse(content=text)
-
-    raw_calls = parsed.get("tool_calls")
-    parsed_content = parsed.get("content")
-    if isinstance(raw_calls, list):
-        calls: list[dict[str, Any]] = []
-        for i, tc in enumerate(raw_calls):
-            if not isinstance(tc, dict):
-                continue
-            name = tc.get("name")
-            if not isinstance(name, str) or name not in allowed_tools:
-                continue
-            calls.append(
-                {
-                    "id": f"call_{i}",
-                    "function": {
-                        "name": name,
-                        "arguments": json.dumps(tc.get("arguments") or {}),
-                    },
-                }
-            )
-        if calls:
-            return _StructuredResponse(
-                content=parsed_content if parsed_content is not None else None,
-                tool_calls=calls,
-            )
-        # tool_calls present but all filtered out: fall through to content.
-        return _StructuredResponse(
-            content=parsed_content if parsed_content is not None else text
-        )
-    return _StructuredResponse(content=parsed_content if parsed_content is not None else text)
-
-
-def _codex_exec_args(model: str) -> list[str]:
-    """The ``codex exec`` argv. Verbatim port of TS ``runCodexExec``'s ``args``.
-
-    The prompt is piped via stdin (the trailing ``"-"``), so no temp file or shell
-    escaping is needed — Python feeds it through the subprocess stdin pipe."""
-    return [
-        "exec",
-        "--json",
-        "--ephemeral",
-        "--skip-git-repo-check",
-        "--ignore-rules",
-        "-c",
-        f'model="{model}"',
-        "-c",
-        'model_reasoning_effort="low"',
-        "-c",
-        'sandbox="read-only"',
-        "-",
-    ]
-
-
-async def _run_codex_exec(prompt: str, model: str, signal: asyncio.Event | None) -> str:
-    """Run ``codex exec`` once, feeding ``prompt`` on stdin, return stdout (JSONL).
-
-    Faithful port of TS ``runCodexExec``: aborts (SIGTERM) when the signal fires
-    or is already set; surfaces a ``RuntimeError('codex exec failed: ...')`` when
-    the process errors AND produced no stdout. Uses ``coding_env`` so no secrets
-    leak into the codex subprocess (codex auth is file-based under HOME)."""
-    if signal is not None and signal.is_set():
-        raise asyncio.CancelledError("codex exec aborted before start")
-
-    proc = await asyncio.create_subprocess_exec(
-        "codex",
-        *_codex_exec_args(model),
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=coding_env(["CODEX_HOME", "OPENAI_API_KEY"]),
-    )
-
-    comm = asyncio.ensure_future(proc.communicate(prompt.encode()))
-    waiters: set[asyncio.Future[Any]] = {comm}
-    signal_task: asyncio.Future[Any] | None = None
-    if signal is not None:
-        signal_task = asyncio.ensure_future(signal.wait())
-        waiters.add(signal_task)
-
-    try:
-        done, _ = await asyncio.wait(
-            waiters, timeout=EXEC_TIMEOUT_S, return_when=asyncio.FIRST_COMPLETED
-        )
-        if signal_task is not None and signal_task in done:
-            _terminate(proc)
-            comm.cancel()
-            raise asyncio.CancelledError("codex exec aborted")
-        if comm not in done:
-            # Timeout: kill and fail like the TS adapter's exec timeout.
-            _terminate(proc)
-            comm.cancel()
-            raise RuntimeError(f"codex exec failed: timed out after {EXEC_TIMEOUT_S}s")
-
-        stdout_b, stderr_b = comm.result()
-        stdout = stdout_b.decode() if stdout_b else ""
-        if proc.returncode not in (0, None) and not stdout:
-            stderr = stderr_b.decode() if stderr_b else f"exit code {proc.returncode}"
-            raise RuntimeError(f"codex exec failed: {stderr}")
-        return stdout
-    finally:
-        if signal_task is not None:
-            signal_task.cancel()
 
 
 def _terminate(proc: Any) -> None:
     with contextlib.suppress(ProcessLookupError):  # process already gone
         proc.terminate()
-
-
-def create_codex_exec_client(*, model: str = DEFAULT_CODEX_MODEL) -> LLMClient:
-    """Create an :class:`LLMClient` backed by ``codex exec`` (the one-shot path).
-
-    Verbatim port of TS ``createCodexClient``. Plugs into
-    :data:`simple_harmonic.llm.candidates.codex_client_factory`."""
-
-    async def create(
-        params: dict[str, Any], options: CompletionOptions | None = None
-    ) -> LLMResponse:
-        messages = params.get("messages") or []
-        tools = params.get("tools")
-        request_model = str(params.get("model") or model)
-        signal = options.signal if options is not None else None
-
-        prompt = _build_codex_prompt(messages, tools)
-        output = await _run_codex_exec(prompt, request_model, signal)
-        text = _parse_codex_output(output)
-
-        if not text:
-            return LLMResponse(
-                choices=[
-                    Choice(
-                        message=ChoiceMessage(content="No response from agent.", tool_calls=None),
-                        finish_reason="stop",
-                    )
-                ]
-            )
-
-        if tools:
-            allowed = {t.get("function", {}).get("name") for t in tools}
-            allowed.discard(None)
-            parsed = _parse_structured_response(text, allowed)
-            tool_calls = (
-                [
-                    ToolCall(
-                        id=c["id"],
-                        function=ToolCallFunction(
-                            name=c["function"]["name"],
-                            arguments=c["function"]["arguments"],
-                        ),
-                    )
-                    for c in parsed.tool_calls
-                ]
-                if parsed.tool_calls
-                else None
-            )
-            return LLMResponse(
-                choices=[
-                    Choice(
-                        message=ChoiceMessage(content=parsed.content, tool_calls=tool_calls),
-                        finish_reason="tool_calls" if parsed.tool_calls else "stop",
-                    )
-                ]
-            )
-
-        return LLMResponse(
-            choices=[
-                Choice(
-                    message=ChoiceMessage(content=text, tool_calls=None),
-                    finish_reason="stop",
-                )
-            ]
-        )
-
-    return make_client(create)
 
 
 # ===========================================================================
@@ -1311,24 +953,152 @@ def reset_shared_codex_client_for_tests() -> None:
 
 
 # ===========================================================================
-# Runtime selector + cascade factory (wired into candidates.codex_client_factory)
+# App-server as a cascade LLMClient (one turn per `create` call)
 # ===========================================================================
 
 
-def codex_runtime() -> str:
-    """The active codex runtime: ``"exec"`` if ``SH_CODEX_RUNTIME=exec``, else
-    ``"app-server"`` (engine mode). Mirrors the TS tick-route gate."""
-    return "exec" if os.environ.get("SH_CODEX_RUNTIME") == "exec" else "app-server"
+def _format_codex_messages(messages: list[dict[str, Any]]) -> tuple[str, str]:
+    """Split OpenAI-style messages into (developer_instructions, turn_input).
 
-
-def create_codex_client(model: str = DEFAULT_CODEX_MODEL) -> LLMClient:
-    """The codex cascade candidate's :class:`LLMClient`.
-
-    This is what :data:`simple_harmonic.llm.candidates.codex_client_factory` is
-    pointed at: the exec one-shot adapter (text-in/text-out per round, with the SH
-    runner owning the loop). Engine mode does NOT flow through the cascade — the
-    tick route calls :func:`run_codex_agent_tick` directly when the runtime is
-    app-server — so the cascade candidate is always the exec client regardless of
-    ``SH_CODEX_RUNTIME``.
+    System messages become the thread's developerInstructions; user/assistant/tool
+    messages become the turn input (the conversation, replayed as text). Tools
+    travel structurally in dynamicTools — never in this text.
     """
-    return create_codex_exec_client(model=model)
+    system_parts: list[str] = []
+    convo_parts: list[str] = []
+    for m in messages:
+        role = m.get("role")
+        content = str(m.get("content") or "")
+        if role == "system":
+            system_parts.append(content)
+        elif role == "user":
+            convo_parts.append(f"[User]\n{content}")
+        elif role == "assistant":
+            convo_parts.append(f"[Assistant]\n{content}")
+        elif role == "tool":
+            convo_parts.append(f"[Tool Result]\n{content}")
+    return "\n\n".join(system_parts), "\n\n".join(convo_parts)
+
+
+def _tools_to_dynamic_specs(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """OpenAI function-tool defs -> codex DynamicToolSpec (name/description/inputSchema)."""
+    specs: list[dict[str, Any]] = []
+    for t in tools or []:
+        fn = t.get("function") or {}
+        specs.append(
+            {
+                "name": fn.get("name"),
+                "description": fn.get("description") or "",
+                "inputSchema": fn.get("parameters") or {"type": "object", "properties": {}},
+            }
+        )
+    return specs
+
+
+def create_codex_app_server_client(model: str = DEFAULT_CODEX_MODEL) -> LLMClient:
+    """Adapt the codex app-server engine to the cascade :class:`LLMClient` contract.
+
+    Each ``create(params, options)`` call runs ONE app-server turn: system messages
+    become developerInstructions, the rest become the turn input, and ``tools``
+    become structured ``dynamicTools``. The turn returns either the model's text or
+    the FIRST tool call it makes — which is parked (replied to + the turn
+    interrupted) and surfaced as ``tool_calls`` so the SH runner/cascade drives the
+    loop, exactly like a normal function-calling model. Stateless per call: the
+    conversation lives in ``params.messages`` and is replayed each turn (the codex
+    thread is not carried across calls — the LLMClient contract has no session id).
+    """
+
+    async def create(
+        params: dict[str, Any], options: CompletionOptions | None = None
+    ) -> LLMResponse:
+        from simple_harmonic.meta_agent.types import PendingToolCall  # lazy: import cycle
+
+        messages = params.get("messages") or []
+        tools = params.get("tools")
+        request_model = str(params.get("model") or model)
+        signal = options.signal if options is not None else None
+
+        developer_instructions, turn_input = _format_codex_messages(messages)
+        dynamic_tools = _tools_to_dynamic_specs(tools)
+
+        client = await _get_shared_codex_client()
+        started = await client.request(
+            "thread/start",
+            {
+                "model": request_model,
+                "cwd": os.getcwd(),
+                "ephemeral": True,
+                "sandbox": "read-only",
+                "approvalPolicy": "never",
+                "developerInstructions": developer_instructions,
+                "dynamicTools": dynamic_tools,
+            },
+        )
+        thread = started.get("thread") if isinstance(started, dict) else None
+        thread_id = (thread or {}).get("id") or (
+            started.get("threadId") if isinstance(started, dict) else None
+        )
+        if not thread_id:
+            raise RuntimeError("codex app-server thread/start returned no thread id")
+
+        captured: dict[str, _IncomingToolCall | None] = {"call": None}
+
+        async def handle_tool_call(call: _IncomingToolCall) -> dict[str, Any]:
+            # Surface the first tool call to the caller instead of executing it:
+            # park (so _run_turn replies + interrupts the turn).
+            captured["call"] = call
+            return {
+                "park": PendingToolCall(
+                    id=call.callId, name=call.tool, arguments=json.dumps(call.arguments or {})
+                )
+            }
+
+        usage = {"inputTokens": 0, "outputTokens": 0}
+        outcome = await _run_turn(
+            client=client,
+            thread_id=str(thread_id),
+            input_text=turn_input,
+            model=request_model,
+            signal=signal,
+            emit=lambda _event, _payload: None,
+            usage=usage,
+            handle_tool_call=handle_tool_call,
+        )
+
+        usage_block = Usage(input_tokens=usage["inputTokens"], output_tokens=usage["outputTokens"])
+        call = captured["call"]
+        if call is not None:
+            return LLMResponse(
+                choices=[
+                    Choice(
+                        message=ChoiceMessage(
+                            content=None,
+                            tool_calls=[
+                                ToolCall(
+                                    id=call.callId,
+                                    function=ToolCallFunction(
+                                        name=call.tool, arguments=json.dumps(call.arguments or {})
+                                    ),
+                                )
+                            ],
+                        ),
+                        finish_reason="tool_calls",
+                    )
+                ],
+                model=request_model,
+                usage=usage_block,
+            )
+        return LLMResponse(
+            choices=[
+                Choice(
+                    message=ChoiceMessage(content=outcome.finalText or "", tool_calls=None),
+                    finish_reason="stop",
+                )
+            ],
+            model=request_model,
+            usage=usage_block,
+        )
+
+    return make_client(create)
+
+

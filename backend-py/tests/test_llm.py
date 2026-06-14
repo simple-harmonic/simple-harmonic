@@ -285,6 +285,9 @@ def _cfg(*, openaiApiKey: str, openaiBaseUrl: str, model: str) -> AppConfig:
 def test_orders_codex_anthropic_openrouter_skips_openai_under_codex(
     resolver_env: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Codex (app-server wrapped as an LLMClient) is the top cascade candidate under
+    # the codex source; the direct OpenAI key is skipped (openaiApiKey is the
+    # ChatGPT token there, not a platform key).
     resolver_env["source"] = "codex"
     resolver_env["config"] = _cfg(openaiApiKey="chatgpt-token", openaiBaseUrl="", model="")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")

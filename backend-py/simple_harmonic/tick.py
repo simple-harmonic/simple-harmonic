@@ -304,9 +304,8 @@ async def run_tick(now: datetime | None = None) -> dict[str, Any]:
     total_ran = 0
     a2ax = get_a2ax()
     timeout_ms = _agent_timeout_ms()
-    use_codex_harness = (
-        get_api_key_source() == "codex" and os.environ.get("SH_CODEX_RUNTIME") != "exec"
-    )
+    # Codex is engine-mode only: when the source is codex, drive run_codex_agent_tick.
+    use_codex_harness = get_api_key_source() == "codex"
 
     # LLM cascade: resolved LAZILY, at most once per tick, the first time an
     # agent actually runs (TS resolves at the top of POST, but the JS OpenAI SDK

@@ -3,24 +3,24 @@
 TS source: packages/backend/src/server/llm.ts
 
 Precedence (highest first):
-  1. Codex CLI subscription (when the api-key source is "codex")
+  1. Codex (when the api-key source is "codex") — ``codex app-server`` wrapped as
+     an LLMClient (one turn per call); the agent tick still drives codex via
+     engine mode (``run_codex_agent_tick``) directly. This candidate serves the
+     other cascade callers: chat, planner, test-llm.
   2. Anthropic (ANTHROPIC_API_KEY)
   3. OpenRouter (OPENROUTER_API_KEY) — one cascade step per configured model
   4. OpenAI platform key (config file or OPENAI_API_KEY)
 
-Each step is gated by which providers are configured (env / config file / the
-codex token surfaced through slice-4 ``config``). With nothing configured it
+Each step is gated by which providers are configured. With nothing configured it
 falls back to a key-less OpenAI candidate, which surfaces a clear auth error on
 first call rather than failing at resolve time.
 
 SHARED SEAM (slice 7): the concrete client builders are pluggable module hooks
 (:data:`anthropic_client_factory`, :data:`codex_client_factory`,
-:data:`openai_client_factory`) — exactly the pattern slice-4 ``config`` uses for
-``codex_access_token``. They default to the adapters in
-:mod:`simple_harmonic.llm.adapters`; slice 7 points the codex hook at its
-meta-agent ``createCodexClient`` and may point the anthropic hook at its richer
-adapter. Tests override these hooks with fake clients so resolution never
-touches the network.
+:data:`openai_client_factory`). They default to the adapters in
+:mod:`simple_harmonic.llm.adapters` (codex's default raises until slice 7 wires it
+to the app-server adapter). Tests override these hooks with fake clients so
+resolution never touches the network.
 """
 
 from __future__ import annotations
@@ -50,13 +50,14 @@ DEFAULT_TIMEOUT_S = 120.0
 
 # --- Pluggable client builders (the slice-7 seam) --------------------------
 
-# Slice 7 sets this to the meta-agent codex adapter (createCodexClient). The
-# default raises if reached, because reaching it means the api-key source is
-# "codex" yet no codex adapter is wired — a wiring bug, not a runtime fallback.
+
+# Slice 7 wires this to the meta-agent app-server adapter
+# (create_codex_app_server_client). The default raises if reached: that means the
+# source is "codex" yet no codex adapter is wired — a wiring bug, not a fallback.
 def _default_codex_factory(model: str) -> LLMClient:  # pragma: no cover - replaced by slice 7
     raise RuntimeError(
         "No codex client factory configured. Slice 7 wires "
-        "candidates.codex_client_factory to the meta-agent codex adapter."
+        "candidates.codex_client_factory to the meta-agent app-server adapter."
     )
 
 
@@ -85,6 +86,8 @@ def resolve_llm_candidates(opts: ResolveOptions | None = None) -> list[LLMCandid
     candidates: list[LLMCandidate] = []
 
     if source == "codex":
+        # Codex via app-server, wrapped as an LLMClient. The agent tick still uses
+        # engine mode directly; this candidate serves chat / planner / test-llm.
         model = cfg.model or DEFAULT_CODEX_MODEL
         candidates.append(
             LLMCandidate(provider="codex", model=model, llm=codex_client_factory(model))

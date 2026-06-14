@@ -12,8 +12,10 @@ LLM adapters (slice 7): the Anthropic + Codex provider adapters live in
 :mod:`simple_harmonic.meta_agent.anthropic_adapter` and
 :mod:`simple_harmonic.meta_agent.codex_adapter`. Importing this package wires them
 into the slice-5 resolver hooks (``candidates.codex_client_factory`` ->
-``create_codex_client``; ``candidates.anthropic_client_factory`` ->
+``create_codex_app_server_client``; ``candidates.anthropic_client_factory`` ->
 ``create_anthropic_client``) via :func:`simple_harmonic.meta_agent.wiring.wire_candidate_factories`.
+The codex hook is the ``codex app-server`` engine adapted to the ``LLMClient``
+contract; the agent tick still drives codex via ``run_codex_agent_tick`` directly.
 
 The pure approval gate (``approve_agent_tick`` / ``approve_agent_action`` from
 lib/meta-agent/approval.ts) lives in :mod:`simple_harmonic.meta_agent.approval`
@@ -47,11 +49,8 @@ from simple_harmonic.meta_agent.codex_adapter import (
     CodexHarnessResult,
     JsonRpcTransport,
     ThreadHandlers,
-    codex_runtime,
-    create_codex_client,
-    create_codex_exec_client,
+    create_codex_app_server_client,
     default_server_request_result,
-    extract_json_object,
     run_codex_agent_tick,
 )
 from simple_harmonic.meta_agent.contract import (
@@ -157,12 +156,9 @@ __all__ = [
     "approve_agent_tick",
     "build_system_prompt",
     "build_tick_prompt",
-    "codex_runtime",
     "create_anthropic_client",
-    "create_codex_client",
-    "create_codex_exec_client",
+    "create_codex_app_server_client",
     "default_server_request_result",
-    "extract_json_object",
     "is_codex_thread_suspension",
     "planner_stream",
     "run_agent",

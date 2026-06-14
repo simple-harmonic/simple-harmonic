@@ -26,10 +26,7 @@ from simple_harmonic.meta_agent.codex_adapter import (
     CodexAppServerError,
     JsonRpcTransport,
     ThreadHandlers,
-    create_codex_client,
-    create_codex_exec_client,
     default_server_request_result,
-    extract_json_object,
     run_codex_agent_tick,
 )
 from simple_harmonic.meta_agent.types import (
@@ -43,290 +40,6 @@ from simple_harmonic.meta_agent.types import (
 from simple_harmonic.tools.types import PeerAgent, ToolExecResult, ToolResult
 
 # asyncio_mode = "auto" (pyproject) runs ``async def`` tests without a marker.
-
-
-# ===========================================================================
-# Exec one-shot path
-# ===========================================================================
-
-
-@dataclass
-class _FakeProc:
-    """A stand-in for an asyncio subprocess. Records the stdin payload it was
-    fed via ``communicate`` and returns scripted stdout/stderr + returncode."""
-
-    stdout_text: str = ""
-    stderr_text: str = ""
-    returncode: int | None = 0
-    fed_stdin: bytes | None = None
-    terminated: bool = False
-
-    async def communicate(self, payload: bytes | None = None) -> tuple[bytes, bytes]:
-        self.fed_stdin = payload
-        return (self.stdout_text.encode(), self.stderr_text.encode())
-
-    def terminate(self) -> None:
-        self.terminated = True
-
-
-def _patch_exec(
-    monkeypatch: pytest.MonkeyPatch, proc: _FakeProc
-) -> dict[str, Any]:
-    """Patch ``asyncio.create_subprocess_exec`` to return ``proc``; capture argv/env."""
-    captured: dict[str, Any] = {}
-
-    async def fake_exec(*args: Any, **kwargs: Any) -> _FakeProc:
-        captured["args"] = args
-        captured["env"] = kwargs.get("env")
-        return proc
-
-    monkeypatch.setattr(ca.asyncio, "create_subprocess_exec", fake_exec)
-    return captured
-
-
-def _agent_message(text: str) -> str:
-    return json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": text}})
-
-
-async def test_create_codex_client_is_llm_client_shaped() -> None:
-    client = create_codex_client("gpt-5.5")
-    assert client.chat is not None
-    assert client.chat.completions is not None
-    assert callable(client.chat.completions.create)
-
-
-async def test_returns_text_response_for_plain_text(monkeypatch: pytest.MonkeyPatch) -> None:
-    proc = _FakeProc(stdout_text=_agent_message("Hello from codex"))
-    _patch_exec(monkeypatch, proc)
-
-    client = create_codex_exec_client()
-    res = await client.chat.completions.create(
-        {
-            "model": "gpt-5.5",
-            "messages": [
-                {"role": "system", "content": "Be helpful"},
-                {"role": "user", "content": "Hi"},
-            ],
-        }
-    )
-
-    assert len(res.choices) == 1
-    assert res.choices[0].message.content == "Hello from codex"
-    assert res.choices[0].finish_reason == "stop"
-    # The prompt was piped via stdin (the trailing "-" argv entry).
-    assert proc.fed_stdin is not None and b"Be helpful" in proc.fed_stdin
-
-
-async def test_returns_no_response_when_output_empty(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_exec(monkeypatch, _FakeProc(stdout_text=""))
-    client = create_codex_exec_client()
-    res = await client.chat.completions.create(
-        {"model": "gpt-5.5", "messages": [{"role": "user", "content": "Hi"}]}
-    )
-    assert res.choices[0].message.content == "No response from agent."
-
-
-async def test_parses_tool_calls_from_structured_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    inner = json.dumps(
-        {
-            "content": None,
-            "tool_calls": [
-                {"name": "report_action", "arguments": {"action_type": "test", "summary": "done"}}
-            ],
-        }
-    )
-    _patch_exec(monkeypatch, _FakeProc(stdout_text=_agent_message(inner)))
-
-    client = create_codex_exec_client()
-    res = await client.chat.completions.create(
-        {
-            "model": "gpt-5.5",
-            "messages": [{"role": "user", "content": "Do something"}],
-            "tools": [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": "report_action",
-                        "description": "Report an action",
-                        "parameters": {"type": "object", "properties": {}},
-                    },
-                }
-            ],
-        }
-    )
-
-    tool_calls = res.choices[0].message.tool_calls
-    assert tool_calls is not None and len(tool_calls) == 1
-    assert tool_calls[0].function.name == "report_action"
-    assert json.loads(tool_calls[0].function.arguments) == {
-        "action_type": "test",
-        "summary": "done",
-    }
-    assert res.choices[0].finish_reason == "tool_calls"
-
-
-async def test_handles_exec_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Non-zero exit code AND no stdout -> RuntimeError("codex exec failed: ...").
-    _patch_exec(monkeypatch, _FakeProc(stdout_text="", stderr_text="codex not found", returncode=1))
-    client = create_codex_exec_client()
-    with pytest.raises(RuntimeError, match="codex exec failed"):
-        await client.chat.completions.create(
-            {"model": "gpt-5.5", "messages": [{"role": "user", "content": "Hi"}]}
-        )
-
-
-async def test_handles_markdown_fenced_response(monkeypatch: pytest.MonkeyPatch) -> None:
-    text = '```json\n{"content": "fenced response"}\n```'
-    _patch_exec(monkeypatch, _FakeProc(stdout_text=_agent_message(text)))
-    client = create_codex_exec_client()
-    res = await client.chat.completions.create(
-        {
-            "model": "gpt-5.5",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "tools": [{"type": "function", "function": {"name": "test", "parameters": {}}}],
-        }
-    )
-    assert res.choices[0].message.content == "fenced response"
-
-
-async def test_non_json_text_is_plain_content_when_tools_provided(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _patch_exec(monkeypatch, _FakeProc(stdout_text=_agent_message("Just plain text, not JSON")))
-    client = create_codex_exec_client()
-    res = await client.chat.completions.create(
-        {
-            "model": "gpt-5.5",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "tools": [{"type": "function", "function": {"name": "test", "parameters": {}}}],
-        }
-    )
-    assert res.choices[0].message.content == "Just plain text, not JSON"
-    assert res.choices[0].message.tool_calls is None
-
-
-async def test_last_agent_message_wins_despite_error_event(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    jsonl = "\n".join(
-        [
-            json.dumps({"type": "error", "error": {"message": "Rate limit exceeded"}}),
-            _agent_message("Recovered response"),
-        ]
-    )
-    _patch_exec(monkeypatch, _FakeProc(stdout_text=jsonl))
-    client = create_codex_exec_client()
-    res = await client.chat.completions.create(
-        {"model": "gpt-5.5", "messages": [{"role": "user", "content": "Hi"}]}
-    )
-    assert res.choices[0].message.content == "Recovered response"
-
-
-async def test_skips_non_json_and_non_agent_message_lines(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    jsonl = "\n".join(
-        [
-            "not json",
-            "",
-            json.dumps(
-                {"type": "item.completed", "item": {"type": "shell_command", "command": "ls"}}
-            ),
-            _agent_message("valid"),
-        ]
-    )
-    _patch_exec(monkeypatch, _FakeProc(stdout_text=jsonl))
-    client = create_codex_exec_client()
-    res = await client.chat.completions.create(
-        {"model": "gpt-5.5", "messages": [{"role": "user", "content": "Hi"}]}
-    )
-    assert res.choices[0].message.content == "valid"
-
-
-async def test_json_content_no_tool_calls(monkeypatch: pytest.MonkeyPatch) -> None:
-    inner = json.dumps({"content": "Structured text, no tools"})
-    _patch_exec(monkeypatch, _FakeProc(stdout_text=_agent_message(inner)))
-    client = create_codex_exec_client()
-    res = await client.chat.completions.create(
-        {
-            "model": "gpt-5.5",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "tools": [{"type": "function", "function": {"name": "test", "parameters": {}}}],
-        }
-    )
-    assert res.choices[0].message.content == "Structured text, no tools"
-    assert res.choices[0].message.tool_calls is None
-    assert res.choices[0].finish_reason == "stop"
-
-
-async def test_hallucinated_tool_name_is_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
-    inner = json.dumps(
-        {"content": "fallback", "tool_calls": [{"name": "not_offered", "arguments": {}}]}
-    )
-    _patch_exec(monkeypatch, _FakeProc(stdout_text=_agent_message(inner)))
-    client = create_codex_exec_client()
-    res = await client.chat.completions.create(
-        {
-            "model": "gpt-5.5",
-            "messages": [{"role": "user", "content": "Hi"}],
-            "tools": [
-                {"type": "function", "function": {"name": "report_action", "parameters": {}}}
-            ],
-        }
-    )
-    # All calls filtered out -> falls through to content, no tool_calls.
-    assert res.choices[0].message.content == "fallback"
-    assert res.choices[0].message.tool_calls is None
-
-
-async def test_exec_argv_carries_model_and_pipes_via_stdin(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    proc = _FakeProc(stdout_text=_agent_message("ok"))
-    captured = _patch_exec(monkeypatch, proc)
-    client = create_codex_exec_client()
-    await client.chat.completions.create(
-        {"model": "gpt-5.5", "messages": [{"role": "user", "content": "Hi"}]}
-    )
-    # ("codex", "exec", "--json", ..., '-c', 'model="gpt-5.5"', ..., "-")
-    args = captured["args"]
-    assert args[0] == "codex"
-    assert 'model="gpt-5.5"' in args
-    assert args[-1] == "-"
-    # coding_env must not leak arbitrary secrets (only CODEX_HOME/OPENAI_API_KEY allowed).
-    env = captured["env"]
-    assert "ANTHROPIC_API_KEY" not in env
-    assert "GITHUB_TOKEN" not in env
-
-
-async def test_exec_aborts_when_signal_already_set(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Signal set before the call -> CancelledError, subprocess never spawned.
-    spawned = {"count": 0}
-
-    async def fake_exec(*args: Any, **kwargs: Any) -> _FakeProc:
-        spawned["count"] += 1
-        return _FakeProc(stdout_text=_agent_message("nope"))
-
-    monkeypatch.setattr(ca.asyncio, "create_subprocess_exec", fake_exec)
-
-    from simple_harmonic.llm.client import CompletionOptions
-
-    signal = asyncio.Event()
-    signal.set()
-    client = create_codex_exec_client()
-    with pytest.raises(asyncio.CancelledError):
-        await client.chat.completions.create(
-            {"model": "gpt-5.5", "messages": [{"role": "user", "content": "Hi"}]},
-            CompletionOptions(signal=signal),
-        )
-    assert spawned["count"] == 0
-
-
-def test_extract_json_object_brace_scans_past_prose() -> None:
-    assert extract_json_object('prose {"a": 1} trailing') == '{"a": 1}'
-    assert extract_json_object('text {"a": "}"} more') == '{"a": "}"}'  # brace inside string
-    assert extract_json_object("no object here") is None
-
 
 # ===========================================================================
 # App-server JSON-RPC client
@@ -911,3 +624,102 @@ def __pending(id_: str, name: str, arguments: str) -> Any:
 
 # Silence unused-import lints for fixtures referenced only via dataclass fields.
 _ = (PeerAgent, field)
+
+
+# ===========================================================================
+# App-server as a cascade LLMClient (create_codex_app_server_client)
+# ===========================================================================
+
+
+class _FakeAppServerClient:
+    """Records the thread/start params; returns a fixed thread id."""
+
+    def __init__(self) -> None:
+        self.thread_start_params: dict[str, Any] | None = None
+
+    async def request(self, method: str, params: dict[str, Any], **_kw: Any) -> Any:
+        assert method == "thread/start"
+        self.thread_start_params = params
+        return {"thread": {"id": "thr_x"}}
+
+
+def _patch_shared_client(monkeypatch: pytest.MonkeyPatch, client: _FakeAppServerClient) -> None:
+    async def _fake_get_shared() -> _FakeAppServerClient:
+        return client
+
+    monkeypatch.setattr(ca, "_get_shared_codex_client", _fake_get_shared)
+
+
+async def test_app_server_client_returns_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeAppServerClient()
+    _patch_shared_client(monkeypatch, fake)
+
+    async def fake_run_turn(**_kwargs: Any) -> Any:
+        return ca._TurnOutcome(status="completed", finalText="Hello from codex")
+
+    monkeypatch.setattr(ca, "_run_turn", fake_run_turn)
+
+    client = ca.create_codex_app_server_client("gpt-5.5")
+    res = await client.chat.completions.create(
+        {
+            "model": "gpt-5.5",
+            "messages": [
+                {"role": "system", "content": "Be Scout."},
+                {"role": "user", "content": "Hi"},
+            ],
+        }
+    )
+
+    assert res.choices[0].message.content == "Hello from codex"
+    assert res.choices[0].message.tool_calls is None
+    assert res.choices[0].finish_reason == "stop"
+    # system message -> developerInstructions; no tools -> empty dynamicTools.
+    assert fake.thread_start_params["developerInstructions"] == "Be Scout."
+    assert fake.thread_start_params["dynamicTools"] == []
+
+
+async def test_app_server_client_surfaces_first_tool_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = _FakeAppServerClient()
+    _patch_shared_client(monkeypatch, fake)
+
+    async def fake_run_turn(**kwargs: Any) -> Any:
+        # Simulate codex calling the tool: drive the wrapper's handler, which parks.
+        handle = kwargs["handle_tool_call"]
+        result = await handle(
+            ca._IncomingToolCall(
+                callId="c1",
+                tool="report_action",
+                arguments={"action_type": "review", "summary": "did it"},
+            )
+        )
+        assert "park" in result
+        return ca._TurnOutcome(status="interrupted", finalText="")
+
+    monkeypatch.setattr(ca, "_run_turn", fake_run_turn)
+
+    client = ca.create_codex_app_server_client()
+    res = await client.chat.completions.create(
+        {
+            "model": "gpt-5.5",
+            "messages": [{"role": "user", "content": "Log the review."}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "report_action",
+                        "description": "Record what the agent did.",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ],
+        }
+    )
+
+    tcs = res.choices[0].message.tool_calls
+    assert tcs is not None and len(tcs) == 1
+    assert tcs[0].id == "c1"
+    assert tcs[0].function.name == "report_action"
+    assert json.loads(tcs[0].function.arguments) == {"action_type": "review", "summary": "did it"}
+    assert res.choices[0].finish_reason == "tool_calls"
+    # The tool travels as a structured dynamicTool, never in the prompt text.
+    assert [t["name"] for t in fake.thread_start_params["dynamicTools"]] == ["report_action"]
