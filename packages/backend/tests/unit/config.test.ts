@@ -45,7 +45,7 @@ describe("config", () => {
 
       expect(cfg.openaiApiKey).toBe("");
       expect(cfg.openaiBaseUrl).toBe("https://api.openai.com/v1");
-      expect(cfg.model).toBe("o4-mini");
+      expect(cfg.model).toBe("gpt-5.5");
       // Default dataDir resolves to <cwd>/.simple-harmonic/data
       expect(cfg.dataDir).toBe(`${process.cwd()}/.simple-harmonic/data`);
     });
@@ -96,7 +96,7 @@ describe("config", () => {
       const cfg = getConfig();
 
       // Should fall back to defaults
-      expect(cfg.model).toBe("o4-mini");
+      expect(cfg.model).toBe("gpt-5.5");
     });
 
     it("config file takes precedence over env vars", async () => {
