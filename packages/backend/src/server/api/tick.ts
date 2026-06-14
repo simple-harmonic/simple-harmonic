@@ -157,11 +157,10 @@ export async function POST(req: Request) {
   });
 
   // Engine mode (codex app-server harness): codex owns the agent loop and
-  // calls SH tools back over RPC. Default for the codex provider; set
-  // SH_CODEX_RUNTIME=exec to fall back to the legacy per-round exec adapter.
-  // The exec-adapter cascade step is still constructed either way: it serves
-  // legacy (message-based) suspensions parked before a deploy.
-  const useCodexHarness = apiKeySource === "codex" && process.env.SH_CODEX_RUNTIME !== "exec";
+  // calls SH tools back over RPC. Codex is engine-mode only — when the source
+  // is codex, every fresh run drives runCodexAgentTick. The cascade still
+  // carries an app-server-backed codex candidate for chat / planner / test-llm.
+  const useCodexHarness = apiKeySource === "codex";
 
   const timeoutMs = agentTimeoutMs();
 
@@ -530,7 +529,8 @@ async function tryResumeAgent(args: RunArgs): Promise<boolean> {
       result = r;
       usage = { model: modelOverride ?? "gpt-5.5", ...r.usage };
     } else {
-      // Legacy message-based park (pre-harness, or SH_CODEX_RUNTIME=exec).
+      // Message-based park: the runner-based path (non-codex providers, or a
+      // legacy suspension parked before the codex engine-mode cutover).
       const counting = makeCountingLLM(llm, modelOverride ?? "unknown");
       result = await withTimeout(
         (signal) =>

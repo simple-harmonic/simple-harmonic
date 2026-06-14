@@ -16,9 +16,9 @@ vi.mock("../../src/lib/meta-agent/anthropic-adapter", () => ({
   createAnthropicClient: (...args: unknown[]) => mockCreateAnthropicClient(...args),
 }));
 
-const mockCreateCodexClient = vi.fn();
-vi.mock("../../src/lib/meta-agent/codex-adapter", () => ({
-  createCodexClient: (...args: unknown[]) => mockCreateCodexClient(...args),
+const mockCreateCodexAppServerClient = vi.fn();
+vi.mock("../../src/lib/meta-agent/codex-harness", () => ({
+  createCodexAppServerClient: (...args: unknown[]) => mockCreateCodexAppServerClient(...args),
 }));
 
 const openaiCtorOpts: Array<Record<string, unknown>> = [];
@@ -78,7 +78,7 @@ beforeEach(() => {
   });
   mockGetApiKeySource.mockReturnValue("none");
   mockCreateAnthropicClient.mockReturnValue(stubClient(vi.fn()));
-  mockCreateCodexClient.mockReturnValue(stubClient(vi.fn()));
+  mockCreateCodexAppServerClient.mockReturnValue(stubClient(vi.fn()));
 });
 
 afterEach(() => {
@@ -215,9 +215,12 @@ describe("resolveLLMCandidates", () => {
 
     const c = resolveLLMCandidates();
 
+    // Codex (app-server wrapped as an LLMClient) is the top cascade candidate
+    // under the codex source; the direct OpenAI key is skipped (openaiApiKey is
+    // the ChatGPT token there, not a platform key).
     expect(c.map((x) => x.provider)).toEqual(["codex", "anthropic", "openrouter"]);
     expect(c[0].model).toBe("gpt-5.5");
-    expect(mockCreateCodexClient).toHaveBeenCalledWith({ model: "gpt-5.5" });
+    expect(mockCreateCodexAppServerClient).toHaveBeenCalledWith({ model: "gpt-5.5" });
   });
 
   it("expands OPENROUTER_MODEL + OPENROUTER_FALLBACK_MODELS into deduped steps", () => {

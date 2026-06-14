@@ -1,8 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CodexAppServerClient, ThreadHandlers } from "@/lib/meta-agent/codex-app-server";
+import * as harness from "@/lib/meta-agent/codex-harness";
 import {
   type CodexHarnessConfig,
   type CodexThreadSuspension,
+  createCodexAppServerClient,
   isCodexThreadSuspension,
   runCodexAgentTick,
 } from "@/lib/meta-agent/codex-harness";
@@ -361,5 +363,120 @@ describe("runCodexAgentTick", () => {
     const result = await runCodexAgentTick(config);
     expect(result.validation).toBeDefined();
     expect(result.validation?.valid).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// App-server as a cascade LLMClient (createCodexAppServerClient)
+//
+// One create() call runs ONE app-server turn. The two engine dependencies
+// (the shared client + the turn pump) are indirected through codexEngineHooks,
+// which we override here — the TS analogue of the Python tests patching
+// ca._get_shared_codex_client / ca._run_turn. Mirrors test_codex_adapter.py's
+// test_app_server_client_returns_text + ..._surfaces_first_tool_call.
+// ---------------------------------------------------------------------------
+
+/** Records thread/start params; returns a fixed thread id. Mirrors the Python
+ *  _FakeAppServerClient. */
+function makeFakeAppServerClient() {
+  const fake = {
+    threadStartParams: undefined as Record<string, unknown> | undefined,
+    request: vi.fn(async (method: string, params: Record<string, unknown>) => {
+      expect(method).toBe("thread/start");
+      fake.threadStartParams = params;
+      return { thread: { id: "thr_x" } };
+    }),
+  };
+  return fake;
+}
+
+describe("createCodexAppServerClient", () => {
+  const realHooks = { ...harness.codexEngineHooks };
+  afterEach(() => {
+    harness.codexEngineHooks.getSharedClient = realHooks.getSharedClient;
+    harness.codexEngineHooks.runTurn = realHooks.runTurn;
+    vi.restoreAllMocks();
+  });
+
+  it("returns the model's text and maps system messages to developerInstructions", async () => {
+    const fake = makeFakeAppServerClient();
+    harness.codexEngineHooks.getSharedClient = (async () =>
+      fake as unknown as CodexAppServerClient) as typeof harness.codexEngineHooks.getSharedClient;
+    harness.codexEngineHooks.runTurn = (async () => ({
+      status: "completed",
+      finalText: "Hello from codex",
+    })) as typeof harness.codexEngineHooks.runTurn;
+
+    const client = createCodexAppServerClient({ model: "gpt-5.5" });
+    const res = await client.chat.completions.create({
+      model: "gpt-5.5",
+      messages: [
+        { role: "system", content: "Be Scout." },
+        { role: "user", content: "Hi" },
+      ],
+    });
+
+    expect(res.choices[0].message.content).toBe("Hello from codex");
+    expect(res.choices[0].message.tool_calls).toBeUndefined();
+    expect(res.choices[0].finish_reason).toBe("stop");
+
+    // System message -> developerInstructions; no tools -> empty dynamicTools.
+    expect(fake.threadStartParams?.developerInstructions).toBe("Be Scout.");
+    expect(fake.threadStartParams?.dynamicTools).toEqual([]);
+    expect(fake.threadStartParams?.ephemeral).toBe(true);
+  });
+
+  it("surfaces the first tool call (parked) as tool_calls with finish_reason tool_calls", async () => {
+    const fake = makeFakeAppServerClient();
+    harness.codexEngineHooks.getSharedClient = (async () =>
+      fake as unknown as CodexAppServerClient) as typeof harness.codexEngineHooks.getSharedClient;
+    // Simulate codex calling the tool: drive the wrapper's handler, which parks.
+    harness.codexEngineHooks.runTurn = (async (args: {
+      handleToolCall: (call: {
+        callId: string;
+        tool: string;
+        arguments: unknown;
+      }) => Promise<{ park: { id: string; name: string; arguments: string } } | { resultText: string }>;
+    }) => {
+      const handled = await args.handleToolCall({
+        callId: "c1",
+        tool: "report_action",
+        arguments: { action_type: "review", summary: "did it" },
+      });
+      expect("park" in handled).toBe(true);
+      return { status: "interrupted", finalText: "" };
+    }) as unknown as typeof harness.codexEngineHooks.runTurn;
+
+    const client = createCodexAppServerClient();
+    const res = await client.chat.completions.create({
+      model: "gpt-5.5",
+      messages: [{ role: "user", content: "Log the review." }],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "report_action",
+            description: "Record what the agent did.",
+            parameters: { type: "object", properties: {} },
+          },
+        },
+      ],
+    });
+
+    const tcs = res.choices[0].message.tool_calls;
+    expect(tcs).toBeDefined();
+    expect(tcs).toHaveLength(1);
+    expect(tcs?.[0].id).toBe("c1");
+    expect(tcs?.[0].function.name).toBe("report_action");
+    expect(JSON.parse(tcs?.[0].function.arguments ?? "{}")).toEqual({
+      action_type: "review",
+      summary: "did it",
+    });
+    expect(res.choices[0].finish_reason).toBe("tool_calls");
+
+    // The tool travels as a structured dynamicTool, never in the prompt text.
+    expect((fake.threadStartParams?.dynamicTools as Array<{ name: string }>).map((t) => t.name)).toEqual([
+      "report_action",
+    ]);
   });
 });

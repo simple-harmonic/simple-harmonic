@@ -19,8 +19,12 @@ vi.mock("@/lib/meta-agent", () => ({
 
 // Engine mode (codex app-server harness). Real discriminator, mocked runner.
 const mockRunCodexAgentTick = vi.fn();
+const mockCreateCodexAppServerClient = vi
+  .fn()
+  .mockReturnValue({ chat: { completions: { create: vi.fn() } } });
 vi.mock("@/lib/meta-agent/codex-harness", () => ({
   runCodexAgentTick: (...args: unknown[]) => mockRunCodexAgentTick(...args),
+  createCodexAppServerClient: (...args: unknown[]) => mockCreateCodexAppServerClient(...args),
   isCodexThreadSuspension: (s: unknown) =>
     typeof s === "object" && s !== null && (s as { kind?: unknown }).kind === "codex-thread",
 }));
@@ -35,13 +39,6 @@ const mockCreateAnthropicClient = vi
   .mockReturnValue({ chat: { completions: { create: vi.fn() } } });
 vi.mock("@/lib/meta-agent/anthropic-adapter", () => ({
   createAnthropicClient: (...args: unknown[]) => mockCreateAnthropicClient(...args),
-}));
-
-const mockCreateCodexClient = vi
-  .fn()
-  .mockReturnValue({ chat: { completions: { create: vi.fn() } } });
-vi.mock("@/lib/meta-agent/codex-adapter", () => ({
-  createCodexClient: (...args: unknown[]) => mockCreateCodexClient(...args),
 }));
 
 vi.mock("openai", () => {
@@ -603,8 +600,9 @@ describe("POST /api/tick — LLM client selection", () => {
 
     await POST(tickReq());
 
-    // The exec-adapter client is still constructed (legacy resume fallback).
-    expect(mockCreateCodexClient).toHaveBeenCalledWith(
+    // The app-server cascade candidate is still constructed (it serves chat /
+    // planner / test-llm; fresh ticks go through the engine-mode harness).
+    expect(mockCreateCodexAppServerClient).toHaveBeenCalledWith(
       expect.objectContaining({ model: "gpt-5.5" }),
     );
     expect(mockCreateAnthropicClient).not.toHaveBeenCalled();
@@ -626,7 +624,7 @@ describe("POST /api/tick — LLM client selection", () => {
     expect(mockCreateAnthropicClient).toHaveBeenCalledWith(
       expect.objectContaining({ apiKey: "sk-ant-test", timeout: 120_000 }),
     );
-    expect(mockCreateCodexClient).not.toHaveBeenCalled();
+    expect(mockCreateCodexAppServerClient).not.toHaveBeenCalled();
   });
 
   it("falls back to OpenAI client when no codex or anthropic key", async () => {
@@ -644,7 +642,7 @@ describe("POST /api/tick — LLM client selection", () => {
 
     await POST(tickReq());
 
-    expect(mockCreateCodexClient).not.toHaveBeenCalled();
+    expect(mockCreateCodexAppServerClient).not.toHaveBeenCalled();
     expect(mockCreateAnthropicClient).not.toHaveBeenCalled();
     // OpenAI path is the fallback — it instantiates new OpenAI() internally.
   });
@@ -785,26 +783,6 @@ describe("POST /api/tick — codex app-server harness", () => {
     // And the action was logged.
     const logs = await actionLog.recentByAgent(agent.id, 10);
     expect(logs[0].actionType).toBe("research");
-  });
-
-  it("SH_CODEX_RUNTIME=exec opts out of the harness", async () => {
-    process.env.SH_CODEX_RUNTIME = "exec";
-    try {
-      const { POST } = await import("@/server/api/tick");
-
-      mockGetApiKeySource.mockReturnValue("codex");
-      const team = await seedTeam();
-      await seedAgent(team.id);
-      mockApproveAgentTick.mockReturnValue({ allowed: true });
-      mockRunAgent.mockResolvedValueOnce({ actionType: "research", payload: {} });
-
-      await POST(tickReq());
-
-      expect(mockRunAgent).toHaveBeenCalledTimes(1);
-      expect(mockRunCodexAgentTick).not.toHaveBeenCalled();
-    } finally {
-      delete process.env.SH_CODEX_RUNTIME;
-    }
   });
 
   it("parks a codex-thread suspension opaquely with the trace tickId riding along", async () => {

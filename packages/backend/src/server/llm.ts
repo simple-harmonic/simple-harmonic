@@ -2,7 +2,10 @@
 // LLM provider resolution. Builds the cascade of every configured provider,
 // in priority order:
 //
-//   1. Codex CLI subscription (when signed in via codex)
+//   1. Codex (when signed in via codex) — `codex app-server` wrapped as an
+//      LLMClient (one turn per call); the agent tick drives codex via engine
+//      mode (runCodexAgentTick) directly. This candidate serves chat / planner /
+//      test-llm.
 //   2. Anthropic (ANTHROPIC_API_KEY)
 //   3. OpenRouter (OPENROUTER_API_KEY) — one cascade step per configured model
 //   4. OpenAI platform key (config file or OPENAI_API_KEY)
@@ -20,7 +23,7 @@ import {
   createCascadeLLM,
   type LLMCandidate,
 } from "../lib/meta-agent/cascade";
-import { createCodexClient } from "../lib/meta-agent/codex-adapter";
+import { createCodexAppServerClient } from "../lib/meta-agent/codex-harness";
 import type { LLMClient } from "../lib/meta-agent/runner";
 import { getApiKeySource, getConfig } from "./config";
 
@@ -44,15 +47,24 @@ export interface ResolveOptions {
  * key-less OpenAI client, which surfaces a clear auth error on first call
  * (the pre-cascade behavior) rather than failing at resolve time.
  */
-export function resolveLLMCandidates(opts: ResolveOptions = {}): LLMCandidate[] {
+export function resolveLLMCandidates(
+  opts: ResolveOptions = {},
+): LLMCandidate[] {
   const cfg = getConfig();
   const source = getApiKeySource();
   const timeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const candidates: LLMCandidate[] = [];
 
   if (source === "codex") {
+    // Codex via app-server, wrapped as an LLMClient (one turn per call). The
+    // agent tick drives codex via engine mode (runCodexAgentTick) directly;
+    // this candidate serves the other cascade callers: chat, planner, test-llm.
     const model = cfg.model || DEFAULT_CODEX_MODEL;
-    candidates.push({ provider: "codex", model, llm: createCodexClient({ model }) });
+    candidates.push({
+      provider: "codex",
+      model,
+      llm: createCodexAppServerClient({ model }),
+    });
   }
 
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
@@ -122,7 +134,9 @@ export interface ResolvedLLM {
 }
 
 /** Resolve all configured providers into a single cascading LLM client. */
-export function resolveLLM(opts: CascadeOptions & ResolveOptions = {}): ResolvedLLM {
+export function resolveLLM(
+  opts: CascadeOptions & ResolveOptions = {},
+): ResolvedLLM {
   const candidates = resolveLLMCandidates(opts);
   return {
     llm: createCascadeLLM(candidates, opts),

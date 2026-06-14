@@ -6,7 +6,8 @@
 // dynamic tool on the codex thread, and when the model picks one, codex
 // sends an `item/tool/call` request back and BLOCKS until we execute it via
 // the tool registry and reply. Contrast with runner.ts, where SH owns the
-// loop and codex (via codex-adapter) is just text-in/text-out per round.
+// loop; the same engine is also exposed to that loop as a cascade LLMClient via
+// createCodexAppServerClient below (one app-server turn per call).
 //
 // The approval gate moves from the loop into the hands:
 //   - safe tool call      → execute inline, reply with the result
@@ -39,6 +40,7 @@ import {
   type AgentPromptConfig,
   buildSystemPrompt,
   buildTickPrompt,
+  type LLMClient,
   type PendingToolCall,
   summarize,
   type ToolDecision,
@@ -47,6 +49,7 @@ import {
 import type { ValidationResult } from "./contract";
 import type { A2AXSender, PeerAgent, ToolResult, ToolRunContext } from "./tools";
 import type { TraceEventType, TraceSink } from "./trace";
+import type { OpenAIToolDef } from "./types";
 
 /** Hard backstop so a wedged turn can't outlive a forgotten abort signal. */
 const TURN_HARD_CAP_MS = 600_000;
@@ -551,6 +554,173 @@ function parseArgs(raw: string): unknown {
   } catch {
     return raw;
   }
+}
+
+// ---------------------------------------------------------------------------
+// App-server as a cascade LLMClient (one turn per `create` call)
+//
+// The same `codex app-server` engine the tick drives, adapted to the cascade
+// LLMClient contract so codex can also serve chat / planner / test-llm. Each
+// create() call runs ONE real turn: system messages become the thread's
+// developerInstructions, the rest become the turn input, and `tools` become
+// structured dynamicTools (never prompt text). The turn returns either the
+// model's text OR the FIRST tool call it makes — which is parked (replied to +
+// the turn interrupted) and surfaced as tool_calls, so the SH runner/cascade
+// drives the loop exactly like a normal function-calling model.
+//
+// Stateless per call: the conversation lives in params.messages and is replayed
+// each turn (the LLMClient contract has no session id, so the codex thread is
+// not carried across calls).
+// ---------------------------------------------------------------------------
+
+interface OpenAIMessage {
+  role: string;
+  content: string | null;
+}
+
+/**
+ * Split OpenAI-style messages into [developerInstructions, turnInput]. System
+ * messages become the thread's developerInstructions; user/assistant/tool
+ * messages become the turn input (the conversation, replayed as text). Tools
+ * travel structurally in dynamicTools — never in this text. Mirrors the Python
+ * `_format_codex_messages`.
+ */
+function formatCodexMessages(messages: OpenAIMessage[]): [string, string] {
+  const systemParts: string[] = [];
+  const convoParts: string[] = [];
+  for (const m of messages) {
+    const content = m.content ?? "";
+    if (m.role === "system") {
+      systemParts.push(content);
+    } else if (m.role === "user") {
+      convoParts.push(`[User]\n${content}`);
+    } else if (m.role === "assistant") {
+      convoParts.push(`[Assistant]\n${content}`);
+    } else if (m.role === "tool") {
+      convoParts.push(`[Tool Result]\n${content}`);
+    }
+  }
+  return [systemParts.join("\n\n"), convoParts.join("\n\n")];
+}
+
+/** OpenAI function-tool defs -> codex DynamicToolSpec (name/description/inputSchema). */
+function toolsToDynamicSpecs(
+  tools: OpenAIToolDef[] | undefined,
+): Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> {
+  return (tools ?? []).map((t) => ({
+    name: t.function.name,
+    description: t.function.description ?? "",
+    inputSchema: t.function.parameters ?? { type: "object", properties: {} },
+  }));
+}
+
+/**
+ * The wrapper's two engine dependencies, indirected through a mutable object so
+ * the cascade adapter can be unit-tested without spawning a real app-server (the
+ * TS analogue of the Python tests patching `ca._get_shared_codex_client` /
+ * `ca._run_turn` as module attributes). Production uses the real engine.
+ */
+export const codexEngineHooks = {
+  getSharedClient: getSharedCodexClient,
+  runTurn,
+};
+
+/**
+ * Adapt the codex app-server engine to the cascade LLMClient contract. Mirrors
+ * the Python `create_codex_app_server_client`.
+ */
+export function createCodexAppServerClient(opts?: { model?: string }): LLMClient {
+  const model = opts?.model || "gpt-5.5";
+
+  return {
+    chat: {
+      completions: {
+        create: async (params: Record<string, unknown>, options?: { signal?: AbortSignal }) => {
+          const messages = (params.messages as OpenAIMessage[] | undefined) ?? [];
+          const tools = params.tools as OpenAIToolDef[] | undefined;
+          const requestModel = (params.model as string) || model;
+
+          const [developerInstructions, turnInput] = formatCodexMessages(messages);
+          const dynamicTools = toolsToDynamicSpecs(tools);
+
+          const client = await codexEngineHooks.getSharedClient();
+          const started = await client.request("thread/start", {
+            model: requestModel,
+            cwd: process.cwd(),
+            ephemeral: true,
+            sandbox: "read-only",
+            approvalPolicy: "never",
+            developerInstructions,
+            dynamicTools,
+          });
+          const thread = started.thread as { id?: string } | undefined;
+          const threadId = thread?.id ?? (started.threadId as string | undefined);
+          if (!threadId) {
+            throw new Error("codex app-server thread/start returned no thread id");
+          }
+
+          let captured: IncomingToolCall | undefined;
+          const usage = { inputTokens: 0, outputTokens: 0 };
+          const outcome = await codexEngineHooks.runTurn({
+            client,
+            threadId,
+            input: turnInput,
+            model: requestModel,
+            signal: options?.signal,
+            emit: () => {},
+            usage,
+            handleToolCall: async (call) => {
+              // Surface the first tool call to the caller instead of executing
+              // it: park (so runTurn replies + interrupts the turn).
+              captured = call;
+              return {
+                park: {
+                  id: call.callId,
+                  name: call.tool,
+                  arguments: JSON.stringify(call.arguments ?? {}),
+                },
+              };
+            },
+          });
+
+          if (captured) {
+            return {
+              choices: [
+                {
+                  message: {
+                    content: null,
+                    tool_calls: [
+                      {
+                        id: captured.callId,
+                        function: {
+                          name: captured.tool,
+                          arguments: JSON.stringify(captured.arguments ?? {}),
+                        },
+                      },
+                    ],
+                  },
+                  finish_reason: "tool_calls",
+                },
+              ],
+              model: requestModel,
+              usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens },
+            };
+          }
+
+          return {
+            choices: [
+              {
+                message: { content: outcome.finalText || "", tool_calls: undefined },
+                finish_reason: "stop",
+              },
+            ],
+            model: requestModel,
+            usage: { input_tokens: usage.inputTokens, output_tokens: usage.outputTokens },
+          };
+        },
+      },
+    },
+  };
 }
 
 /** Discriminate the two suspension shapes parked in agents.conversationState. */
